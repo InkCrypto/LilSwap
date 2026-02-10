@@ -8,7 +8,7 @@ import { useDebounce } from './useDebounce.js';
 
 const AUTO_REFRESH_SECONDS = 30;
 
-export const useParaswapQuote = ({ debtBalance, direction, addLog, onQuoteLoaded, selectedNetwork }) => {
+export const useParaswapQuote = ({ debtBalance, direction, addLog, onQuoteLoaded, selectedNetwork, account }) => {
     const [swapQuote, setSwapQuote] = useState(null);
     const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
     const [nextRefreshIn, setNextRefreshIn] = useState(AUTO_REFRESH_SECONDS);
@@ -33,6 +33,13 @@ export const useParaswapQuote = ({ debtBalance, direction, addLog, onQuoteLoaded
 
     const fetchQuote = useCallback(async () => {
         if (!debouncedDebtBalance || debouncedDebtBalance === BigInt(0)) {
+            setSwapQuote(null);
+            setAutoRefreshEnabled(false);
+            return null;
+        }
+
+        if (!account) {
+            addLog?.('Please connect wallet to get quote', 'warning');
             setSwapQuote(null);
             setAutoRefreshEnabled(false);
             return null;
@@ -68,7 +75,7 @@ export const useParaswapQuote = ({ debtBalance, direction, addLog, onQuoteLoaded
                     symbol: toToken.symbol,
                 },
                 destAmount: destAmount,
-                userAddress: networkAddresses.ADAPTER,
+                userAddress: account, // Use connected wallet address
                 chainId: targetNetwork.chainId,
             });
 
@@ -121,6 +128,7 @@ export const useParaswapQuote = ({ debtBalance, direction, addLog, onQuoteLoaded
         resetRefreshCountdown,
         targetNetwork.chainId,
         networkAddresses,
+        account, // Add account to dependencies
     ]);
 
     // Detect when user is typing (debtBalance changed but debouncedDebtBalance hasn't yet)

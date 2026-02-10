@@ -10,7 +10,25 @@ export const getDebtTokenContract = (tokenAddress, signerOrProvider) =>
 
 export const getTokenDefsByDirection = (direction, addresses = ADDRESSES) => {
     const isWethToUsdc = direction === 'WETH_TO_USDC';
-    const fromToken = isWethToUsdc ? addresses.TOKENS.WETH : addresses.TOKENS.USDC;
-    const toToken = isWethToUsdc ? addresses.TOKENS.USDC : addresses.TOKENS.WETH;
+
+    // Try to get native token (WETH, WBNB, WPOL, etc.)
+    const nativeToken = addresses.TOKENS.WETH
+        || addresses.TOKENS.WBNB
+        || addresses.TOKENS.WPOL
+        || addresses.TOKENS.ETH;
+
+    // Try to get stablecoin (USDC, USDT, DAI, etc.)
+    const stablecoin = addresses.TOKENS.USDC
+        || addresses.TOKENS.USDCn
+        || addresses.TOKENS.USDT
+        || addresses.TOKENS.DAI;
+
+    if (!nativeToken || !stablecoin) {
+        throw new Error('Required tokens not found for this network');
+    }
+
+    const fromToken = isWethToUsdc ? nativeToken : stablecoin;
+    const toToken = isWethToUsdc ? stablecoin : nativeToken;
+
     return { fromToken, toToken };
 };

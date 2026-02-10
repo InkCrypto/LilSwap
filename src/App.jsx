@@ -1,12 +1,15 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { ArrowRightLeft, Wallet, RefreshCw, CheckCircle2, Terminal, AlertTriangle, X, Info } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
 import { DEFAULT_NETWORK } from './constants/networks.js';
+import { ADDRESSES } from './constants/addresses.js';
+import { getTokenDefsByDirection } from './services/aaveContracts.js';
 import { useDebtPositions } from './hooks/useDebtPositions.js';
 import { useParaswapQuote } from './hooks/useParaswapQuote.js';
 import { useDebtSwitchActions } from './hooks/useDebtSwitchActions.js';
 import { AmountInput } from './components/AmountInput.jsx';
+import { NetworkSelector } from './components/NetworkSelector.jsx';
 
 const BaseIcon = ({ className }) => (
   <svg
@@ -47,6 +50,37 @@ const NetworkIcon = ({ network, className = 'w-6 h-6' }) => {
 
   switch (network.key) {
     case 'BASE':
+      return <BaseIcon className={className} />;
+    case 'ETHEREUM':
+      return (
+        <svg viewBox="0 0 784.37 1277.39" xmlns="http://www.w3.org/2000/svg" className={className}>
+          <g fill="#627EEA">
+            <polygon points="392.07,0 383.5,29.11 383.5,873.74 392.07,882.29 784.13,650.54" />
+            <polygon points="392.07,0 0,650.54 392.07,882.29 392.07,472.33" />
+            <polygon points="392.07,956.52 387.24,962.41 387.24,1263.28 392.07,1277.38 784.37,724.89" />
+            <polygon points="392.07,1277.38 392.07,956.52 0,724.89" />
+            <polygon points="392.07,882.29 784.13,650.54 392.07,472.33" opacity="0.6" />
+            <polygon points="0,650.54 392.07,882.29 392.07,472.33" opacity="0.45" />
+          </g>
+        </svg>
+      );
+    case 'POLYGON':
+      return (
+        <svg viewBox="0 0 38.4 33.5" xmlns="http://www.w3.org/2000/svg" className={className}>
+          <g fill="#8247E5">
+            <path d="M29,10.2c-0.7-0.4-1.6-0.4-2.4,0L21,13.5l-3.8,2.1l-5.5,3.3c-0.7,0.4-1.6,0.4-2.4,0L5,16.3c-0.7-0.4-1.2-1.2-1.2-2.1v-5c0-0.8,0.4-1.6,1.2-2.1l4.3-2.5c0.7-0.4,1.6-0.4,2.4,0L16,7.2c0.7,0.4,1.2,1.2,1.2,2.1v3.3l3.8-2.2V7c0-0.8-0.4-1.6-1.2-2.1l-8-4.7c-0.7-0.4-1.6-0.4-2.4,0L1.2,5C0.4,5.4,0,6.2,0,7v9.4c0,0.8,0.4,1.6,1.2,2.1l8.1,4.7c0.7,0.4,1.6,0.4,2.4,0l5.5-3.2l3.8-2.2l5.5-3.2c0.7-0.4,1.6-0.4,2.4,0l4.3,2.5c0.7,0.4,1.2,1.2,1.2,2.1v5c0,0.8-0.4,1.6-1.2,2.1L29,28.8c-0.7,0.4-1.6,0.4-2.4,0l-4.3-2.5c-0.7-0.4-1.2-1.2-1.2-2.1V21l-3.8,2.2v3.3c0,0.8,0.4,1.6,1.2,2.1l8.1,4.7c0.7,0.4,1.6,0.4,2.4,0l8.1-4.7c0.7-0.4,1.2-1.2,1.2-2.1V17c0-0.8-0.4-1.6-1.2-2.1L29,10.2z" />
+          </g>
+        </svg>
+      );
+    case 'BNB':
+      return (
+        <svg viewBox="0 0 2500 2500" xmlns="http://www.w3.org/2000/svg" className={className}>
+          <g fill="#F3BA2F">
+            <path d="M764.48,1050.52,1250,565l485.75,485.73,282.5-282.5L1250,0,482,768l282.49,282.5M0,1250,282.51,967.45,565,1249.94,282.49,1532.45Zm764.48,199.51L1250,1935l485.74-485.72,282.65,282.35-.14.15L1250,2500,482,1732l-.4-.4,282.91-282.12M1935,1250.12l282.51-282.51L2500,1250.1,2217.5,1532.61Z" />
+            <path d="M1536.52,1249.85h.12L1250,963.19,1038.13,1175h0l-24.34,24.35-50.2,50.21-.4.39.4.41L1250,1536.81l286.66-286.66.14-.16-.26-.14" />
+          </g>
+        </svg>
+      );
     default:
       return <BaseIcon className={className} />;
   }
@@ -62,6 +96,8 @@ export default function App() {
   } = useWeb3();
   const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
   const targetChainId = targetNetwork.chainId;
+  const networkAddresses = targetNetwork.addresses || ADDRESSES;
+
   // --- STATES ---
   const [logs, setLogs] = useState([]);
   const [copyButtonState, setCopyButtonState] = useState('idle'); // 'idle' | 'copied'
@@ -88,6 +124,20 @@ export default function App() {
     isDebtLoading,
   } = useDebtPositions({ account, provider, networkRpcProvider, addLog, selectedNetwork });
 
+  // Get current tokens based on direction and network
+  const { fromToken, toToken } = useMemo(() => {
+    try {
+      return getTokenDefsByDirection(direction, networkAddresses);
+    } catch (error) {
+      console.error('Error getting tokens:', error);
+      // Return fallback
+      return {
+        fromToken: { symbol: '???', decimals: 18 },
+        toToken: { symbol: '???', decimals: 18 }
+      };
+    }
+  }, [direction, networkAddresses]);
+
   const {
     swapQuote,
     slippage,
@@ -104,6 +154,7 @@ export default function App() {
     direction,
     addLog,
     selectedNetwork,
+    account, // Pass connected wallet address
   });
 
   const {
@@ -205,22 +256,27 @@ export default function App() {
             </div>
           </div>
 
-          {!account ? (
-            <button
-              onClick={handleConnectWallet}
-              className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-blue-900/20"
-            >
-              <Wallet className="w-4 h-4" /> Connect Wallet
-            </button>
-          ) : (
-            <div className="bg-slate-800 px-4 py-2 rounded-full text-sm font-mono text-green-400 border border-slate-700 flex items-center gap-3 shadow-lg shadow-slate-900/30">
-              <div className="flex items-center gap-2">
-                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                {account.slice(0, 6)}...{account.slice(-4)}
+          <div className="flex items-center gap-4">
+            {/* Network Selector */}
+            <NetworkSelector />
+
+            {!account ? (
+              <button
+                onClick={handleConnectWallet}
+                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-blue-900/20"
+              >
+                <Wallet className="w-4 h-4" /> Connect Wallet
+              </button>
+            ) : (
+              <div className="bg-slate-800 px-4 py-2 rounded-full text-sm font-mono text-green-400 border border-slate-700 flex items-center gap-3 shadow-lg shadow-slate-900/30">
+                <div className="flex items-center gap-2">
+                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  {account.slice(0, 6)}...{account.slice(-4)}
+                </div>
+                <NetworkIcon network={selectedNetwork} className="w-6 h-6" />
               </div>
-              <NetworkIcon network={selectedNetwork} className="w-6 h-6" />
-            </div>
-          )}
+            )}
+          </div>
         </header>
 
         {/* MAIN CARD */}
@@ -307,8 +363,8 @@ export default function App() {
             <div className="mb-8">
               <AmountInput
                 maxAmount={debtBalance}
-                decimals={direction === "WETH_TO_USDC" ? 18 : 6}
-                symbol={direction === "WETH_TO_USDC" ? "WETH" : "USDC"}
+                decimals={fromToken.decimals}
+                symbol={fromToken.symbol}
                 onAmountChange={setSwapAmount}
                 isProcessing={isTyping}
               />
@@ -320,21 +376,21 @@ export default function App() {
             <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
 
             <p className="text-slate-400 text-sm mb-2">
-              {swapAmount < debtBalance ? 'Swapping' : 'Your total debt in'} {direction === "WETH_TO_USDC" ? "WETH" : "USDC"}
+              {swapAmount < debtBalance ? 'Swapping' : 'Your total debt in'} {fromToken.symbol}
             </p>
             <div className="text-5xl font-bold text-white tracking-tight font-mono">
               {isBusy && !swapAmount ? (
                 <span className="animate-pulse">...</span>
               ) : (
-                Number(ethers.formatUnits(swapAmount, direction === "WETH_TO_USDC" ? 18 : 6)).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                Number(ethers.formatUnits(swapAmount, fromToken.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })
               )}
-              <span className="text-xl text-slate-500 ml-2 font-sans">{direction === "WETH_TO_USDC" ? "WETH" : "USDC"}</span>
+              <span className="text-xl text-slate-500 ml-2 font-sans">{fromToken.symbol}</span>
             </div>
 
             {/* Show total debt if partial swap */}
             {swapAmount > BigInt(0) && swapAmount < debtBalance && (
               <p className="text-xs text-slate-500 mt-2">
-                Total debt: {Number(formattedDebt).toLocaleString(undefined, { maximumFractionDigits: 6 })} {direction === "WETH_TO_USDC" ? "WETH" : "USDC"}
+                Total debt: {Number(formattedDebt).toLocaleString(undefined, { maximumFractionDigits: 6 })} {fromToken.symbol}
               </p>
             )}
 

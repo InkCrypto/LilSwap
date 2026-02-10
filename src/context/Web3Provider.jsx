@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import { Web3Context } from './web3Context.js';
 import { DEFAULT_NETWORK, NETWORKS } from '../constants/networks.js';
+import { createRpcProvider } from '../helpers/rpcHelper.js';
 
 export const Web3Provider = ({ children }) => {
     const [provider, setProvider] = useState(() => {
@@ -14,13 +15,15 @@ export const Web3Provider = ({ children }) => {
     const [selectedNetworkKey, setSelectedNetworkKey] = useState(DEFAULT_NETWORK.key);
 
     const selectedNetwork = useMemo(() => NETWORKS[selectedNetworkKey] || DEFAULT_NETWORK, [selectedNetworkKey]);
-    const allowedNetworks = useMemo(() => [NETWORKS.BASE], []);
+    const allowedNetworks = useMemo(() => [NETWORKS.BASE, NETWORKS.ETHEREUM, NETWORKS.POLYGON, NETWORKS.BNB], []);
+
     const networkRpcProvider = useMemo(() => {
-        const rpcUrl = selectedNetwork?.rpcUrls?.[0];
-        if (!rpcUrl) {
+        const rpcUrls = selectedNetwork?.rpcUrls;
+        if (!rpcUrls || rpcUrls.length === 0) {
             return null;
         }
-        return new ethers.JsonRpcProvider(rpcUrl);
+
+        return createRpcProvider(rpcUrls);
     }, [selectedNetwork]);
 
     const initializeProvider = useCallback(() => {

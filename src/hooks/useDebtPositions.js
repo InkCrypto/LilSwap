@@ -20,9 +20,24 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, addLog
     const isMountedRef = useRef(true);
     const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
-    const wethDebtTokenAddress = networkAddresses.TOKENS.WETH.debtAddress;
-    const usdcDebtTokenAddress = networkAddresses.TOKENS.USDC.debtAddress;
-    const adapterAddress = networkAddresses.ADAPTER;
+
+    // Get tokens dynamically based on network
+    const { fromToken: nativeToken, toToken: stablecoin } = useMemo(() => {
+        try {
+            return getTokenDefsByDirection('WETH_TO_USDC', networkAddresses);
+        } catch (error) {
+            console.error('Error getting token definitions:', error);
+            // Return empty objects to prevent crashes
+            return {
+                fromToken: { debtAddress: ethers.ZeroAddress },
+                toToken: { debtAddress: ethers.ZeroAddress }
+            };
+        }
+    }, [networkAddresses]);
+
+    const wethDebtTokenAddress = nativeToken.debtAddress;
+    const usdcDebtTokenAddress = stablecoin.debtAddress;
+    const adapterAddress = networkAddresses.DEBT_SWAP_ADAPTER;
     const readProvider = useMemo(() => networkRpcProvider || provider, [networkRpcProvider, provider]);
 
     const detectPositions = useCallback(async () => {
@@ -35,12 +50,12 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, addLog
             const [wethBalance, usdcBalance] = await Promise.all([
                 retryContractCall(
                     () => wethDebtContract.balanceOf(account),
-                    'WETH Debt Token',
+                    `${nativeToken.symbol} Debt Token`,
                     { maxAttempts: 5, initialDelay: 800 }
                 ),
                 retryContractCall(
                     () => usdcDebtContract.balanceOf(account),
-                    'USDC Debt Token',
+                    `${stablecoin.symbol} Debt Token`,
                     { maxAttempts: 5, initialDelay: 800 }
                 ),
             ]);
@@ -54,20 +69,20 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, addLog
 
             if (wethBalance > BigInt(0)) {
                 setDirection('WETH_TO_USDC');
-                addLog?.(`Position detected: ${ethers.formatUnits(wethBalance, 18)} WETH`, 'success');
+                addLog?.(`Position detected: ${ethers.formatUnits(wethBalance, nativeToken.decimals)} ${nativeToken.symbol}`, 'success');
             } else if (usdcBalance > BigInt(0)) {
                 setDirection('USDC_TO_WETH');
-                addLog?.(`Position detected: ${ethers.formatUnits(usdcBalance, 6)} USDC`, 'success');
+                addLog?.(`Position detected: ${ethers.formatUnits(usdcBalance, stablecoin.decimals)} ${stablecoin.symbol}`, 'success');
             }
 
             if (wethBalance > BigInt(0) && usdcBalance > BigInt(0)) {
-                addLog?.('Multiple positions found (WETH + USDC)', 'info');
+                addLog?.(`Multiple positions found (${nativeToken.symbol} + ${stablecoin.symbol})`, 'info');
             }
         } catch (error) {
             console.error('[detectPositions]', error);
             // Silently fail - fetchDebtData will try again
         }
-    }, [account, readProvider, addLog, wethDebtTokenAddress, usdcDebtTokenAddress]);
+    }, [account, readProvider, addLog, wethDebtTokenAddress, usdcDebtTokenAddress, nativeToken, stablecoin]);
 
     const fetchDebtData = useCallback(async () => {
         if (!account || !readProvider) {
