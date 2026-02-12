@@ -20,18 +20,34 @@ export const NetworkSelector = () => {
     return (
         <div className="network-selector">
             <div className="network-selector__buttons">
-                {availableNetworks.map((network) => (
-                    <button
-                        key={network.key}
-                        className={`network-selector__button ${selectedNetwork.key === network.key ? 'network-selector__button--active' : ''
-                            }`}
-                        onClick={() => handleNetworkChange(network.key)}
-                        type="button"
-                        title={`Switch to ${network.label}`}
-                    >
-                        <span className="network-selector__button-label">{network.shortLabel}</span>
-                    </button>
-                ))}
+                {availableNetworks.map((network) => {
+                    const isActive = selectedNetwork.key === network.key;
+                    return (
+                        <button
+                            key={network.key}
+                            className={`network-selector__button ${isActive ? 'network-selector__button--active' : ''
+                                }`}
+                            onClick={() => handleNetworkChange(network.key)}
+                            type="button"
+                            title={isActive ? undefined : network.label}
+                        >
+                            <div className="network-selector__button-content">
+                                {network.icon && (
+                                    <img
+                                        src={network.icon}
+                                        alt={network.shortLabel}
+                                        className="network-selector__icon"
+                                    />
+                                )}
+                                {isActive && (
+                                    <span className="network-selector__button-label hidden md:inline">
+                                        {network.shortLabel}
+                                    </span>
+                                )}
+                            </div>
+                        </button>
+                    );
+                })}
             </div>
         </div>
     );

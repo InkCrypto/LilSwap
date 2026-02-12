@@ -1,30 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ethers } from 'ethers';
-import { ArrowRightLeft, Wallet, RefreshCw, CheckCircle2, Terminal, AlertTriangle, X, Info } from 'lucide-react';
+import React, { useState, useCallback } from 'react';
+import { Wallet, LogOut, Terminal } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
-import { DEFAULT_NETWORK } from './constants/networks.js';
-import { ADDRESSES } from './constants/addresses.js';
-import { getTokenDefsByDirection } from './services/aaveContracts.js';
-import { useDebtPositions } from './hooks/useDebtPositions.js';
-import { useParaswapQuote } from './hooks/useParaswapQuote.js';
-import { useDebtSwitchActions } from './hooks/useDebtSwitchActions.js';
-import { AmountInput } from './components/AmountInput.jsx';
 import { NetworkSelector } from './components/NetworkSelector.jsx';
-
-const BaseIcon = ({ className }) => (
-  <svg
-    viewBox="0 0 44 44"
-    xmlns="http://www.w3.org/2000/svg"
-    className={className}
-    aria-hidden="true"
-  >
-    <rect width="44" height="44" rx="22" fill="#0052FF" />
-    <path
-      d="M21.9756 36C29.721 36 36 29.732 36 22C36 14.268 29.721 8 21.9756 8C14.6271 8 8.59871 13.6419 8 20.8232H26.5371V23.1768H8C8.59871 30.3581 14.6271 36 21.9756 36Z"
-      fill="white"
-    />
-  </svg>
-);
+import { Dashboard } from './components/Dashboard.jsx';
 
 const LilLogo = ({ className = "w-6 h-6" }) => (
   <svg
@@ -43,67 +21,16 @@ const LilLogo = ({ className = "w-6 h-6" }) => (
   </svg>
 );
 
-const NetworkIcon = ({ network, className = 'w-6 h-6' }) => {
-  if (!network) {
-    return null;
-  }
-
-  switch (network.key) {
-    case 'BASE':
-      return <BaseIcon className={className} />;
-    case 'ETHEREUM':
-      return (
-        <svg viewBox="0 0 784.37 1277.39" xmlns="http://www.w3.org/2000/svg" className={className}>
-          <g fill="#627EEA">
-            <polygon points="392.07,0 383.5,29.11 383.5,873.74 392.07,882.29 784.13,650.54" />
-            <polygon points="392.07,0 0,650.54 392.07,882.29 392.07,472.33" />
-            <polygon points="392.07,956.52 387.24,962.41 387.24,1263.28 392.07,1277.38 784.37,724.89" />
-            <polygon points="392.07,1277.38 392.07,956.52 0,724.89" />
-            <polygon points="392.07,882.29 784.13,650.54 392.07,472.33" opacity="0.6" />
-            <polygon points="0,650.54 392.07,882.29 392.07,472.33" opacity="0.45" />
-          </g>
-        </svg>
-      );
-    case 'POLYGON':
-      return (
-        <svg viewBox="0 0 38.4 33.5" xmlns="http://www.w3.org/2000/svg" className={className}>
-          <g fill="#8247E5">
-            <path d="M29,10.2c-0.7-0.4-1.6-0.4-2.4,0L21,13.5l-3.8,2.1l-5.5,3.3c-0.7,0.4-1.6,0.4-2.4,0L5,16.3c-0.7-0.4-1.2-1.2-1.2-2.1v-5c0-0.8,0.4-1.6,1.2-2.1l4.3-2.5c0.7-0.4,1.6-0.4,2.4,0L16,7.2c0.7,0.4,1.2,1.2,1.2,2.1v3.3l3.8-2.2V7c0-0.8-0.4-1.6-1.2-2.1l-8-4.7c-0.7-0.4-1.6-0.4-2.4,0L1.2,5C0.4,5.4,0,6.2,0,7v9.4c0,0.8,0.4,1.6,1.2,2.1l8.1,4.7c0.7,0.4,1.6,0.4,2.4,0l5.5-3.2l3.8-2.2l5.5-3.2c0.7-0.4,1.6-0.4,2.4,0l4.3,2.5c0.7,0.4,1.2,1.2,1.2,2.1v5c0,0.8-0.4,1.6-1.2,2.1L29,28.8c-0.7,0.4-1.6,0.4-2.4,0l-4.3-2.5c-0.7-0.4-1.2-1.2-1.2-2.1V21l-3.8,2.2v3.3c0,0.8,0.4,1.6,1.2,2.1l8.1,4.7c0.7,0.4,1.6,0.4,2.4,0l8.1-4.7c0.7-0.4,1.2-1.2,1.2-2.1V17c0-0.8-0.4-1.6-1.2-2.1L29,10.2z" />
-          </g>
-        </svg>
-      );
-    case 'BNB':
-      return (
-        <svg viewBox="0 0 2500 2500" xmlns="http://www.w3.org/2000/svg" className={className}>
-          <g fill="#F3BA2F">
-            <path d="M764.48,1050.52,1250,565l485.75,485.73,282.5-282.5L1250,0,482,768l282.49,282.5M0,1250,282.51,967.45,565,1249.94,282.49,1532.45Zm764.48,199.51L1250,1935l485.74-485.72,282.65,282.35-.14.15L1250,2500,482,1732l-.4-.4,282.91-282.12M1935,1250.12l282.51-282.51L2500,1250.1,2217.5,1532.61Z" />
-            <path d="M1536.52,1249.85h.12L1250,963.19,1038.13,1175h0l-24.34,24.35-50.2,50.21-.4.39.4.41L1250,1536.81l286.66-286.66.14-.16-.26-.14" />
-          </g>
-        </svg>
-      );
-    default:
-      return <BaseIcon className={className} />;
-  }
-};
-
 export default function App() {
   const {
     account,
-    provider,
     connectWallet,
-    selectedNetwork,
-    networkRpcProvider,
+    disconnectWallet,
   } = useWeb3();
-  const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
-  const targetChainId = targetNetwork.chainId;
-  const networkAddresses = targetNetwork.addresses || ADDRESSES;
 
   // --- STATES ---
   const [logs, setLogs] = useState([]);
-  const [copyButtonState, setCopyButtonState] = useState('idle'); // 'idle' | 'copied'
-  const [hasLoggedAutoConnect, setHasLoggedAutoConnect] = useState(false);
-  const [simulateError, setSimulateError] = useState(false); // Debug state
-  const [swapAmount, setSwapAmount] = useState(BigInt(0)); // Amount user wants to swap
+  const [copyButtonState, setCopyButtonState] = useState('idle');
 
   // --- LOG HELPER ---
   const addLog = useCallback((msg, type = 'info') => {
@@ -111,556 +38,128 @@ export default function App() {
     setLogs(prev => [{ time: timestamp, msg, type }, ...prev]);
   }, []);
 
-  const {
-    direction,
-    setDirection,
-    debtBalance,
-    formattedDebt,
-    allowance,
-    wethDebt,
-    usdcDebt,
-    fetchDebtData,
-    needsApproval,
-    isDebtLoading,
-  } = useDebtPositions({ account, provider, networkRpcProvider, addLog, selectedNetwork });
-
-  // Get current tokens based on direction and network
-  const { fromToken, toToken } = useMemo(() => {
-    try {
-      return getTokenDefsByDirection(direction, networkAddresses);
-    } catch (error) {
-      console.error('Error getting tokens:', error);
-      // Return fallback
-      return {
-        fromToken: { symbol: '???', decimals: 18 },
-        toToken: { symbol: '???', decimals: 18 }
-      };
-    }
-  }, [direction, networkAddresses]);
-
-  const {
-    swapQuote,
-    slippage,
-    setSlippage,
-    autoRefreshEnabled,
-    nextRefreshIn,
-    fetchQuote,
-    resetRefreshCountdown,
-    clearQuote,
-    isQuoteLoading,
-    isTyping,
-  } = useParaswapQuote({
-    debtBalance: swapAmount, // Use user-selected amount instead of full debt
-    direction,
-    addLog,
-    selectedNetwork,
-    account, // Pass connected wallet address
-  });
-
-  const {
-    isActionLoading,
-    signedPermit,
-    txError,
-    pendingTxParams,
-    lastAttemptedQuote,
-    userRejected,
-    handleApproveDelegation,
-    handleSwap,
-    handleForceSwap,
-    clearTxError,
-    clearCachedPermit,
-  } = useDebtSwitchActions({
-    account,
-    provider,
-    direction,
-    allowance,
-    swapQuote,
-    slippage,
-    addLog,
-    fetchDebtData,
-    fetchQuote,
-    resetRefreshCountdown, // Pass refresh callback for failure cases
-    clearQuote,
-    selectedNetwork,
-    simulateError, // Pass debug flag
-  });
-
-  const isBusy = isActionLoading || isDebtLoading || isQuoteLoading;
-
-  const checkNetwork = useCallback(async (_provider) => {
-    const activeProvider = _provider || provider;
-    if (!activeProvider) {
-      return false;
-    }
-    try {
-      const network = await activeProvider.getNetwork();
-      if (Number(network.chainId) !== targetChainId) {
-        addLog(`Incorrect network. Please switch to ${targetNetwork.label}.`, "error");
-        return false;
-      }
-      return true;
-    } catch (error) {
-      addLog("Error checking network: " + error.message, "error");
-      return false;
-    }
-  }, [provider, addLog, targetChainId, targetNetwork.label]);
-
-  useEffect(() => {
-    if (account && !hasLoggedAutoConnect) {
-      addLog(`Automatically reconnected: ${account.slice(0, 6)}...`, "success");
-      checkNetwork();
-      setHasLoggedAutoConnect(true);
-    }
-  }, [account, hasLoggedAutoConnect, addLog, checkNetwork]);
-
-  // Reset swap amount to full debt when debt balance or direction changes
-  useEffect(() => {
-    if (debtBalance && debtBalance > BigInt(0)) {
-      setSwapAmount(debtBalance);
-    } else {
-      setSwapAmount(BigInt(0));
-    }
-  }, [debtBalance, direction]);
-
-  const handleConnectWallet = async () => {
-    if (typeof window === 'undefined' || !window.ethereum) {
-      alert("No wallet detected!");
-      return;
-    }
-
-    try {
-      const address = await connectWallet();
-      addLog(`Wallet connected: ${address.slice(0, 6)}...`, "success");
-
-      await checkNetwork();
-    } catch (err) {
-      addLog("Error connecting: " + (err?.message || err), "error");
-    }
+  const handleCopyLogs = () => {
+    const logText = logs.map(l => `[${l.time}] ${l.msg}`).join('\n');
+    navigator.clipboard.writeText(logText).then(() => {
+      setCopyButtonState('copied');
+      setTimeout(() => setCopyButtonState('idle'), 2000);
+    });
   };
 
-  const handleRefreshQuote = async () => {
-    addLog("🔄 Refreshing quote...", "info");
-    await fetchQuote();
+  const handleConnect = async () => {
+    try {
+      await connectWallet();
+      addLog("Wallet connected successfully", "success");
+    } catch (err) {
+      addLog("Connection failed: " + err.message, "error");
+    }
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 p-6 font-sans flex flex-col items-center justify-center">
-      <div className="max-w-2xl w-full space-y-6">
+    <div className="min-h-screen bg-[#0f172a] text-slate-100 selection:bg-purple-500/30">
+      <div className="max-w-4xl mx-auto px-4 py-12">
 
         {/* HEADER */}
-        <header className="flex justify-between items-center border-b border-slate-700 pb-4">
-          <div className="flex items-center gap-3">
-            <LilLogo className="w-12 h-12" />
+        <header className="flex flex-wrap items-center justify-between gap-6 mb-12">
+          <div className="flex items-center gap-2">
+            <div className="p-3 rounded-2xl">
+              <LilLogo className="w-12 h-12 text-white" />
+            </div>
             <div>
-              <h1 className="text-2xl font-bold text-white">LilSwap - Aave Debt Shifter</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-3xl font-black text-white tracking-tight">
+                  LilSwap
+                </h1>
+                <span className="px-1 py-0 rounded text-purple-400 text-[8px] font-bold border-2 border-purple-500/30">BETA</span>
+              </div>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">AAVE V3 Position Manager</span>
+              </div>
             </div>
           </div>
 
           <div className="flex items-center gap-4">
-            {/* Network Selector */}
             <NetworkSelector />
 
             {!account ? (
               <button
-                onClick={handleConnectWallet}
-                className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white px-6 py-2 rounded-lg font-medium transition-colors shadow-lg shadow-blue-900/20"
+                onClick={handleConnect}
+                className="bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20 active:scale-95"
               >
-                <Wallet className="w-4 h-4" /> Connect Wallet
+                <Wallet className="w-4 h-4" />
+                Connect
               </button>
             ) : (
-              <div className="bg-slate-800 px-4 py-2 rounded-full text-sm font-mono text-green-400 border border-slate-700 flex items-center gap-3 shadow-lg shadow-slate-900/30">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-                  {account.slice(0, 6)}...{account.slice(-4)}
-                </div>
-                <NetworkIcon network={selectedNetwork} className="w-6 h-6" />
-              </div>
+              <button
+                onClick={disconnectWallet}
+                className="flex items-center gap-2 text-slate-500 hover:text-red-400 transition-colors group"
+              >
+                <span className="text-xs font-mono">{account.slice(0, 6)}...{account.slice(-4)}</span>
+                <LogOut className="w-4 h-4" />
+              </button>
             )}
           </div>
         </header>
 
-        {/* MAIN CARD */}
-        <div className="bg-slate-800 rounded-xl p-8 border border-slate-700 shadow-2xl">
-
-          {/* DIRECTION SELECTOR */}
-          <div className="mb-8">
-            <label className="text-slate-400 text-xs font-bold uppercase tracking-wider mb-3 block">Select Asset to Swap</label>
-            <div className="bg-slate-900 rounded-xl p-4 space-y-3">
-              <button
-                onClick={() => setDirection("WETH_TO_USDC")}
-                className={`w-full p-4 rounded-lg text-left transition-all border-2 ${direction === "WETH_TO_USDC"
-                  ? "bg-slate-700 border-purple-500 shadow-lg shadow-purple-900/30"
-                  : "bg-slate-800/50 border-slate-700 hover:border-slate-600 hover:bg-slate-800"
-                  }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-3 h-3 rounded-full ${direction === "WETH_TO_USDC" ? "bg-purple-500" : "bg-slate-600"
-                      }`}></div>
-                    <div>
-                      <div className="flex items-center gap-2 font-bold text-white">
-                        <span>WETH</span>
-                        <ArrowRightLeft className="w-4 h-4 text-slate-500" />
-                        <span>USDC</span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-0.5">Swap debt from WETH to USDC</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    {wethDebt > BigInt(0) ? (
-                      <div>
-                        <p className="text-sm font-mono font-bold text-green-400">
-                          {Number(ethers.formatUnits(wethDebt, 18)).toFixed(4)}
-                        </p>
-                        <p className="text-[10px] text-slate-500">WETH available</p>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-500 italic">No position</p>
-                    )}
-                  </div>
-                </div>
-              </button>
-
-              <button
-                onClick={() => setDirection("USDC_TO_WETH")}
-                className={`w-full p-4 rounded-lg text-left transition-all border-2 ${direction === "USDC_TO_WETH"
-                  ? "bg-slate-700 border-purple-500 shadow-lg shadow-purple-900/30"
-                  : "bg-slate-800/50 border-slate-700 hover:border-slate-600 hover:bg-slate-800"
-                  }`}
-              >
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-3 h-3 rounded-full ${direction === "USDC_TO_WETH" ? "bg-purple-500" : "bg-slate-600"
-                      }`}></div>
-                    <div>
-                      <div className="flex items-center gap-2 font-bold text-white">
-                        <span>USDC</span>
-                        <ArrowRightLeft className="w-4 h-4 text-slate-500" />
-                        <span>WETH</span>
-                      </div>
-                      <p className="text-xs text-slate-400 mt-0.5">Swap debt from USDC to WETH</p>
-                    </div>
-                  </div>
-                  <div className="text-right">
-                    {usdcDebt > BigInt(0) ? (
-                      <div>
-                        <p className="text-sm font-mono font-bold text-green-400">
-                          {Number(ethers.formatUnits(usdcDebt, 6)).toFixed(2)}
-                        </p>
-                        <p className="text-[10px] text-slate-500">USDC available</p>
-                      </div>
-                    ) : (
-                      <p className="text-xs text-slate-500 italic">No position</p>
-                    )}
-                  </div>
-                </div>
-              </button>
+        {/* MAIN CONTENT */}
+        {!account ? (
+          <div className="bg-slate-900/50 rounded-3xl p-16 border border-white/5 text-center backdrop-blur-sm">
+            <div className="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-8 border border-white/10 shadow-2xl">
+              <Wallet className="w-10 h-10 text-slate-500" />
             </div>
-          </div>
-
-          {/* AMOUNT INPUT */}
-          {debtBalance > BigInt(0) && (
-            <div className="mb-8">
-              <AmountInput
-                maxAmount={debtBalance}
-                decimals={fromToken.decimals}
-                symbol={fromToken.symbol}
-                onAmountChange={setSwapAmount}
-                isProcessing={isTyping}
-              />
-            </div>
-          )}
-
-          {/* BALANCE DISPLAY */}
-          <div className="bg-linear-to-br from-slate-900 to-slate-800 rounded-xl p-8 mb-8 border border-slate-700/50 text-center relative overflow-hidden group">
-            <div className="absolute top-0 left-0 w-full h-1 bg-linear-to-r from-transparent via-purple-500 to-transparent opacity-50"></div>
-
-            <p className="text-slate-400 text-sm mb-2">
-              {swapAmount < debtBalance ? 'Swapping' : 'Your total debt in'} {fromToken.symbol}
+            <h2 className="text-2xl font-bold text-white mb-4">Connect Wallet to Begin</h2>
+            <p className="text-slate-400 max-w-sm mx-auto mb-10 text-sm leading-relaxed">
+              Manage your Aave V3 positions and swap between debt assets with optimal efficiency.
             </p>
-            <div className="text-5xl font-bold text-white tracking-tight font-mono">
-              {isBusy && !swapAmount ? (
-                <span className="animate-pulse">...</span>
-              ) : (
-                Number(ethers.formatUnits(swapAmount, fromToken.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })
-              )}
-              <span className="text-xl text-slate-500 ml-2 font-sans">{fromToken.symbol}</span>
-            </div>
-
-            {/* Show total debt if partial swap */}
-            {swapAmount > BigInt(0) && swapAmount < debtBalance && (
-              <p className="text-xs text-slate-500 mt-2">
-                Total debt: {Number(formattedDebt).toLocaleString(undefined, { maximumFractionDigits: 6 })} {fromToken.symbol}
-              </p>
-            )}
-
-            {/* REAL-TIME QUOTE */}
-            {swapQuote && (
-              <div className="mt-6 bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2">
-                <div className="flex justify-between items-center text-xs text-slate-400 uppercase font-bold tracking-wider">
-                  <span>Swap Simulation</span>
-                  <div className="flex items-center gap-2">
-                    {autoRefreshEnabled && (
-                      <span className="text-[10px] text-slate-500 font-normal normal-case">
-                        🔄 {nextRefreshIn}s
-                      </span>
-                    )}
-                    <button onClick={handleRefreshQuote} className="hover:text-white transition-colors" title="Update Quote">
-                      <RefreshCw className={`w-3 h-3 ${isBusy ? 'animate-spin' : ''}`} />
-                    </button>
-                  </div>
-                </div>
-                <div className="flex justify-between items-end">
-                  <div className="text-left">
-                    <p className="text-xs text-slate-500">Estimated New Debt</p>
-                    <p className="text-xl font-mono font-bold text-green-400">
-                      {Number(ethers.formatUnits(swapQuote.srcAmount, swapQuote.toToken.decimals)).toFixed(4)}
-                      <span className="text-sm ml-1 text-slate-500">{swapQuote.toToken.symbol}</span>
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs text-slate-500">Exchange Rate</p>
-                    <p className="text-sm font-mono text-slate-300">
-                      1 {swapQuote.fromToken.symbol} ≈ {(Number(ethers.formatUnits(swapQuote.srcAmount, swapQuote.toToken.decimals)) / Number(ethers.formatUnits(swapQuote.destAmount, swapQuote.fromToken.decimals))).toFixed(4)} {swapQuote.toToken.symbol}
-                    </p>
-                  </div>
-                </div>
-
-                {/* SLIPPAGE CONTROL */}
-                <div className="mt-3 pt-3 border-t border-slate-700/50">
-                  <div className="flex justify-between items-center mb-2">
-                    <p className="text-xs text-slate-400 uppercase font-bold tracking-wider">Slippage Tolerance</p>
-                    <p className="text-sm font-mono font-bold text-purple-400">{(slippage / 100).toFixed(1)}%</p>
-                  </div>
-                  <div className="flex gap-2">
-                    {[10, 50, 100, 300, 500].map((value) => (
-                      <button
-                        key={value}
-                        onClick={() => setSlippage(value)}
-                        className={`flex-1 px-2 py-1.5 text-xs rounded transition-all ${slippage === value
-                          ? 'bg-purple-600 text-white font-bold'
-                          : 'bg-slate-800 text-slate-400 hover:bg-slate-700 hover:text-white'
-                          }`}
-                      >
-                        {(value / 100).toFixed(1)}%
-                      </button>
-                    ))}
-                  </div>
-                  <p className="text-[10px] text-slate-500 mt-2">
-                    Lower = more accurate, but may fail. Higher = more flexible, but pays more.
-                  </p>
-                </div>
-
-                {/* ROUTE INFO */}
-                <div className="mt-3 pt-3 border-t border-slate-700/50">
-                  <div className="flex items-center gap-2 text-xs">
-                    <Info className="w-3 h-3" />
-                    {swapQuote.version === 'v6.2-sdk' ? (
-                      <span className="text-green-400 font-medium">
-                        ✨ Augustus v6.2 (Optimized SDK)
-                      </span>
-                    ) : (
-                      <span className="text-slate-500">
-                        Augustus v5 (REST API fallback)
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 text-xs text-purple-400 mt-2">
-                    <CheckCircle2 className="w-3 h-3" />
-                    <span>Anti-dust protection: always pays 100% of debt</span>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <button
-              onClick={fetchDebtData}
-              disabled={!account || isBusy}
-              className="mt-6 text-xs text-purple-400 hover:text-purple-300 flex items-center justify-center gap-1 mx-auto transition-colors"
+              onClick={handleConnect}
+              className="px-10 py-4 bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-purple-900/40 hover:scale-105"
             >
-              <RefreshCw className={`w-3 h-3 ${isBusy ? 'animate-spin' : ''}`} />
-              Update Data
+              Get Started
             </button>
           </div>
+        ) : (
+          <Dashboard />
+        )}
 
-          {/* ACTION BUTTONS */}
-          <div className="space-y-4">
-            {txError && (
-              <div className="bg-red-900/20 border border-red-500/50 rounded-lg p-4 flex flex-col gap-3 animate-in fade-in slide-in-from-top-2">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
-                  <div className="flex-1">
-                    <h3 className="text-red-400 font-bold text-sm mb-1">Simulation Error</h3>
-                    <p className="text-red-300/80 text-xs font-mono break-all">{txError}</p>
-                  </div>
-                  <button onClick={clearTxError} className="text-red-400 hover:text-red-300 transition-colors">
-                    <X className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {/* DEBUG INFO: Quote Comparison */}
-                {lastAttemptedQuote && swapQuote && (
-                  <div className="bg-black/40 rounded p-3 text-xs font-mono border border-red-500/20">
-                    <div className="grid grid-cols-2 gap-4 mb-2">
-                      <div>
-                        <p className="text-slate-500 uppercase text-[10px] font-bold mb-1">Attempted Quote (Snapshot)</p>
-                        <p className="text-slate-300">
-                          <span className="text-slate-500">In:</span> {Number(ethers.formatUnits(lastAttemptedQuote.srcAmount, lastAttemptedQuote.toToken.decimals)).toFixed(6)} {lastAttemptedQuote.toToken.symbol}
-                        </p>
-                        <p className="text-slate-300">
-                          <span className="text-slate-500">Max (2%):</span> {(Number(ethers.formatUnits(lastAttemptedQuote.srcAmount, lastAttemptedQuote.toToken.decimals)) * 1.02).toFixed(6)}
-                        </p>
-                      </div>
-                      <div>
-                        <p className="text-slate-500 uppercase text-[10px] font-bold mb-1">Current Quote (Live)</p>
-                        <p className={`${BigInt(swapQuote.srcAmount) > BigInt(lastAttemptedQuote.srcAmount) ? 'text-red-400' : 'text-green-400'}`}>
-                          <span className="text-slate-500">In:</span> {Number(ethers.formatUnits(swapQuote.srcAmount, swapQuote.toToken.decimals)).toFixed(6)} {swapQuote.toToken.symbol}
-                        </p>
-                        <p className="text-slate-500 text-[10px] mt-1">
-                          {BigInt(swapQuote.srcAmount) > BigInt(lastAttemptedQuote.srcAmount)
-                            ? `▲ Price rose (Worsened)`
-                            : `▼ Price fell (Improved)`}
-                        </p>
-                      </div>
-                    </div>
-                    {pendingTxParams && (
-                      <div className="border-t border-white/10 pt-2 mt-1">
-                        <p className="text-slate-500 text-[10px]">Sent Params:</p>
-                        <p className="text-slate-400 truncate">
-                          MaxNewDebt: {Array.isArray(pendingTxParams)
-                            ? pendingTxParams[0]?.maxNewDebtAmount?.toString()
-                            : pendingTxParams?.maxNewDebtAmount?.toString()}
-                        </p>
-                      </div>
-                    )}
-                  </div>
-                )}
-
-                <div className="flex gap-2 pl-8 flex-wrap">
-                  <button
-                    onClick={() => {
-                      clearTxError();
-                      clearCachedPermit();
-                      fetchQuote();
-                    }}
-                    className="text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded border border-red-500/30 transition-colors"
-                  >
-                    Clear Cache & Try Again
-                  </button>
-
-                  {/* Fallback for On-Chain Approval */}
-                  <button
-                    onClick={() => {
-                      clearTxError();
-                      handleApproveDelegation();
-                    }}
-                    className="text-xs bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-3 py-1.5 rounded border border-blue-500/30 transition-colors flex items-center gap-1"
-                  >
-                    <CheckCircle2 className="w-3 h-3" />
-                    Approve Manually (On-Chain)
-                  </button>
-
-                  {/* Force Send Button */}
-                  {pendingTxParams && (
-                    <button
-                      onClick={handleForceSwap}
-                      className="text-xs bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 px-3 py-1.5 rounded border border-yellow-500/30 transition-colors flex items-center gap-1 font-bold"
-                    >
-                      <AlertTriangle className="w-3 h-3" />
-                      Force Send (Ignore Error)
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-            {!account ? (
-              <div className="text-center text-slate-500 py-6 bg-slate-900/30 rounded-xl border border-dashed border-slate-700">
-                Connect your wallet above to operate
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <button
-                  onClick={handleSwap}
-                  disabled={isBusy || !debtBalance || debtBalance === BigInt(0) || !swapQuote}
-                  className="w-full bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-4 rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg shadow-purple-900/20 hover:scale-[1.01] active:scale-[0.99]"
-                >
-                  {isBusy ? <RefreshCw className="animate-spin w-5 h-5" /> : <ArrowRightLeft className="w-5 h-5" />}
-                  {needsApproval && !signedPermit
-                    ? "Sign & Swap Debt"
-                    : "Swap Debt"}
-                </button>
-
-                {userRejected && (
-                  <div className="flex items-start gap-2 text-xs text-blue-400/80 bg-blue-900/10 p-3 rounded-lg border border-blue-900/30">
-                    <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                    <p>You cancelled the transaction. Click the button above to try again when ready.</p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {needsApproval && !signedPermit && (
-              <div className="flex items-start gap-2 text-xs text-blue-400/80 bg-blue-900/10 p-3 rounded-lg">
-                <CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />
-                <p>Approval will be requested via signature (gasless) before the transaction.</p>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* CONSOLE LOGS */}
-        <div className="bg-black rounded-xl border border-slate-800 overflow-hidden font-mono text-xs shadow-2xl">
-          <div className="bg-slate-900 px-4 py-2 flex items-center justify-between border-b border-slate-800">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2">
-                <Terminal className="w-3 h-3 text-slate-500" />
-                <span className="text-slate-500 font-semibold">Log Terminal</span>
-              </div>
-              <label className="flex items-center gap-1.5 cursor-pointer select-none group">
-                <input
-                  type="checkbox"
-                  checked={simulateError}
-                  onChange={(e) => setSimulateError(e.target.checked)}
-                  className="w-3 h-3 rounded border-slate-700 bg-slate-800 text-purple-600 focus:ring-0 focus:ring-offset-0"
-                />
-                <span className="text-[10px] text-slate-500 group-hover:text-red-400 transition-colors">
-                  Simulate Error
-                </span>
-              </label>
+        {/* LOG TERMINAL */}
+        <div className="mt-12 bg-black/50 rounded-2xl border border-white/5 overflow-hidden font-mono text-[10px] backdrop-blur-sm">
+          <div className="bg-white/5 px-4 py-2 border-b border-white/5 flex justify-between items-center">
+            <div className="flex items-center gap-2 text-slate-500">
+              <Terminal className="w-3 h-3" />
+              <span className="font-bold uppercase tracking-widest">System Logs</span>
             </div>
-            <button
-              onClick={() => {
-                const logText = logs.map(log => `[${log.time}] ${log.msg}`).join('\n');
-                navigator.clipboard.writeText(logText);
-                setCopyButtonState('copied');
-                setTimeout(() => setCopyButtonState('idle'), 2000);
-              }}
-              className={`text-xs px-2 py-1 rounded transition-colors ${copyButtonState === 'copied'
-                ? 'bg-green-600 text-green-100'
-                : 'bg-slate-700 hover:bg-slate-600 text-slate-300'
-                }`}
-              title="Copy all logs"
-              disabled={copyButtonState === 'copied'}
-            >
-              {copyButtonState === 'copied' ? '✓ Copied!' : 'Copy Logs'}
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={handleCopyLogs}
+                className="text-slate-600 hover:text-slate-400 transition-colors uppercase font-bold"
+              >
+                {copyButtonState === 'copied' ? 'Copied!' : 'Copy'}
+              </button>
+              <button
+                onClick={() => setLogs([])}
+                className="text-slate-600 hover:text-slate-400 transition-colors uppercase font-bold"
+              >
+                Clear
+              </button>
+            </div>
           </div>
-          <div className="p-4 h-48 overflow-y-auto space-y-1.5 custom-scrollbar">
-            {logs.length === 0 && <span className="text-slate-700 italic">Waiting for operations...</span>}
+          <div className="p-4 h-32 overflow-y-auto space-y-1 custom-scrollbar">
+            {logs.length === 0 && <div className="text-slate-700 italic">No activity logs...</div>}
             {logs.map((log, i) => (
-              <div key={i} className={`flex gap-3 ${log.type === 'error' ? 'text-red-400' :
-                log.type === 'success' ? 'text-green-400' :
-                  log.type === 'warning' ? 'text-yellow-400' : 'text-slate-300'
-                }`}>
-                <span className="text-slate-600 shrink-0 select-none">[{log.time}]</span>
-                <span>{log.msg}</span>
+              <div key={i} className="flex gap-2">
+                <span className="text-slate-600 shrink-0">[{log.time}]</span>
+                <span className={
+                  log.type === 'error' ? 'text-red-400' :
+                    log.type === 'success' ? 'text-green-400' :
+                      log.type === 'warning' ? 'text-yellow-400' : 'text-slate-300'
+                }>
+                  {log.msg}
+                </span>
               </div>
             ))}
-            <div className="h-2"></div> {/* Final spacer */}
           </div>
         </div>
-
       </div>
     </div>
   );

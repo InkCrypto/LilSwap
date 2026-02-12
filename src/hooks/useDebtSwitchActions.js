@@ -4,12 +4,12 @@ import { ADDRESSES } from '../constants/addresses.js';
 import { DEFAULT_NETWORK } from '../constants/networks.js';
 import { ABIS } from '../constants/abis.js';
 import { buildDebtSwapTx } from '../services/api.js';
-import { getTokenDefsByDirection } from '../services/aaveContracts.js';
 
 export const useDebtSwitchActions = ({
     account,
     provider,
-    direction,
+    fromToken,
+    toToken,
     allowance,
     swapQuote,
     slippage,
@@ -69,14 +69,25 @@ export const useDebtSwitchActions = ({
     }, [provider, chainId, targetHexChainId, targetNetwork.label, addLog]);
 
     const handleApproveDelegation = useCallback(async () => {
-        if (!provider) return;
+        if (!provider || !toToken) return;
         try {
             setIsActionLoading(true);
             const signer = await provider.getSigner();
-            const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
-            const { toToken } = getTokenDefsByDirection(direction, networkAddresses);
-            const toReserveData = await poolContract.getReserveData(toToken.address);
-            const newDebtContract = new ethers.Contract(toReserveData.variableDebtTokenAddress, ABIS.DEBT_TOKEN, signer);
+
+            // Use debt token address from backend, with fallback to on-chain
+            let debtTokenAddress = toToken.variableDebtTokenAddress;
+            if (!debtTokenAddress || debtTokenAddress === ethers.ZeroAddress) {
+                console.log('[handleApproveDelegation] No debt token from backend, falling back to on-chain...');
+                const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
+                const toTokenAddress = toToken.address || toToken.underlyingAsset;
+                const toReserveData = await poolContract.getReserveData(toTokenAddress);
+                debtTokenAddress = toReserveData.variableDebtTokenAddress;
+                if (!debtTokenAddress || debtTokenAddress === ethers.ZeroAddress) {
+                    throw new Error(`Unable to get debt token address for ${toToken.symbol}`);
+                }
+            }
+
+            const newDebtContract = new ethers.Contract(debtTokenAddress, ABIS.DEBT_TOKEN, signer);
 
             addLog?.('Sending Approval Tx...');
             const tx = await newDebtContract.approveDelegation(adapterAddress, ethers.MaxUint256);
@@ -90,25 +101,60 @@ export const useDebtSwitchActions = ({
         } finally {
             setIsActionLoading(false);
         }
-    }, [provider, direction, addLog, fetchDebtData, networkAddresses, adapterAddress]);
+    }, [provider, toToken?.underlyingAsset, toToken?.address, addLog, fetchDebtData, networkAddresses, adapterAddress]);
     const handleSwap = useCallback(async () => {
+        console.log('\n==========================================');
+        console.log('🚀🚀🚀 SWAP BUTTON CLICKED! 🚀🚀🚀');
+        console.log('==========================================\n');
+
+        console.log('[handleSwap] 🚀 SWAP INITIATED!');
+        console.log('[handleSwap] Current state:', {
+            hasProvider: !!provider,
+            hasQuote: !!swapQuote,
+            hasFromToken: !!fromToken,
+            hasToToken: !!toToken,
+            allowance: allowance?.toString(),
+            account
+        });
+
         setTxError(null);
         setPendingTxParams(null);
         setUserRejected(false);
 
         let activeQuote = swapQuote;
         if (!activeQuote) {
+            console.log('[handleSwap] No quote available, fetching...');
+            addLog?.('Fetching quote...', 'info');
             activeQuote = await fetchQuote();
-            if (!activeQuote) return;
+            if (!activeQuote) {
+                console.error('[handleSwap] ❌ Failed to fetch quote');
+                addLog?.('Failed to fetch quote', 'error');
+                return;
+            }
         }
+
+        console.log('[handleSwap] Using quote:', {
+            srcAmount: activeQuote.srcAmount?.toString(),
+            destAmount: activeQuote.destAmount?.toString(),
+            fromToken: activeQuote.fromToken?.symbol,
+            toToken: activeQuote.toToken?.symbol
+        });
 
         const now = Math.floor(Date.now() / 1000);
         const quoteAge = now - (activeQuote.timestamp || 0);
+        console.log('[handleSwap] Quote age check:', { quoteAge, timestamp: activeQuote.timestamp });
+
         if (quoteAge > 300) {
+            console.log('[handleSwap] Quote too old, refreshing...');
             addLog?.(`⚠️ Quote is too old (${quoteAge}s). Updating...`, 'warning');
             activeQuote = await fetchQuote();
-            if (!activeQuote) return;
+            if (!activeQuote) {
+                console.error('[handleSwap] ❌ Failed to refresh quote');
+                return;
+            }
         }
+
+        console.log('[handleSwap] Quote validated, proceeding...');
 
         // Warning for small amounts (but does not block)
         const destAmountFloat = parseFloat(ethers.formatUnits(activeQuote.destAmount, activeQuote.fromToken.decimals));
@@ -134,13 +180,23 @@ export const useDebtSwitchActions = ({
         setLastAttemptedQuote(activeQuote);
         setIsActionLoading(true);
 
+        console.log('[handleSwap] ✅ Starting swap execution...');
+        console.log('[handleSwap] Network:', targetNetwork.label, 'ChainId:', chainId);
+
         try {
+            console.log('[handleSwap] Step 1: Ensuring correct network...');
             const activeProvider = await ensureWalletNetwork();
             if (!activeProvider) {
+                console.error('[handleSwap] ❌ Failed to ensure wallet network');
+                addLog?.('Failed to connect to correct network', 'error');
                 return;
             }
 
+            console.log('[handleSwap] ✅ Network confirmed');
+            console.log('[handleSwap] Step 2: Getting signer...');
             const signer = await activeProvider.getSigner();
+            console.log('[handleSwap] ✅ Signer obtained');
+
             const { priceRoute, srcAmount, fromToken, toToken, version } = activeQuote;
             // Ensure srcAmount is BigInt (can come as string or BigInt)
             const srcAmountBigInt = typeof srcAmount === 'bigint' ? srcAmount : BigInt(srcAmount);
@@ -148,8 +204,74 @@ export const useDebtSwitchActions = ({
 
             let permitParams = { amount: 0, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
 
+            console.log('[handleSwap] Step 3: Checking delegation allowance...');
+            console.log('[handleSwap] Allowance:', allowance?.toString(), 'Required:', maxNewDebt.toString());
+
+            // Get debt token address directly from backend data (more reliable than on-chain query)
+            console.log('[handleSwap] 📋 INPUT TOKENS:', {
+                fromToken: {
+                    symbol: fromToken.symbol,
+                    address: fromToken.address,
+                    underlyingAsset: fromToken.underlyingAsset,
+                    decimals: fromToken.decimals,
+                    debtTokenAddress: fromToken.debtTokenAddress
+                },
+                toToken: {
+                    symbol: toToken.symbol,
+                    address: toToken.address,
+                    underlyingAsset: toToken.underlyingAsset,
+                    decimals: toToken.decimals,
+                    variableDebtTokenAddress: toToken.variableDebtTokenAddress
+                }
+            });
+
+            // Use debt token address from backend, with fallback to on-chain if not available
+            let newDebtTokenAddr = toToken.variableDebtTokenAddress;
+
+            if (!newDebtTokenAddr || newDebtTokenAddr === ethers.ZeroAddress) {
+                console.log('[handleSwap] ⚠️ No debt token from backend, falling back to on-chain query...');
+                console.log('[handleSwap] 🔍 toToken object:', {
+                    symbol: toToken.symbol,
+                    underlyingAsset: toToken.underlyingAsset,
+                    address: toToken.address,
+                    hasVariableDebtTokenAddress: !!toToken.variableDebtTokenAddress,
+                    variableDebtTokenAddress: toToken.variableDebtTokenAddress
+                });
+                const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
+                const toTokenAddress = toToken.address || toToken.underlyingAsset;
+                console.log('[handleSwap] 📞 Calling getReserveData with address:', toTokenAddress);
+                const toReserveData = await poolContract.getReserveData(toTokenAddress);
+                newDebtTokenAddr = toReserveData.variableDebtTokenAddress;
+                console.log('[handleSwap] 📋 getReserveData returned:', {
+                    aToken: toReserveData.aTokenAddress,
+                    variableDebtToken: toReserveData.variableDebtTokenAddress,
+                    stableDebtToken: toReserveData.stableDebtTokenAddress
+                });
+
+                if (!newDebtTokenAddr || newDebtTokenAddr === ethers.ZeroAddress) {
+                    throw new Error(`Unable to get debt token address for ${toToken.symbol}. Token may not support borrowing.`);
+                }
+            }
+
+            console.log('[handleSwap] ✅ Using debt token address:', {
+                symbol: toToken.symbol,
+                underlyingAsset: toToken.underlyingAsset || toToken.address,
+                variableDebtTokenAddress: newDebtTokenAddr,
+                source: toToken.variableDebtTokenAddress ? 'backend' : 'on-chain fallback'
+            });
+
+            // Check if we have a cached signature for a DIFFERENT token
+            if (signedPermit && signedPermit.token !== newDebtTokenAddr) {
+                console.log('[handleSwap] ⚠️ Token changed! Invalidating cached signature:', {
+                    cachedToken: signedPermit.token,
+                    newToken: newDebtTokenAddr
+                });
+                setSignedPermit(null); // Clear invalid cache
+            }
+
             if (allowance < maxNewDebt) {
-                const newDebtTokenAddr = toToken.debtAddress;
+                console.log('[handleSwap] ⚠️ Insufficient allowance, need signature...');
+
                 const currentTs = Math.floor(Date.now() / 1000);
 
                 if (
@@ -158,16 +280,50 @@ export const useDebtSwitchActions = ({
                     signedPermit.deadline > currentTs &&
                     signedPermit.value >= maxNewDebt
                 ) {
+                    console.log('[handleSwap] ✅ Using cached signature');
                     addLog?.('1/3 Using cached signature...', 'info');
                     permitParams = signedPermit.params;
                 } else {
+                    console.log('[handleSwap] 📝 Requesting EIP-712 signature from user...');
+                    console.log('[handleSwap] 🔍 Creating debt contract with address:', newDebtTokenAddr);
+                    console.log('[handleSwap] 🔍 Token details:', {
+                        symbol: toToken.symbol,
+                        underlyingAsset: toToken.underlyingAsset,
+                        address: toToken.address,
+                        debtTokenFromBackend: toToken.variableDebtTokenAddress,
+                        debtTokenUsing: newDebtTokenAddr
+                    });
                     addLog?.('1/3 Requesting Signature (EIP-712)...', 'warning');
-                    const debtContract = new ethers.Contract(newDebtTokenAddr, ABIS.DEBT_TOKEN, signer);
+
+                    let debtContract = new ethers.Contract(newDebtTokenAddr, ABIS.DEBT_TOKEN, signer);
                     let nonce;
+
                     try {
+                        console.log('[handleSwap] 📞 Calling nonces() for account:', account);
                         nonce = await debtContract.nonces(account);
+                        console.log('[handleSwap] ✅ Nonce received:', nonce.toString());
                     } catch (nonceError) {
-                        throw new Error('Failed to read nonce from debt contract. Check RPC connection.');
+                        console.error('[handleSwap] ❌ NONCE READ FAILED with backend address, trying on-chain query...', {
+                            error: nonceError.message,
+                            code: nonceError.code,
+                            badDebtTokenAddress: newDebtTokenAddr,
+                            account,
+                            toTokenSymbol: toToken.symbol
+                        });
+
+                        // Backend address is invalid, fallback to on-chain query
+                        console.log('[handleSwap] 🔄 Fetching correct debt token from Pool.getReserveData...');
+                        const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
+                        const toTokenAddress = toToken.address || toToken.underlyingAsset;
+                        const toReserveData = await poolContract.getReserveData(toTokenAddress);
+                        newDebtTokenAddr = toReserveData.variableDebtTokenAddress;
+
+                        console.log('[handleSwap] ✅ Got debt token from on-chain:', newDebtTokenAddr);
+
+                        // Recreate contract with correct address
+                        debtContract = new ethers.Contract(newDebtTokenAddr, ABIS.DEBT_TOKEN, signer);
+                        nonce = await debtContract.nonces(account);
+                        console.log('[handleSwap] ✅ Nonce received with corrected address:', nonce.toString());
                     }
 
                     const name = await debtContract.name();
@@ -199,8 +355,12 @@ export const useDebtSwitchActions = ({
                         deadline,
                     };
 
+                    console.log('📝 Requesting EIP-712 signature from wallet...');
                     const signature = await signer.signTypedData(domain, types, message);
+                    console.log('✅ Signature received:', signature.substring(0, 20) + '...');
+
                     const sig = ethers.Signature.from(signature);
+                    console.log('✅ Signature parsed - v:', sig.v, 'r:', sig.r.substring(0, 10) + '...', 's:', sig.s.substring(0, 10) + '...');
 
                     permitParams = {
                         amount: value,
@@ -216,23 +376,33 @@ export const useDebtSwitchActions = ({
                         value,
                     });
 
+                    console.log('✅ Signature cached for future use');
                     addLog?.('Signature Received and Cached!', 'success');
                 }
             } else {
+                console.log('✅ Step 3: Delegation already approved on-chain, skipping signature');
                 addLog?.('1/3 Delegation already approved on-chain.', 'success');
             }
 
+            console.log('🔨 Step 4: Building transaction calldata...');
             addLog?.('2/3 Generating calldata...', 'warning');
             addLog?.(`Slippage: ${slippage / 100}%`, 'info');
 
+            console.log('🔄 Calling buildDebtSwapTx with:', {
+                fromToken: fromToken.symbol,
+                toToken: toToken.symbol,
+                chainId,
+                slippage
+            });
+
             const txResult = await buildDebtSwapTx({
                 fromToken: {
-                    address: fromToken.address,
+                    address: fromToken.address || fromToken.underlyingAsset,
                     decimals: fromToken.decimals,
                     symbol: fromToken.symbol,
                 },
                 toToken: {
-                    address: toToken.address,
+                    address: toToken.address || toToken.underlyingAsset,
                     decimals: toToken.decimals,
                     symbol: toToken.symbol,
                 },
@@ -243,6 +413,11 @@ export const useDebtSwitchActions = ({
             });
 
             const { swapCallData: paraswapCalldata, augustus: augustusAddress, version: txVersion } = txResult;
+
+            console.log('✅ Step 4 Complete: Transaction calldata built successfully');
+            console.log('  - Augustus:', augustusAddress);
+            console.log('  - Version:', txVersion);
+            console.log('  - Calldata length:', paraswapCalldata?.length || 0, 'chars');
 
             if (!augustusAddress || augustusAddress === ethers.ZeroAddress) {
                 addLog?.('⚠️ WARNING: Invalid Augustus address returned', 'warning');
@@ -285,10 +460,10 @@ export const useDebtSwitchActions = ({
             addLog?.(`Target Debt to Repay: ${exactDebtRepayAmount.toString()} (${ethers.formatUnits(exactDebtRepayAmount, fromToken.decimals)} ${fromToken.symbol})`, 'info');
 
             const swapParams = {
-                debtAsset: fromToken.address,
+                debtAsset: fromToken.address || fromToken.underlyingAsset,
                 debtRepayAmount: exactDebtRepayAmount,
                 debtRateMode: 2,
-                newDebtAsset: toToken.address,
+                newDebtAsset: toToken.address || toToken.underlyingAsset,
                 maxNewDebtAmount: maxNewDebt,
                 extraCollateralAsset: ethers.ZeroAddress,
                 extraCollateralAmount: 0,
@@ -314,8 +489,10 @@ export const useDebtSwitchActions = ({
             addLog?.(`  • Conversion rate: 1 ${toToken.symbol} = ${priceRatio.toFixed(2)} ${fromToken.symbol}`, 'info');
             addLog?.(`  • If WETH = $2700: ${(parseFloat(srcAmountFormatted) * 2700).toFixed(2)} USD`, 'info');
 
+            const creditPermitDebtToken = permitParams.amount === 0 ? ethers.ZeroAddress : newDebtTokenAddr;
+
             const creditPermit = {
-                debtToken: toToken.debtAddress,
+                debtToken: creditPermitDebtToken,
                 value: permitParams.amount,
                 deadline: permitParams.deadline,
                 v: permitParams.v,
@@ -337,31 +514,77 @@ export const useDebtSwitchActions = ({
 
             addLog?.(`CollateralPermit - aToken: ${collateralPermit.aToken}`, 'info');
 
+            console.log('⛽ Step 5: Estimating gas and preparing transaction...');
             addLog?.('3/3 Estimating gas and confirming in wallet...', 'warning');
             let tx;
             let gasLimit;
 
             const adapterContract = new ethers.Contract(adapterAddress, ABIS.ADAPTER, signer);
+            console.log('  - Adapter contract initialized:', adapterAddress);
 
             try {
+                console.log('  - Calling estimateGas for swapDebt...');
+                console.log('  - swapParams:', {
+                    debtAsset: swapParams.debtAsset,
+                    debtRepayAmount: swapParams.debtRepayAmount.toString(),
+                    debtRateMode: swapParams.debtRateMode,
+                    newDebtAsset: swapParams.newDebtAsset,
+                    maxNewDebtAmount: swapParams.maxNewDebtAmount.toString(),
+                    offset: swapParams.offset,
+                    paraswapDataLength: swapParams.paraswapData.length
+                });
+                console.log('  - creditPermit:', {
+                    debtToken: creditPermit.debtToken,
+                    value: creditPermit.value.toString(),
+                    deadline: creditPermit.deadline.toString(),
+                    v: creditPermit.v,
+                    r: creditPermit.r.substring(0, 20) + '...',
+                    s: creditPermit.s.substring(0, 20) + '...'
+                });
+                console.log('  - collateralPermit:', collateralPermit);
+
                 addLog?.('Estimating required gas...', 'info');
 
                 if (simulateError) {
                     throw new Error("Manual Error Simulation: Forced failure for testing.");
                 }
 
-                const estimatedGas = await adapterContract.swapDebt.estimateGas(
+                console.log('  - Starting estimateGas call with 15s timeout...');
+
+                // Add timeout to prevent indefinite hang
+                const estimateGasPromise = adapterContract.swapDebt.estimateGas(
                     swapParams,
                     creditPermit,
                     collateralPermit
                 );
+
+                const timeoutPromise = new Promise((_, reject) =>
+                    setTimeout(() => reject(new Error('Gas estimation timeout after 15 seconds')), 15000)
+                );
+
+                const estimatedGas = await Promise.race([estimateGasPromise, timeoutPromise]);
+
+                console.log('  - estimateGas returned successfully!');
                 gasLimit = (estimatedGas * BigInt(150)) / BigInt(100);
                 const minGas = BigInt(2000000);
                 const maxGas = BigInt(15000000);
                 if (gasLimit < minGas) gasLimit = minGas;
                 if (gasLimit > maxGas) gasLimit = maxGas;
+
+                console.log('✅ Gas estimation successful:', {
+                    estimated: estimatedGas.toString(),
+                    withBuffer: gasLimit.toString()
+                });
                 addLog?.(`📊 Estimated gas: ${estimatedGas.toString()}, using: ${gasLimit.toString()} (1.5x buffer)`, 'success');
             } catch (estimateError) {
+                console.error('❌ GAS ESTIMATION FAILED:', estimateError);
+                console.error('  - Error name:', estimateError?.name);
+                console.error('  - Error code:', estimateError?.code);
+                console.error('  - Error message:', estimateError?.message);
+                console.error('  - Error data:', estimateError?.data);
+                console.error('  - Error reason:', estimateError?.reason);
+                console.error('  - Error shortMessage:', estimateError?.shortMessage);
+
                 addLog?.(`❌ Simulation failed - Transaction cancelled`, 'error');
                 addLog?.(`Reason: ${estimateError?.shortMessage || estimateError.message.substring(0, 150)}`, 'error');
                 addLog?.(`🔍 Revert Data: ${estimateError?.data || 'N/A'}`, 'debug');
@@ -378,6 +601,10 @@ export const useDebtSwitchActions = ({
                 return;
             }
 
+            console.log('🚀 Step 6: Sending transaction to wallet for confirmation...');
+            console.log('  - GasLimit:', gasLimit.toString());
+            console.log('  - Waiting for user confirmation in wallet...');
+
             try {
                 tx = await adapterContract.swapDebt(
                     swapParams,
@@ -385,6 +612,11 @@ export const useDebtSwitchActions = ({
                     collateralPermit,
                     { gasLimit }
                 );
+
+                console.log('✅ Step 6 Complete: Transaction sent to network!');
+                console.log('  - Transaction hash:', tx.hash);
+                console.log('  - Block explorer:', `https://basescan.org/tx/${tx.hash}`);
+
                 addLog?.('✅ swapDebt sent successfully!', 'success');
             } catch (swapError) {
                 if (swapError.code === 'ACTION_REJECTED') {
@@ -408,16 +640,16 @@ export const useDebtSwitchActions = ({
             addLog?.(`🔍 BaseScan: https://basescan.org/tx/${tx.hash}`, 'info');
 
             let receipt;
-            let retryCount = 0;
-            const maxRetries = 5;
+            let waitRetryCount = 0;
+            const waitMaxRetries = 5;
 
             // Retry logic for tx.wait() - RPC may return null temporarily
-            while (retryCount < maxRetries) {
+            while (waitRetryCount < waitMaxRetries) {
                 try {
                     receipt = await tx.wait();
                     break; // Success - exit loop
                 } catch (waitError) {
-                    retryCount++;
+                    waitRetryCount++;
 
                     // If it's a BAD_DATA error with result: null, it's a temporary RPC error
                     const isTempRpcError =
@@ -425,16 +657,16 @@ export const useDebtSwitchActions = ({
                         waitError.message?.includes('result": null') ||
                         waitError.message?.includes('invalid numeric value');
 
-                    if (isTempRpcError && retryCount < maxRetries) {
-                        addLog?.(`⏳ RPC busy - attempt ${retryCount}/${maxRetries}...`, 'info');
+                    if (isTempRpcError && waitRetryCount < waitMaxRetries) {
+                        addLog?.(`⏳ RPC busy - attempt ${waitRetryCount}/${waitMaxRetries}...`, 'info');
                         // Wait progressively longer (1s, 2s, 3s, 4s, 5s)
-                        await new Promise(resolve => setTimeout(resolve, retryCount * 1000));
+                        await new Promise(resolve => setTimeout(resolve, waitRetryCount * 1000));
                         continue;
                     }
 
                     // If not a temporary error or retries exhausted, check manually
-                    if (retryCount >= maxRetries) {
-                        addLog?.(`⚠️ RPC did not return receipt after ${maxRetries} attempts`, 'warning');
+                    if (waitRetryCount >= waitMaxRetries) {
+                        addLog?.(`⚠️ RPC did not return receipt after ${waitMaxRetries} attempts`, 'warning');
                         addLog?.(`🔍 Checking manually on blockchain...`, 'info');
 
                         try {
@@ -505,6 +737,11 @@ export const useDebtSwitchActions = ({
             setSignedPermit(null);
             fetchDebtData();
         } catch (error) {
+            console.error('❌ [handleSwap] Caught error in main try-catch:', error);
+            console.error('  - Error code:', error.code);
+            console.error('  - Error message:', error.message);
+            console.error('  - Full error:', error);
+
             if (error.code === 'ACTION_REJECTED') {
                 setUserRejected(true);
             } else {
@@ -582,6 +819,7 @@ export const useDebtSwitchActions = ({
     }, [pendingTxParams, addLog, clearQuote, fetchDebtData, networkAddresses, adapterAddress, ensureWalletNetwork]);
 
     const clearTxError = useCallback(() => setTxError(null), []);
+    const clearUserRejected = useCallback(() => setUserRejected(false), []);
     const clearCachedPermit = useCallback(() => setSignedPermit(null), []);
 
     return {
@@ -595,6 +833,7 @@ export const useDebtSwitchActions = ({
         handleSwap,
         handleForceSwap,
         clearTxError,
+        clearUserRejected,
         clearCachedPermit,
         setTxError,
     };

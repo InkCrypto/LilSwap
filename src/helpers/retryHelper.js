@@ -26,7 +26,15 @@ export async function retryWithBackoff(fn, options = {}) {
         } catch (error) {
             lastError = error;
 
-            // Don't retry on certain errors (e.g., user rejection)
+            // Check for rate limit errors (429, Too Many Requests)
+            const isRateLimitError =
+                error.message?.includes('429') ||
+                error.message?.includes('Too Many Requests') ||
+                error.message?.includes('rate limit') ||
+                error.code === 'CALL_EXCEPTION' ||
+                error.message?.includes('Failed to fetch');
+
+            // Don't retry on certain errors (e.g., user rejection, insufficient funds)
             if (error.code === 'ACTION_REJECTED' || error.code === 'INSUFFICIENT_FUNDS') {
                 throw error;
             }
@@ -37,7 +45,9 @@ export async function retryWithBackoff(fn, options = {}) {
             }
 
             // Calculate delay with exponential backoff
-            const delay = Math.min(initialDelay * Math.pow(2, attempt - 1), maxDelay);
+            // Use longer delays for rate limit errors
+            const baseDelay = isRateLimitError ? initialDelay * 2 : initialDelay;
+            const delay = Math.min(baseDelay * Math.pow(2, attempt - 1), maxDelay);
 
             // Call retry callback if provided
             if (onRetry) {

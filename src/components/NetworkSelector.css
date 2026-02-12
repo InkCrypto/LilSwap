@@ -14,7 +14,7 @@
 }
 
 .network-selector__button {
-    padding: 0.375rem 0.75rem;
+    padding: 0.375rem 0.5rem;
     background: transparent;
     border: none;
     border-radius: 0.375rem;
@@ -22,8 +22,10 @@
     font-size: 0.8125rem;
     font-weight: 500;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     white-space: nowrap;
+    display: flex;
+    align-items: center;
 }
 
 .network-selector__button:hover {
@@ -36,14 +38,41 @@
     color: #ffffff;
     font-weight: 600;
     box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    padding: 0.375rem 0.875rem;
 }
 
 .network-selector__button--active:hover {
     background: linear-gradient(135deg, #5568d3 0%, #6b3f8f 100%);
 }
 
+.network-selector__button-content {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.network-selector__icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: contain;
+}
+
 .network-selector__button-label {
-    display: inline-block;
+    display: inline;
+    animation: fadeIn 0.2s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateX(-4px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
 }
 
 /* Responsive Design */
@@ -56,5 +85,9 @@
     .network-selector__button {
         padding: 0.25rem 0.5rem;
         font-size: 0.75rem;
+    }
+
+    .network-selector__button-label {
+        display: none;
     }
 }

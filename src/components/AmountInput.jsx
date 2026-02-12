@@ -11,7 +11,8 @@ export const AmountInput = ({
     decimals,
     symbol,
     onAmountChange,
-    isProcessing = false // Shows loading state while waiting for backend
+    isProcessing = false, // Shows loading state while waiting for backend
+    hasInlineSelector = false // Add extra padding when a selector button is inside the input
 }) => {
     const [inputValue, setInputValue] = useState('');
     const [selectedPercentage, setSelectedPercentage] = useState(100);
@@ -126,9 +127,9 @@ export const AmountInput = ({
                     value={inputValue}
                     onChange={handleInputChange}
                     placeholder="0.00"
-                    className="w-full bg-slate-800 text-white text-2xl font-mono font-bold px-4 py-3 rounded-lg border-2 border-slate-700 focus:border-purple-500 focus:outline-none transition-colors"
+                    className={`w-full bg-slate-800 text-white text-2xl font-mono font-bold px-4 py-3 rounded-lg border-2 border-slate-700 focus:border-purple-500 focus:outline-none transition-colors ${hasInlineSelector ? 'pr-20' : ''}`}
                 />
-                <div className="absolute right-4 top-1/2 -translate-y-1/2">
+                <div className={`absolute ${hasInlineSelector ? 'right-20' : 'right-4'} top-1/2 -translate-y-1/2`}>
                     <span className="text-slate-500 text-sm font-bold">
                         {symbol}
                     </span>

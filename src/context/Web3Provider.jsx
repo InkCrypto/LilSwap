@@ -15,13 +15,17 @@ export const Web3Provider = ({ children }) => {
     const [selectedNetworkKey, setSelectedNetworkKey] = useState(DEFAULT_NETWORK.key);
 
     const selectedNetwork = useMemo(() => NETWORKS[selectedNetworkKey] || DEFAULT_NETWORK, [selectedNetworkKey]);
-    const allowedNetworks = useMemo(() => [NETWORKS.BASE, NETWORKS.ETHEREUM, NETWORKS.POLYGON, NETWORKS.BNB], []);
+    const allowedNetworks = useMemo(() => [NETWORKS.ETHEREUM, NETWORKS.BASE, NETWORKS.POLYGON, NETWORKS.BNB], []);
 
     const networkRpcProvider = useMemo(() => {
         const rpcUrls = selectedNetwork?.rpcUrls;
         if (!rpcUrls || rpcUrls.length === 0) {
             return null;
         }
+
+        console.log('[Web3Provider] Creating RPC provider for:', selectedNetwork.label);
+        console.log('[Web3Provider] Available RPCs:', rpcUrls);
+        console.log('[Web3Provider] Using primary RPC:', rpcUrls[0]);
 
         return createRpcProvider(rpcUrls);
     }, [selectedNetwork]);
