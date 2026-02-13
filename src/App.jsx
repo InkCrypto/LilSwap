@@ -1,7 +1,6 @@
 import React, { useState, useCallback } from 'react';
 import { Wallet, LogOut, Terminal } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
-import { NetworkSelector } from './components/NetworkSelector.jsx';
 import { Dashboard } from './components/Dashboard.jsx';
 
 const LilLogo = ({ className = "w-6 h-6" }) => (
@@ -79,8 +78,6 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-4">
-            <NetworkSelector />
-
             {!account ? (
               <button
                 onClick={handleConnect}

@@ -59,7 +59,35 @@ export const Web3Provider = ({ children }) => {
             }
         };
 
+        // Detect and sync current chain from wallet
+        const syncChainFromWallet = async () => {
+            try {
+                if (!window.ethereum) return;
+
+                const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+                const chainId = parseInt(chainIdHex, 16);
+
+                console.log('[Web3Provider] Detected wallet chain:', chainId);
+
+                // Find matching network by chainId
+                const matchingNetwork = Object.entries(NETWORKS).find(
+                    ([_, network]) => network.chainId === chainId
+                );
+
+                if (matchingNetwork) {
+                    const [networkKey] = matchingNetwork;
+                    console.log('[Web3Provider] Syncing to network:', networkKey);
+                    setSelectedNetworkKey(networkKey);
+                } else {
+                    console.warn('[Web3Provider] Unknown chainId:', chainId);
+                }
+            } catch (error) {
+                console.error('[Web3Provider] Failed to sync chain:', error);
+            }
+        };
+
         autoConnect();
+        syncChainFromWallet(); // Sync chain on mount and provider change
 
         const handleAccountsChanged = (accounts) => {
             if (accounts.length > 0) {
@@ -69,10 +97,24 @@ export const Web3Provider = ({ children }) => {
             }
         };
 
-        const handleChainChanged = () => {
+        const handleChainChanged = async (chainIdHex) => {
+            console.log('[Web3Provider] Chain changed event:', chainIdHex);
+
             const nextProvider = initializeProvider();
             if (nextProvider) {
                 setProvider(nextProvider);
+            }
+
+            // Update selectedNetwork based on new chain
+            const chainId = parseInt(chainIdHex, 16);
+            const matchingNetwork = Object.entries(NETWORKS).find(
+                ([_, network]) => network.chainId === chainId
+            );
+
+            if (matchingNetwork) {
+                const [networkKey] = matchingNetwork;
+                console.log('[Web3Provider] Network changed to:', networkKey);
+                setSelectedNetworkKey(networkKey);
             }
         };
 

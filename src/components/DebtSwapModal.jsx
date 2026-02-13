@@ -265,9 +265,24 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
  * DebtSwapModal Component
  * Complete modal for swapping debt with integrated hooks and state management
  */
-export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initialToToken = null }) => {
+export const DebtSwapModal = ({
+    isOpen,
+    onClose,
+    initialFromToken = null,
+    initialToToken = null,
+    chainId = null,
+    marketAssets: providedMarketAssets = null
+}) => {
     const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
-    const { marketAssets } = useUserPosition();
+
+    // Use provided marketAssets as fallback if selectedNetwork isn't synced yet
+    // In normal flow, selectedNetwork will be updated by Web3Provider's chainChanged handler
+    const { marketAssets: fetchedMarketAssets } = useUserPosition();
+    const marketAssets = providedMarketAssets || fetchedMarketAssets;
+
+    // For hooks, use selectedNetwork (should be updated by Web3Provider)
+    // chainId prop is kept for debug/fallback purposes
+    const effectiveNetwork = selectedNetwork;
 
     // Local state
     const [fromToken, setFromToken] = useState(initialFromToken);
@@ -286,7 +301,6 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
     // Initialize tokens from props
     useEffect(() => {
         if (isOpen && initialFromToken) {
-            console.log('[DebtSwapModal] Setting fromToken:', initialFromToken);
             setFromToken(initialFromToken);
 
             // Auto-select toToken if not provided
@@ -307,7 +321,6 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
                 );
 
                 if (defaultTo) {
-                    console.log('[DebtSwapModal] Auto-selected toToken:', defaultTo.symbol);
                     setToToken(defaultTo);
                 }
             }
@@ -339,8 +352,20 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
         fromToken,
         toToken,
         addLog,
-        selectedNetwork,
+        selectedNetwork: effectiveNetwork,
     });
+
+    // Debug debt data
+    useEffect(() => {
+        console.log('[DebtSwapModal] Debt data:', {
+            isDebtLoading,
+            hasFromToken: !!fromToken,
+            fromTokenSymbol: fromToken?.symbol,
+            formattedDebt,
+            debtBalance: debtBalance?.toString(),
+            allowance: allowance?.toString()
+        });
+    }, [isDebtLoading, fromToken, formattedDebt, debtBalance, allowance]);
 
     // Quote hook
     const {
@@ -359,7 +384,7 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
         toToken,
         addLog,
         onQuoteLoaded: null,
-        selectedNetwork,
+        selectedNetwork: effectiveNetwork,
         account,
         enabled: isOpen,
     });
@@ -389,7 +414,7 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
         fetchQuote,
         resetRefreshCountdown,
         clearQuote,
-        selectedNetwork,
+        selectedNetwork: effectiveNetwork,
         simulateError: false,
     });
 
