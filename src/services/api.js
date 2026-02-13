@@ -1,13 +1,27 @@
 import axios from 'axios';
+import logger from '../utils/logger';
 
 // Axios instance configured for the backend
+// Uses VITE_API_URL from environment files (.env.development or .env.production)
 const apiClient = axios.create({
-    baseURL: 'http://localhost:3001',
+    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1',
     headers: {
         'Content-Type': 'application/json',
     },
     timeout: 45000, // 45s timeout to allow for retries
 });
+
+// Add request interceptor for logging
+apiClient.interceptors.request.use(
+    (config) => {
+        logger.api(config.method?.toUpperCase() || 'REQUEST', config.url, config.data);
+        return config;
+    },
+    (error) => {
+        logger.error('API Request Error', error);
+        return Promise.reject(error);
+    }
+);
 
 // Add retry interceptor
 apiClient.interceptors.response.use(
@@ -31,11 +45,22 @@ apiClient.interceptors.response.use(
             config.retry.count++;
             const delay = config.retry.delay * Math.pow(2, config.retry.count - 1);
 
-            console.log(`[API Retry ${config.retry.count}/${config.retry.maxRetries}] Waiting ${delay}ms...`);
+            logger.warn(`API Retry ${config.retry.count}/${config.retry.maxRetries} - Waiting ${delay}ms`, {
+                url: config.url,
+                status: error.response?.status,
+                error: error.message
+            });
 
             await new Promise(resolve => setTimeout(resolve, delay));
             return apiClient(config);
         }
+
+        logger.error('API Request Failed', {
+            url: config?.url,
+            method: config?.method,
+            status: error.response?.status,
+            message: error.message
+        });
 
         return Promise.reject(error);
     }
@@ -53,10 +78,12 @@ apiClient.interceptors.response.use(
  */
 export const getDebtQuote = async (params) => {
     try {
-        const response = await apiClient.post('/api/quote/debt', params);
+        const response = await apiClient.post('/quote/debt', params);
+        logger.debug('Debt quote received', { srcAmount: response.data.srcAmount });
         return response.data;
     } catch (error) {
         const errorMessage = error.response?.data?.error || error.message || 'Error fetching quote';
+        logger.error('Failed to get debt quote', { error: errorMessage });
         throw new Error(errorMessage);
     }
 };
@@ -76,10 +103,12 @@ export const getDebtQuote = async (params) => {
  */
 export const buildDebtSwapTx = async (params) => {
     try {
-        const response = await apiClient.post('/api/build/debt/paraswap', params);
+        const response = await apiClient.post('/build/debt/paraswap', params);
+        logger.debug('Debt swap transaction built', { to: response.data.to });
         return response.data;
     } catch (error) {
         const errorMessage = error.response?.data?.error || error.message || 'Error building transaction';
+        logger.error('Failed to build debt swap transaction', { error: errorMessage });
         throw new Error(errorMessage);
     }
 };
@@ -92,12 +121,17 @@ export const buildDebtSwapTx = async (params) => {
  */
 export const getUserPosition = async (userAddress, chainId) => {
     try {
-        const response = await apiClient.get(`/api/position/${userAddress}`, {
+        const response = await apiClient.get(`/position/${userAddress}`, {
             params: { chainId }
+        });
+        logger.debug('User position fetched', {
+            supplies: response.data.supplies?.length || 0,
+            borrows: response.data.borrows?.length || 0
         });
         return response.data;
     } catch (error) {
         const errorMessage = error.response?.data?.error || error.message || 'Error fetching position';
+        logger.error('Failed to fetch user position', { error: errorMessage, userAddress });
         throw new Error(errorMessage);
     }
 };
