@@ -398,7 +398,21 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
     // eslint-disable-next-line no-unused-vars
     const { } = {};
 
-    const needsApproval = allowance === BigInt(0) && toToken;
+    const needsApproval = useMemo(() => {
+        if (!toToken || !swapQuote?.srcAmount) return false;
+
+        try {
+            const srcAmountBigInt = typeof swapQuote.srcAmount === 'bigint'
+                ? swapQuote.srcAmount
+                : BigInt(swapQuote.srcAmount);
+
+            const maxNewDebt = (srcAmountBigInt * BigInt(1005)) / BigInt(1000);
+            return allowance < maxNewDebt;
+        } catch (error) {
+            console.warn('[DebtSwapModal] Failed to compute needsApproval from quote:', error);
+            return false;
+        }
+    }, [allowance, toToken, swapQuote]);
     const isBusy = isActionLoading || isDebtLoading;
 
     // Debug state changes
@@ -526,8 +540,8 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
                         <button
                             onClick={() => setActiveTab('market')}
                             className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'market'
-                                    ? 'bg-slate-900 text-white'
-                                    : 'text-slate-400 hover:text-white'
+                                ? 'bg-slate-900 text-white'
+                                : 'text-slate-400 hover:text-white'
                                 }`}
                         >
                             Market
@@ -537,8 +551,8 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
                             aria-disabled="true"
                             title="Limit orders coming soon"
                             className={`flex-1 py-2 text-sm font-bold rounded-md transition-all opacity-60 cursor-not-allowed ${activeTab === 'limit'
-                                    ? 'bg-slate-900 text-white'
-                                    : 'text-slate-400'
+                                ? 'bg-slate-900 text-white'
+                                : 'text-slate-400'
                                 }`}
                         >
                             <span>Limit</span>
@@ -572,8 +586,8 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
                                         setShowSlippageSettings(false);
                                     }}
                                     className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all ${slippage === val
-                                            ? 'bg-purple-600 text-white'
-                                            : 'bg-slate-900 text-slate-400 hover:bg-slate-700'
+                                        ? 'bg-purple-600 text-white'
+                                        : 'bg-slate-900 text-slate-400 hover:bg-slate-700'
                                         }`}
                                 >
                                     {val / 10}%
@@ -683,41 +697,32 @@ export const DebtSwapModal = ({ isOpen, onClose, initialFromToken = null, initia
                 )}
 
                 {/* Action Button */}
-                {needsApproval ? (
+                <button
+                    onClick={handleSwap}
+                    disabled={isBusy || !swapQuote || !fromToken || !toToken || swapAmount === BigInt(0)}
+                    className="w-full bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-3 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                    {isBusy ? (
+                        <>
+                            <RefreshCw className="w-4 h-4 animate-spin" />
+                            Processing...
+                        </>
+                    ) : (
+                        <>
+                            <ArrowRightLeft className="w-4 h-4" />
+                            {needsApproval && !signedPermit ? 'Assinar e Trocar' : 'Confirmar Troca'}
+                        </>
+                    )}
+                </button>
+
+                {swapQuote && needsApproval && (
                     <button
                         onClick={handleApproveDelegation}
                         disabled={isBusy || !toToken}
-                        className="w-full bg-orange-600 hover:bg-orange-500 text-white font-bold py-3 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                        className="w-full bg-orange-600/20 hover:bg-orange-600/30 text-orange-300 font-bold py-2 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-orange-500/40"
                     >
-                        {isBusy ? (
-                            <>
-                                <RefreshCw className="w-4 h-4 animate-spin" />
-                                Approving...
-                            </>
-                        ) : (
-                            <>
-                                <CheckCircle2 className="w-4 h-4" />
-                                Approve Delegation
-                            </>
-                        )}
-                    </button>
-                ) : (
-                    <button
-                        onClick={handleSwap}
-                        disabled={isBusy || !swapQuote || !fromToken || !toToken || swapAmount === BigInt(0)}
-                        className="w-full bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-3 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                    >
-                        {isBusy ? (
-                            <>
-                                <RefreshCw className="w-4 h-4 animate-spin" />
-                                Processing...
-                            </>
-                        ) : (
-                            <>
-                                <ArrowRightLeft className="w-4 h-4" />
-                                Confirmar Troca
-                            </>
-                        )}
+                        <CheckCircle2 className="w-4 h-4" />
+                        Aprovar onchain (fallback)
                     </button>
                 )}
 
