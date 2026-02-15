@@ -44,10 +44,27 @@ LilSwap is a high-performance interface built for managing Aave V3 positions. It
    ```
 3. **Configure Environment:**
    Copy `.env.example` to `.env` and fill in your RPC URLs and API keys.
+   Recommendation: keep only `.env.example` in the repo. Each developer creates their own `.env.local` for local overrides.
+
+## Local & CI environment setup (short)
+
+
+- Local development: copy `.env.example` to `.env.local` in the project root (this file is gitignored) and edit values. Example:
+
+   ```bash
+   cp .env.example .env.local
+   # Edit .env.local to point to the API you want to use for development.
+   # For a local engine: http://localhost:3001
+   # For testing against production API: https://engine.PROD_DOMAIN/api/v1
+   # Example: VITE_API_URL=https://engine.PROD_DOMAIN/api/v1
+   ```
+
+- By default contributors should point to the official production API unless they explicitly run a local engine.
+
+- CI / Production: set `VITE_API_URL` in your CI/build environment so production builds embed the official API URL. Do not store production secrets in the repo.
 4. **Run Development Mode:**
    ```bash
    npm run dev
    ```
 
----
 *Disclaimer: LilSwap is a specialized interface for Aave V3. Interacting with DeFi protocols involves financial risk.*
