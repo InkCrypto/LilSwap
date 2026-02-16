@@ -1,6 +1,6 @@
 import { ethers } from 'ethers';
 import { AaveV3Ethereum, AaveV3Base, AaveV3Polygon, AaveV3BNB } from '@bgd-labs/aave-address-book';
-
+import logger from '../utils/logger.js';
 /**
  * Helper: Normalize address checksum using ethers v6
  * @param {string} address - Raw address
@@ -11,7 +11,7 @@ const normalizeAddress = (address) => {
     try {
         return ethers.getAddress(address);
     } catch (error) {
-        console.warn(`[networks.js] Failed to normalize address ${address}:`, error.message);
+        logger.warn(`[networks.js] Failed to normalize address ${address}:`, error.message);
         return address; // Fallback to original
     }
 };

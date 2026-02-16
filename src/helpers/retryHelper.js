@@ -1,3 +1,4 @@
+import logger from '../utils/logger.js';
 /**
  * Retry a promise-based function with exponential backoff
  * Useful for handling temporary RPC provider issues
@@ -72,7 +73,7 @@ export async function retryContractCall(contractCallFn, contractName = 'Contract
         initialDelay: 800,
         maxDelay: 5000,
         onRetry: (attempt, error) => {
-            console.warn(`[Retry ${attempt}/5] ${contractName} call failed:`, error.code || error.message);
+            logger.warn(`[Retry ${attempt}/5] ${contractName} call failed:`, error.code || error.message);
         },
         ...options,
     });

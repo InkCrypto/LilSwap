@@ -40,16 +40,27 @@ const STYLES = {
 /**
  * Get current log level from environment
  * Defaults: production = 'error', development = 'debug'
+ * Prioritizes explicit VITE_LOG_LEVEL setting over MODE detection
  */
 const getCurrentLogLevel = () => {
+    // Priority 1: Explicit VITE_LOG_LEVEL env var
     const envLevel = import.meta.env.VITE_LOG_LEVEL?.toLowerCase();
-
     if (envLevel && LOG_PRIORITY.hasOwnProperty(envLevel)) {
         return envLevel;
     }
 
-    // Default based on MODE
-    return import.meta.env.PROD ? LOG_LEVELS.ERROR : LOG_LEVELS.DEBUG;
+    // Priority 2: Check MODE explicitly (production mode should be 'error')
+    if (import.meta.env.MODE === 'production') {
+        return LOG_LEVELS.ERROR;
+    }
+
+    // Priority 3: Legacy PROD check
+    if (import.meta.env.PROD === true) {
+        return LOG_LEVELS.ERROR;
+    }
+
+    // Default: development = debug
+    return LOG_LEVELS.DEBUG;
 };
 
 const currentLevel = getCurrentLogLevel();
@@ -184,12 +195,18 @@ export const getConfig = () => ({
 });
 
 // Log initialization (only in debug mode)
+// Using logger's own debug method to respect level filtering
 if (currentLevel === LOG_LEVELS.DEBUG) {
-    console.log(
-        '%c[Logger] Initialized',
-        'color: #00aa88; font-weight: bold;',
-        `Level: ${currentLevel.toUpperCase()}`
-    );
+    // Defer initialization log to avoid direct console usage
+    setTimeout(() => {
+        if (shouldLog(LOG_LEVELS.DEBUG)) {
+            console.log(
+                '%c[Logger] Initialized',
+                'color: #00aa88; font-weight: bold;',
+                `Level: ${currentLevel.toUpperCase()}, Mode: ${import.meta.env.MODE}`
+            );
+        }
+    }, 0);
 }
 
 export default {

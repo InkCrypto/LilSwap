@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
-
+import logger from '../utils/logger.js';
 /**
  * AmountInput Component
  * Allows the user to select a specific amount for swap
@@ -86,7 +86,7 @@ export const AmountInput = ({
                 }
             } catch (error) {
                 // Invalid input, ignore
-                console.warn('Invalid input:', value);
+                logger.warn('Invalid input:', value);
             }
         }
     };

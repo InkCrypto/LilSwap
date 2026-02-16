@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useWeb3 } from '../context/web3Context';
 import { getUserPosition } from '../services/api';
-
+import logger from '../utils/logger.js';
 /**
  * Hook para buscar e gerenciar a posição agregada do usuário na Aave
  * @returns {Object} { supplies, borrows, summary, loading, error, refresh }
@@ -32,7 +32,7 @@ export const useUserPosition = () => {
             cacheRef.current.key === cacheKey &&
             cacheRef.current.data &&
             (now - cacheRef.current.timestamp) < CACHE_TTL) {
-            console.log('[useUserPosition] Using cached data');
+            logger.debug('[useUserPosition] Using cached data');
             setData(cacheRef.current.data);
             return;
         }
@@ -57,7 +57,7 @@ export const useUserPosition = () => {
 
             setData(newData);
         } catch (err) {
-            console.error('Error fetching user position:', err);
+            logger.error('Error fetching user position:', err);
             const errorMsg = err.message || 'Falha ao carregar posições na Aave';
 
             // Provide more specific error messages

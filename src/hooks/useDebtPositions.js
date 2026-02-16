@@ -8,6 +8,7 @@ import {
 } from '../services/aaveContracts.js';
 import { retryContractCall } from '../helpers/retryHelper.js';
 
+import logger from '../utils/logger.js';
 export const useDebtPositions = ({ account, provider, networkRpcProvider, fromToken, toToken, addLog, selectedNetwork }) => {
     const [debtBalance, setDebtBalance] = useState(null);
     const [formattedDebt, setFormattedDebt] = useState('0');
@@ -25,7 +26,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
         try {
             return ethers.getAddress(networkAddresses.DEBT_SWAP_ADAPTER);
         } catch (error) {
-            console.warn('[useDebtPositions] Invalid DEBT_SWAP_ADAPTER:', networkAddresses.DEBT_SWAP_ADAPTER, error);
+            logger.warn('[useDebtPositions] Invalid DEBT_SWAP_ADAPTER:', networkAddresses.DEBT_SWAP_ADAPTER, error);
             return null;
         }
     }, [networkAddresses?.DEBT_SWAP_ADAPTER]);
@@ -33,7 +34,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
 
     const fetchDebtData = useCallback(async () => {
         if (!account || !readProvider || !fromToken || !toToken) {
-            console.log('[useDebtPositions] Missing requirements:', {
+            logger.debug('[useDebtPositions] Missing requirements:', {
                 hasAccount: !!account,
                 hasProvider: !!readProvider,
                 hasFromToken: !!fromToken,
@@ -45,7 +46,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
         // 🔥 FAST PATH: Use backend balance directly if available
         if (fromToken.amount) {
             const backendBalance = BigInt(fromToken.amount);
-            console.log('[useDebtPositions] ⚡ Using BACKEND balance (faster):', {
+            logger.debug('[useDebtPositions] ⚡ Using BACKEND balance (faster):', {
                 balance: backendBalance.toString(),
                 formatted: ethers.formatUnits(backendBalance, fromToken.decimals),
                 source: 'Backend API'
@@ -67,7 +68,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
                 // Use debt token address from backend, with fallback to on-chain
                 let nextDebtTokenAddr = toToken.variableDebtTokenAddress;
                 if (!nextDebtTokenAddr || nextDebtTokenAddr === ethers.ZeroAddress) {
-                    console.log('[useDebtPositions] No debt token from backend, falling back to on-chain...');
+                    logger.debug('[useDebtPositions] No debt token from backend, falling back to on-chain...');
                     const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, readProvider);
                     const toTokenAddress = toToken.underlyingAsset || toToken.address;
                     const toReserveData = await poolContract.getReserveData(toTokenAddress);
@@ -87,13 +88,13 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
                     addLog?.(`[Allowance] Credit delegation required for ${toToken.symbol}`, 'warning');
                 }
             } catch (error) {
-                console.warn('[useDebtPositions] Allowance check failed:', error.message);
+                logger.warn('[useDebtPositions] Allowance check failed:', error.message);
             }
 
             setIsDebtLoading(false);
             return;
         }
-        console.log('[useDebtPositions] ReadProvider details:', {
+        logger.debug('[useDebtPositions] ReadProvider details:', {
             provider: readProvider.constructor.name,
             connection: readProvider._getConnection?.() || 'N/A'
         });
@@ -120,7 +121,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             const providerChainId = Number(providerNetwork.chainId);
             const expectedChainId = selectedNetwork?.chainId || DEFAULT_NETWORK.chainId;
 
-            console.log('[useDebtPositions] 🔍 Network verification:', {
+            logger.debug('[useDebtPositions] 🔍 Network verification:', {
                 providerChainId,
                 expectedChainId,
                 providerName: providerNetwork.name,
@@ -129,14 +130,14 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
 
             if (providerChainId !== expectedChainId) {
                 const errorMsg = `❌ Provider on WRONG NETWORK! Expected ${expectedChainId} (Base), got ${providerChainId}`;
-                console.error('[useDebtPositions]', errorMsg);
+                logger.error('[useDebtPositions]', errorMsg);
                 addLog?.(errorMsg, 'error');
                 throw new Error(errorMsg);
             }
 
-            console.log('[useDebtPositions] ✅ Network OK! Provider is on chainId', providerChainId);
+            logger.debug('[useDebtPositions] ✅ Network OK! Provider is on chainId', providerChainId);
 
-            console.log('[useDebtPositions] Fetching debt data:', {
+            logger.debug('[useDebtPositions] Fetching debt data:', {
                 fromToken: fromToken.symbol,
                 toToken: toToken.symbol,
                 account,
@@ -153,14 +154,14 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             // ALWAYS fetch debtTokenAddress from the Pool contract
             // Use debt token address from backend, with fallback to on-chain
             let currentDebtTokenAddr = fromToken.debtTokenAddress;
-            console.log('[useDebtPositions] Debt token from backend:', currentDebtTokenAddr);
+            logger.debug('[useDebtPositions] Debt token from backend:', currentDebtTokenAddr);
 
             if (!currentDebtTokenAddr || currentDebtTokenAddr === ethers.ZeroAddress) {
                 const fromTokenAddress = fromToken.underlyingAsset || fromToken.address;
-                console.log('[useDebtPositions] No debt token from backend, falling back to on-chain...');
+                logger.debug('[useDebtPositions] No debt token from backend, falling back to on-chain...');
                 const fromReserveData = await poolContract.getReserveData(fromTokenAddress);
                 currentDebtTokenAddr = fromReserveData.variableDebtTokenAddress;
-                console.log('[useDebtPositions] Fallback result:', currentDebtTokenAddr);
+                logger.debug('[useDebtPositions] Fallback result:', currentDebtTokenAddr);
             }
 
             const debtContract = getDebtTokenContract(currentDebtTokenAddr, readProvider);
@@ -168,14 +169,14 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             const contractAddress = await debtContract.getAddress();
             const contractNetwork = await readProvider.getNetwork();
 
-            console.log('[useDebtPositions] 📄 Debt contract details:', {
+            logger.debug('[useDebtPositions] 📄 Debt contract details:', {
                 contractAddress,
                 providerChainId: Number(contractNetwork.chainId),
                 providerName: contractNetwork.name,
                 expectedChainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId
             });
 
-            console.log('[useDebtPositions] Calling balanceOf for account:', account);
+            logger.debug('[useDebtPositions] Calling balanceOf for account:', account);
             const balance = await retryContractCall(
                 () => debtContract.balanceOf(account),
                 `${fromToken.symbol} Debt Token`,
@@ -190,7 +191,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             setDebtBalance(balance);
             setFormattedDebt(ethers.formatUnits(balance, fromToken.decimals));
 
-            console.log('[useDebtPositions] ✅ Debt balance fetched:', {
+            logger.debug('[useDebtPositions] ✅ Debt balance fetched:', {
                 debtTokenAddress: currentDebtTokenAddr,
                 account,
                 balance: balance.toString(),
@@ -204,16 +205,16 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             const tolerance = Number(fromToken.amount || 0) * 0.001; // 0.1% tolerance for interest accrual
 
             if (balanceDiff > tolerance && fromToken.amount) {
-                console.warn('[useDebtPositions] ⚠️ On-chain differs from backend (interest accrual is normal):', {
+                logger.warn('[useDebtPositions] ⚠️ On-chain differs from backend (interest accrual is normal):', {
                     onChain: ethers.formatUnits(balance, fromToken.decimals),
                     backend: fromToken.formattedAmount,
                     diffPercent: ((balanceDiff / Number(fromToken.amount)) * 100).toFixed(4) + '%'
                 });
 
                 if (balance === BigInt(0) && Number(fromToken.amount) > 1000000) { // More than 1 USDC raw
-                    console.error('[useDebtPositions] 🔴 CRITICAL: On-chain is 0 but backend shows significant debt!');
-                    console.error('[useDebtPositions] This is likely a provider/RPC issue.');
-                    console.error('[useDebtPositions] Using BACKEND value as it\'s more reliable.');
+                    logger.error('[useDebtPositions] 🔴 CRITICAL: On-chain is 0 but backend shows significant debt!');
+                    logger.error('[useDebtPositions] This is likely a provider/RPC issue.');
+                    logger.error('[useDebtPositions] Using BACKEND value as it\'s more reliable.');
                     addLog?.('⚠️ Using server balance due to RPC inconsistency', 'warning');
                 }
             }
@@ -232,11 +233,11 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             // Use debt token address from backend, with fallback to on-chain
             let nextDebtTokenAddr = toToken.variableDebtTokenAddress;
             if (!nextDebtTokenAddr || nextDebtTokenAddr === ethers.ZeroAddress) {
-                console.log('[useDebtPositions] No debt token from backend, falling back to on-chain...');
+                logger.debug('[useDebtPositions] No debt token from backend, falling back to on-chain...');
                 const toTokenAddress = toToken.underlyingAsset || toToken.address;
                 const toReserveData = await poolContract.getReserveData(toTokenAddress);
                 nextDebtTokenAddr = toReserveData.variableDebtTokenAddress;
-                console.log('[useDebtPositions] Fallback result:', nextDebtTokenAddr);
+                logger.debug('[useDebtPositions] Fallback result:', nextDebtTokenAddr);
             }
 
             const newDebtContract = getDebtTokenContract(nextDebtTokenAddr, readProvider);
@@ -266,7 +267,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
 
         } catch (error) {
             if (error.name !== 'AbortError' && !signal.aborted) {
-                console.error('[fetchDebtData]', error);
+                logger.error('[fetchDebtData]', error);
 
                 // Check if it's a rate limit error
                 const isRateLimitError =
@@ -277,8 +278,8 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
 
                 if (isRateLimitError) {
                     addLog?.('⚠️ RPC Rate Limit! Please refresh the page to use a different RPC endpoint.', 'error');
-                    console.error('[fetchDebtData] Rate limit detected. Current RPC may be overloaded.');
-                    console.error('[fetchDebtData] Try refreshing the page to reconnect with a different RPC.');
+                    logger.error('[fetchDebtData] Rate limit detected. Current RPC may be overloaded.');
+                    logger.error('[fetchDebtData] Try refreshing the page to reconnect with a different RPC.');
                 } else {
                     addLog?.('Error fetching data: ' + error.message, 'error');
                 }

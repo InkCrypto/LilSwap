@@ -1,5 +1,5 @@
 import { ethers } from 'ethers';
-
+import logger from '../utils/logger.js';
 /**
  * Attempts to create a working RPC provider by trying multiple RPC URLs in order.
  * Returns the first successful provider or the last attempted one if all fail.
@@ -31,13 +31,13 @@ export async function createRpcProviderWithFallback(rpcUrls, timeout = 5000) {
         } catch (error) {
             const errorMsg = `${rpcUrl}: ${error.message}`;
             errors.push(errorMsg);
-            console.warn(`❌ RPC failed: ${errorMsg}`);
+            logger.warn(`❌ RPC failed: ${errorMsg}`);
         }
     }
 
     // All RPCs failed - return the first one as fallback
-    console.error('All RPCs failed. Using first URL as fallback:', rpcUrls[0]);
-    console.error('Errors:', errors);
+    logger.error('All RPCs failed. Using first URL as fallback:', rpcUrls[0]);
+    logger.error('Errors:', errors);
     return new ethers.JsonRpcProvider(rpcUrls[0]);
 }
 
@@ -57,7 +57,7 @@ export function createRpcProvider(rpcUrls) {
         try {
             return new ethers.JsonRpcProvider(rpcUrl);
         } catch (error) {
-            console.warn(`Failed to create provider for ${rpcUrl}:`, error.message);
+            logger.warn(`Failed to create provider for ${rpcUrl}:`, error.message);
         }
     }
 

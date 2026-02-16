@@ -4,6 +4,7 @@ import { Web3Context } from './web3Context.js';
 import { DEFAULT_NETWORK, NETWORKS } from '../constants/networks.js';
 import { createRpcProvider } from '../helpers/rpcHelper.js';
 
+import logger from '../utils/logger.js';
 export const Web3Provider = ({ children }) => {
     const [provider, setProvider] = useState(() => {
         if (typeof window === 'undefined' || !window.ethereum) {
@@ -28,9 +29,9 @@ export const Web3Provider = ({ children }) => {
             return null;
         }
 
-        console.log('[Web3Provider] Creating RPC provider for:', selectedNetwork.label);
-        console.log('[Web3Provider] Available RPCs:', rpcUrls);
-        console.log('[Web3Provider] Using primary RPC:', rpcUrls[0]);
+        logger.debug('[Web3Provider] Creating RPC provider for:', selectedNetwork.label);
+        logger.debug('[Web3Provider] Available RPCs:', rpcUrls);
+        logger.debug('[Web3Provider] Using primary RPC:', rpcUrls[0]);
 
         return createRpcProvider(rpcUrls);
     }, [selectedNetwork]);
@@ -64,7 +65,7 @@ export const Web3Provider = ({ children }) => {
                     setAccount(address);
                 }
             } catch (error) {
-                console.error('Auto-connect failed:', error);
+                logger.error('Auto-connect failed:', error);
             }
         };
 
@@ -76,7 +77,7 @@ export const Web3Provider = ({ children }) => {
                 const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
                 const chainId = parseInt(chainIdHex, 16);
 
-                console.log('[Web3Provider] Detected wallet chain:', chainId);
+                logger.debug('[Web3Provider] Detected wallet chain:', chainId);
 
                 // Find matching network by chainId
                 const matchingNetwork = Object.entries(NETWORKS).find(
@@ -85,13 +86,13 @@ export const Web3Provider = ({ children }) => {
 
                 if (matchingNetwork) {
                     const [networkKey] = matchingNetwork;
-                    console.log('[Web3Provider] Syncing to network:', networkKey);
+                    logger.debug('[Web3Provider] Syncing to network:', networkKey);
                     setSelectedNetworkKey(networkKey);
                 } else {
-                    console.warn('[Web3Provider] Unknown chainId:', chainId);
+                    logger.warn('[Web3Provider] Unknown chainId:', chainId);
                 }
             } catch (error) {
-                console.error('[Web3Provider] Failed to sync chain:', error);
+                logger.error('[Web3Provider] Failed to sync chain:', error);
             }
         };
 
@@ -112,7 +113,7 @@ export const Web3Provider = ({ children }) => {
         };
 
         const handleChainChanged = async (chainIdHex) => {
-            console.log('[Web3Provider] Chain changed event:', chainIdHex);
+            logger.debug('[Web3Provider] Chain changed event:', chainIdHex);
 
             const nextProvider = initializeProvider();
             if (nextProvider) {
@@ -127,7 +128,7 @@ export const Web3Provider = ({ children }) => {
 
             if (matchingNetwork) {
                 const [networkKey] = matchingNetwork;
-                console.log('[Web3Provider] Network changed to:', networkKey);
+                logger.debug('[Web3Provider] Network changed to:', networkKey);
                 setSelectedNetworkKey(networkKey);
             }
         };
@@ -201,11 +202,11 @@ export const Web3Provider = ({ children }) => {
                 params: [{ eth_accounts: {} }],
             }).catch(() => {
                 // Silently fail - not all wallets support this method
-                console.log('[Web3Provider] wallet_revokePermissions not supported');
+                logger.debug('[Web3Provider] wallet_revokePermissions not supported');
             });
         }
 
-        console.log('[Web3Provider] Wallet disconnected (local state cleared, auto-reconnect disabled)');
+        logger.debug('[Web3Provider] Wallet disconnected (local state cleared, auto-reconnect disabled)');
     }, []);
 
     return (

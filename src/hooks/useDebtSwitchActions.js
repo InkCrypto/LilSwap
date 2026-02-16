@@ -5,6 +5,7 @@ import { DEFAULT_NETWORK } from '../constants/networks.js';
 import { ABIS } from '../constants/abis.js';
 import { buildDebtSwapTx } from '../services/api.js';
 
+import logger from '../utils/logger.js';
 export const useDebtSwitchActions = ({
     account,
     provider,
@@ -37,7 +38,7 @@ export const useDebtSwitchActions = ({
         try {
             return ethers.getAddress(networkAddresses.DEBT_SWAP_ADAPTER);
         } catch (error) {
-            console.warn('[useDebtSwitchActions] Invalid DEBT_SWAP_ADAPTER:', networkAddresses.DEBT_SWAP_ADAPTER, error);
+            logger.warn('[useDebtSwitchActions] Invalid DEBT_SWAP_ADAPTER:', networkAddresses.DEBT_SWAP_ADAPTER, error);
             return null;
         }
     }, [networkAddresses?.DEBT_SWAP_ADAPTER]);
@@ -149,7 +150,7 @@ export const useDebtSwitchActions = ({
             // Use debt token address from backend, with fallback to on-chain
             let debtTokenAddress = toToken.variableDebtTokenAddress;
             if (!debtTokenAddress || debtTokenAddress === ethers.ZeroAddress) {
-                console.log('[handleApproveDelegation] No debt token from backend, falling back to on-chain...');
+                logger.debug('[handleApproveDelegation] No debt token from backend, falling back to on-chain...');
                 const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
                 const toTokenAddress = toToken.address || toToken.underlyingAsset;
                 const toReserveData = await poolContract.getReserveData(toTokenAddress);
@@ -189,12 +190,12 @@ export const useDebtSwitchActions = ({
             addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
             return;
         }
-        console.log('\n==========================================');
-        console.log('🚀🚀🚀 SWAP BUTTON CLICKED! 🚀🚀🚀');
-        console.log('==========================================\n');
+        logger.debug('\n==========================================');
+        logger.debug('🚀🚀🚀 SWAP BUTTON CLICKED! 🚀🚀🚀');
+        logger.debug('==========================================\n');
 
-        console.log('[handleSwap] 🚀 SWAP INITIATED!');
-        console.log('[handleSwap] Current state:', {
+        logger.debug('[handleSwap] 🚀 SWAP INITIATED!');
+        logger.debug('[handleSwap] Current state:', {
             hasProvider: !!provider,
             hasQuote: !!swapQuote,
             hasFromToken: !!fromToken,
@@ -209,17 +210,17 @@ export const useDebtSwitchActions = ({
 
         let activeQuote = swapQuote;
         if (!activeQuote) {
-            console.log('[handleSwap] No quote available, fetching...');
+            logger.debug('[handleSwap] No quote available, fetching...');
             addLog?.('Fetching quote...', 'info');
             activeQuote = await fetchQuote();
             if (!activeQuote) {
-                console.error('[handleSwap] ❌ Failed to fetch quote');
+                logger.error('[handleSwap] ❌ Failed to fetch quote');
                 addLog?.('Failed to fetch quote', 'error');
                 return;
             }
         }
 
-        console.log('[handleSwap] Using quote:', {
+        logger.debug('[handleSwap] Using quote:', {
             srcAmount: activeQuote.srcAmount?.toString(),
             destAmount: activeQuote.destAmount?.toString(),
             fromToken: activeQuote.fromToken?.symbol,
@@ -228,19 +229,19 @@ export const useDebtSwitchActions = ({
 
         const now = Math.floor(Date.now() / 1000);
         const quoteAge = now - (activeQuote.timestamp || 0);
-        console.log('[handleSwap] Quote age check:', { quoteAge, timestamp: activeQuote.timestamp });
+        logger.debug('[handleSwap] Quote age check:', { quoteAge, timestamp: activeQuote.timestamp });
 
         if (quoteAge > 300) {
-            console.log('[handleSwap] Quote too old, refreshing...');
+            logger.debug('[handleSwap] Quote too old, refreshing...');
             addLog?.(`⚠️ Quote is too old (${quoteAge}s). Updating...`, 'warning');
             activeQuote = await fetchQuote();
             if (!activeQuote) {
-                console.error('[handleSwap] ❌ Failed to refresh quote');
+                logger.error('[handleSwap] ❌ Failed to refresh quote');
                 return;
             }
         }
 
-        console.log('[handleSwap] Quote validated, proceeding...');
+        logger.debug('[handleSwap] Quote validated, proceeding...');
 
         // Warning for small amounts (but does not block)
         const destAmountFloat = parseFloat(ethers.formatUnits(activeQuote.destAmount, activeQuote.fromToken.decimals));
@@ -266,22 +267,22 @@ export const useDebtSwitchActions = ({
         setLastAttemptedQuote(activeQuote);
         setIsActionLoading(true);
 
-        console.log('[handleSwap] ✅ Starting swap execution...');
-        console.log('[handleSwap] Network:', targetNetwork.label, 'ChainId:', chainId);
+        logger.debug('[handleSwap] ✅ Starting swap execution...');
+        logger.debug('[handleSwap] Network:', targetNetwork.label, 'ChainId:', chainId);
 
         try {
-            console.log('[handleSwap] Step 1: Ensuring correct network...');
+            logger.debug('[handleSwap] Step 1: Ensuring correct network...');
             const activeProvider = await ensureWalletNetwork();
             if (!activeProvider) {
-                console.error('[handleSwap] ❌ Failed to ensure wallet network');
+                logger.error('[handleSwap] ❌ Failed to ensure wallet network');
                 addLog?.('Failed to connect to correct network', 'error');
                 return;
             }
 
-            console.log('[handleSwap] ✅ Network confirmed');
-            console.log('[handleSwap] Step 2: Getting signer...');
+            logger.debug('[handleSwap] ✅ Network confirmed');
+            logger.debug('[handleSwap] Step 2: Getting signer...');
             const signer = await activeProvider.getSigner();
-            console.log('[handleSwap] ✅ Signer obtained');
+            logger.debug('[handleSwap] ✅ Signer obtained');
 
             const { priceRoute, srcAmount, fromToken, toToken, version } = activeQuote;
             // Ensure srcAmount is BigInt (can come as string or BigInt)
@@ -290,11 +291,11 @@ export const useDebtSwitchActions = ({
 
             let permitParams = { amount: 0, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
 
-            console.log('[handleSwap] Step 3: Checking delegation allowance...');
-            console.log('[handleSwap] Allowance:', allowance?.toString(), 'Required:', maxNewDebt.toString());
+            logger.debug('[handleSwap] Step 3: Checking delegation allowance...');
+            logger.debug('[handleSwap] Allowance:', allowance?.toString(), 'Required:', maxNewDebt.toString());
 
             // Get debt token address directly from backend data (more reliable than on-chain query)
-            console.log('[handleSwap] 📋 INPUT TOKENS:', {
+            logger.debug('[handleSwap] 📋 INPUT TOKENS:', {
                 fromToken: {
                     symbol: fromToken.symbol,
                     address: fromToken.address,
@@ -315,8 +316,8 @@ export const useDebtSwitchActions = ({
             let newDebtTokenAddr = toToken.variableDebtTokenAddress;
 
             if (!newDebtTokenAddr || newDebtTokenAddr === ethers.ZeroAddress) {
-                console.log('[handleSwap] ⚠️ No debt token from backend, falling back to on-chain query...');
-                console.log('[handleSwap] 🔍 toToken object:', {
+                logger.debug('[handleSwap] ⚠️ No debt token from backend, falling back to on-chain query...');
+                logger.debug('[handleSwap] 🔍 toToken object:', {
                     symbol: toToken.symbol,
                     underlyingAsset: toToken.underlyingAsset,
                     address: toToken.address,
@@ -325,10 +326,10 @@ export const useDebtSwitchActions = ({
                 });
                 const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
                 const toTokenAddress = toToken.address || toToken.underlyingAsset;
-                console.log('[handleSwap] 📞 Calling getReserveData with address:', toTokenAddress);
+                logger.debug('[handleSwap] 📞 Calling getReserveData with address:', toTokenAddress);
                 const toReserveData = await poolContract.getReserveData(toTokenAddress);
                 newDebtTokenAddr = toReserveData.variableDebtTokenAddress;
-                console.log('[handleSwap] 📋 getReserveData returned:', {
+                logger.debug('[handleSwap] 📋 getReserveData returned:', {
                     aToken: toReserveData.aTokenAddress,
                     variableDebtToken: toReserveData.variableDebtTokenAddress,
                     stableDebtToken: toReserveData.stableDebtTokenAddress
@@ -339,7 +340,7 @@ export const useDebtSwitchActions = ({
                 }
             }
 
-            console.log('[handleSwap] ✅ Using debt token address:', {
+            logger.debug('[handleSwap] ✅ Using debt token address:', {
                 symbol: toToken.symbol,
                 underlyingAsset: toToken.underlyingAsset || toToken.address,
                 variableDebtTokenAddress: newDebtTokenAddr,
@@ -348,7 +349,7 @@ export const useDebtSwitchActions = ({
 
             // Check if we have a cached signature for a DIFFERENT token
             if (signedPermit && signedPermit.token !== newDebtTokenAddr) {
-                console.log('[handleSwap] ⚠️ Token changed! Invalidating cached signature:', {
+                logger.debug('[handleSwap] ⚠️ Token changed! Invalidating cached signature:', {
                     cachedToken: signedPermit.token,
                     newToken: newDebtTokenAddr
                 });
@@ -356,7 +357,7 @@ export const useDebtSwitchActions = ({
             }
 
             if (allowance < maxNewDebt) {
-                console.log('[handleSwap] ⚠️ Insufficient allowance, need signature/approval...');
+                logger.debug('[handleSwap] ⚠️ Insufficient allowance, need signature/approval...');
 
                 const currentTs = Math.floor(Date.now() / 1000);
 
@@ -368,7 +369,7 @@ export const useDebtSwitchActions = ({
                         signedPermit.deadline > currentTs &&
                         signedPermit.value >= maxNewDebt
                     ) {
-                        console.log('[handleSwap] ✅ Using cached signature (per user preference)');
+                        logger.debug('[handleSwap] ✅ Using cached signature (per user preference)');
                         addLog?.('1/3 Using cached signature...', 'info');
                         permitParams = signedPermit.params;
                     } else {
@@ -393,15 +394,15 @@ export const useDebtSwitchActions = ({
                     // permitParams remains empty (on-chain allowance will satisfy adapter)
                 }
             } else {
-                console.log('✅ Step 3: Delegation already approved on-chain, skipping signature');
+                logger.debug('✅ Step 3: Delegation already approved on-chain, skipping signature');
                 addLog?.('1/3 Delegation already approved on-chain.', 'success');
             }
 
-            console.log('🔨 Step 4: Building transaction calldata...');
+            logger.debug('🔨 Step 4: Building transaction calldata...');
             addLog?.('2/3 Generating calldata...', 'warning');
             addLog?.(`Slippage: ${slippage / 100}%`, 'info');
 
-            console.log('🔄 Calling buildDebtSwapTx with:', {
+            logger.debug('🔄 Calling buildDebtSwapTx with:', {
                 fromToken: fromToken.symbol,
                 toToken: toToken.symbol,
                 chainId,
@@ -427,10 +428,10 @@ export const useDebtSwitchActions = ({
 
             const { swapCallData: paraswapCalldata, augustus: augustusAddress, version: txVersion } = txResult;
 
-            console.log('✅ Step 4 Complete: Transaction calldata built successfully');
-            console.log('  - Augustus:', augustusAddress);
-            console.log('  - Version:', txVersion);
-            console.log('  - Calldata length:', paraswapCalldata?.length || 0, 'chars');
+            logger.debug('✅ Step 4 Complete: Transaction calldata built successfully');
+            logger.debug('  - Augustus:', augustusAddress);
+            logger.debug('  - Version:', txVersion);
+            logger.debug('  - Calldata length:', paraswapCalldata?.length || 0, 'chars');
 
             if (!augustusAddress || augustusAddress === ethers.ZeroAddress) {
                 addLog?.('⚠️ WARNING: Invalid Augustus address returned', 'warning');
@@ -527,17 +528,17 @@ export const useDebtSwitchActions = ({
 
             addLog?.(`CollateralPermit - aToken: ${collateralPermit.aToken}`, 'info');
 
-            console.log('⛽ Step 5: Estimating gas and preparing transaction...');
+            logger.debug('⛽ Step 5: Estimating gas and preparing transaction...');
             addLog?.('3/3 Estimating gas and confirming in wallet...', 'warning');
             let tx;
             let gasLimit;
 
             const adapterContract = new ethers.Contract(adapterAddress, ABIS.ADAPTER, signer);
-            console.log('  - Adapter contract initialized:', adapterAddress);
+            logger.debug('  - Adapter contract initialized:', adapterAddress);
 
             try {
-                console.log('  - Calling estimateGas for swapDebt...');
-                console.log('  - swapParams:', {
+                logger.debug('  - Calling estimateGas for swapDebt...');
+                logger.debug('  - swapParams:', {
                     debtAsset: swapParams.debtAsset,
                     debtRepayAmount: swapParams.debtRepayAmount.toString(),
                     debtRateMode: swapParams.debtRateMode,
@@ -546,7 +547,7 @@ export const useDebtSwitchActions = ({
                     offset: swapParams.offset,
                     paraswapDataLength: swapParams.paraswapData.length
                 });
-                console.log('  - creditPermit:', {
+                logger.debug('  - creditPermit:', {
                     debtToken: creditPermit.debtToken,
                     value: creditPermit.value.toString(),
                     deadline: creditPermit.deadline.toString(),
@@ -554,7 +555,7 @@ export const useDebtSwitchActions = ({
                     r: creditPermit.r.substring(0, 20) + '...',
                     s: creditPermit.s.substring(0, 20) + '...'
                 });
-                console.log('  - collateralPermit:', collateralPermit);
+                logger.debug('  - collateralPermit:', collateralPermit);
 
                 addLog?.('Estimating required gas...', 'info');
 
@@ -562,7 +563,7 @@ export const useDebtSwitchActions = ({
                     throw new Error("Manual Error Simulation: Forced failure for testing.");
                 }
 
-                console.log('  - Starting estimateGas call with 15s timeout...');
+                logger.debug('  - Starting estimateGas call with 15s timeout...');
 
                 // Add timeout to prevent indefinite hang
                 const estimateGasPromise = adapterContract.swapDebt.estimateGas(
@@ -577,26 +578,26 @@ export const useDebtSwitchActions = ({
 
                 const estimatedGas = await Promise.race([estimateGasPromise, timeoutPromise]);
 
-                console.log('  - estimateGas returned successfully!');
+                logger.debug('  - estimateGas returned successfully!');
                 gasLimit = (estimatedGas * BigInt(150)) / BigInt(100);
                 const minGas = BigInt(2000000);
                 const maxGas = BigInt(15000000);
                 if (gasLimit < minGas) gasLimit = minGas;
                 if (gasLimit > maxGas) gasLimit = maxGas;
 
-                console.log('✅ Gas estimation successful:', {
+                logger.debug('✅ Gas estimation successful:', {
                     estimated: estimatedGas.toString(),
                     withBuffer: gasLimit.toString()
                 });
                 addLog?.(`📊 Estimated gas: ${estimatedGas.toString()}, using: ${gasLimit.toString()} (1.5x buffer)`, 'success');
             } catch (estimateError) {
-                console.error('❌ GAS ESTIMATION FAILED:', estimateError);
-                console.error('  - Error name:', estimateError?.name);
-                console.error('  - Error code:', estimateError?.code);
-                console.error('  - Error message:', estimateError?.message);
-                console.error('  - Error data:', estimateError?.data);
-                console.error('  - Error reason:', estimateError?.reason);
-                console.error('  - Error shortMessage:', estimateError?.shortMessage);
+                logger.error('❌ GAS ESTIMATION FAILED:', estimateError);
+                logger.error('  - Error name:', estimateError?.name);
+                logger.error('  - Error code:', estimateError?.code);
+                logger.error('  - Error message:', estimateError?.message);
+                logger.error('  - Error data:', estimateError?.data);
+                logger.error('  - Error reason:', estimateError?.reason);
+                logger.error('  - Error shortMessage:', estimateError?.shortMessage);
 
                 addLog?.(`❌ Simulation failed - Transaction cancelled`, 'error');
                 addLog?.(`Reason: ${estimateError?.shortMessage || estimateError.message.substring(0, 150)}`, 'error');
@@ -614,9 +615,9 @@ export const useDebtSwitchActions = ({
                 return;
             }
 
-            console.log('🚀 Step 6: Sending transaction to wallet for confirmation...');
-            console.log('  - GasLimit:', gasLimit.toString());
-            console.log('  - Waiting for user confirmation in wallet...');
+            logger.debug('🚀 Step 6: Sending transaction to wallet for confirmation...');
+            logger.debug('  - GasLimit:', gasLimit.toString());
+            logger.debug('  - Waiting for user confirmation in wallet...');
 
             try {
                 tx = await adapterContract.swapDebt(
@@ -626,9 +627,9 @@ export const useDebtSwitchActions = ({
                     { gasLimit }
                 );
 
-                console.log('✅ Step 6 Complete: Transaction sent to network!');
-                console.log('  - Transaction hash:', tx.hash);
-                console.log('  - Block explorer:', `https://basescan.org/tx/${tx.hash}`);
+                logger.debug('✅ Step 6 Complete: Transaction sent to network!');
+                logger.debug('  - Transaction hash:', tx.hash);
+                logger.debug('  - Block explorer:', `https://basescan.org/tx/${tx.hash}`);
 
                 addLog?.('✅ swapDebt sent successfully!', 'success');
             } catch (swapError) {
@@ -750,10 +751,10 @@ export const useDebtSwitchActions = ({
             setSignedPermit(null);
             fetchDebtData();
         } catch (error) {
-            console.error('❌ [handleSwap] Caught error in main try-catch:', error);
-            console.error('  - Error code:', error.code);
-            console.error('  - Error message:', error.message);
-            console.error('  - Full error:', error);
+            logger.error('❌ [handleSwap] Caught error in main try-catch:', error);
+            logger.error('  - Error code:', error.code);
+            logger.error('  - Error message:', error.message);
+            logger.error('  - Full error:', error);
 
             if (error.code === 'ACTION_REJECTED') {
                 setUserRejected(true);

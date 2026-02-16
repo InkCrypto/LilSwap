@@ -5,6 +5,7 @@ import { DEFAULT_NETWORK } from '../constants/networks.js';
 import { getDebtQuote } from '../services/api.js';
 import { useDebounce } from './useDebounce.js';
 
+import logger from '../utils/logger.js';
 const AUTO_REFRESH_SECONDS = 30;
 
 export const useParaswapQuote = ({
@@ -47,16 +48,16 @@ export const useParaswapQuote = ({
         if (!address) return null;
         try {
             const normalized = ethers.getAddress(address);
-            console.log(`[useParaswapQuote] Address normalized for ${symbol}: ${address.substring(0, 10)}... -> ${normalized.substring(0, 10)}...`);
+            logger.debug(`[useParaswapQuote] Address normalized for ${symbol}: ${address.substring(0, 10)}... -> ${normalized.substring(0, 10)}...`);
             return normalized;
         } catch (error) {
-            console.warn(`[useParaswapQuote] Invalid address checksum for ${symbol}: ${address}`, error.message);
+            logger.warn(`[useParaswapQuote] Invalid address checksum for ${symbol}: ${address}`, error.message);
             return address; // Fallback to original and let backend validate
         }
     };
 
     const fetchQuote = useCallback(async () => {
-        console.log('[useParaswapQuote] fetchQuote called', {
+        logger.debug('[useParaswapQuote] fetchQuote called', {
             debouncedDebtAmount: debouncedDebtAmount?.toString(),
             fromToken: fromToken?.symbol,
             toToken: toToken?.symbol,
@@ -65,14 +66,14 @@ export const useParaswapQuote = ({
         });
 
         if (!debouncedDebtAmount || debouncedDebtAmount === BigInt(0) || !fromToken || !toToken) {
-            console.log('[useParaswapQuote] Missing required data, skipping quote');
+            logger.debug('[useParaswapQuote] Missing required data, skipping quote');
             setSwapQuote(null);
             setAutoRefreshEnabled(false);
             return null;
         }
 
         if (!account) {
-            console.log('[useParaswapQuote] No account connected');
+            logger.debug('[useParaswapQuote] No account connected');
             addLog?.('Please connect wallet to get quote', 'warning');
             setSwapQuote(null);
             setAutoRefreshEnabled(false);
@@ -89,7 +90,7 @@ export const useParaswapQuote = ({
 
             const destAmount = (debouncedDebtAmount * BigInt(1001) / BigInt(1000)).toString();
 
-            console.log('[useParaswapQuote] Fetching quote with params:', {
+            logger.debug('[useParaswapQuote] Fetching quote with params:', {
                 fromToken: fromToken.symbol,
                 fromAddress: fromToken.address || fromToken.underlyingAsset,
                 toToken: toToken.symbol,
@@ -128,7 +129,7 @@ export const useParaswapQuote = ({
             const srcAmountBigInt = BigInt(srcAmount);
             const destAmountBigInt = BigInt(destAmount);
 
-            console.log('[useParaswapQuote] Quote received:', {
+            logger.debug('[useParaswapQuote] Quote received:', {
                 srcAmount: srcAmountBigInt.toString(),
                 destAmount: destAmountBigInt.toString(),
                 srcAmountFormatted: ethers.formatUnits(srcAmountBigInt, toToken.decimals),
@@ -154,7 +155,7 @@ export const useParaswapQuote = ({
             onQuoteLoaded?.(quotePayload);
             return quotePayload;
         } catch (error) {
-            console.error('[useParaswapQuote] Quote error:', error);
+            logger.error('[useParaswapQuote] Quote error:', error);
             addLog?.('Quote error: ' + error.message, 'error');
             setAutoRefreshEnabled(false);
             return null;
@@ -183,7 +184,7 @@ export const useParaswapQuote = ({
 
     // Auto-fetch quote
     useEffect(() => {
-        console.log('[useParaswapQuote] Auto-fetch effect triggered:', {
+        logger.debug('[useParaswapQuote] Auto-fetch effect triggered:', {
             enabled,
             debouncedDebtAmount: debouncedDebtAmount?.toString(),
             fromToken: fromToken?.symbol,
@@ -193,12 +194,12 @@ export const useParaswapQuote = ({
         });
 
         if (!enabled || !debouncedDebtAmount || debouncedDebtAmount === BigInt(0) || !fromToken || !toToken) {
-            console.log('[useParaswapQuote] Conditions not met, clearing quote');
+            logger.debug('[useParaswapQuote] Conditions not met, clearing quote');
             clearQuote();
             return;
         }
 
-        console.log('[useParaswapQuote] Calling fetchQuote...');
+        logger.debug('[useParaswapQuote] Calling fetchQuote...');
         fetchQuote();
     }, [debouncedDebtAmount, fromToken?.underlyingAsset, toToken?.underlyingAsset, enabled, fetchQuote, clearQuote]);
 

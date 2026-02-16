@@ -21,6 +21,7 @@ import { useDebtSwitchActions } from '../hooks/useDebtSwitchActions.js';
 import { useDebtPositions } from '../hooks/useDebtPositions.js';
 import { useUserPosition } from '../hooks/useUserPosition.js';
 
+import logger from '../utils/logger.js';
 // Helper to get token logo URL from Aave CDN
 const getTokenLogo = (symbol) => {
     if (!symbol) return null;
@@ -45,7 +46,7 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                 const top = rect.bottom + 8;
                 setPortalStyle({ position: 'fixed', left: `${left}px`, top: `${top}px`, width: `${width}px`, zIndex: 99999 });
             } catch (e) {
-                console.warn('TokenSelector portal positioning error:', e);
+                logger.warn('TokenSelector portal positioning error:', e);
             }
         } else {
             setPortalStyle(null);
@@ -298,7 +299,7 @@ export const DebtSwapModal = ({
     const methodMenuRef = useRef(null);
 
     const addLog = useCallback((message, type = 'info') => {
-        console.log(`[DebtSwapModal] ${type}: ${message}`);
+        logger.debug(`[DebtSwapModal] ${type}: ${message}`);
         setLogs(prev => [...prev.slice(-4), { message, type, timestamp: Date.now() }]);
     }, []);
 
@@ -361,7 +362,7 @@ export const DebtSwapModal = ({
 
     // Debug debt data
     useEffect(() => {
-        console.log('[DebtSwapModal] Debt data:', {
+        logger.debug('[DebtSwapModal] Debt data:', {
             isDebtLoading,
             hasFromToken: !!fromToken,
             fromTokenSymbol: fromToken?.symbol,
@@ -439,7 +440,7 @@ export const DebtSwapModal = ({
             const maxNewDebt = (srcAmountBigInt * BigInt(1005)) / BigInt(1000);
             return allowance < maxNewDebt;
         } catch (error) {
-            console.warn('[DebtSwapModal] Failed to compute needsApproval from quote:', error);
+            logger.warn('[DebtSwapModal] Failed to compute needsApproval from quote:', error);
             return false;
         }
     }, [allowance, toToken, swapQuote]);
@@ -447,7 +448,7 @@ export const DebtSwapModal = ({
 
     // Debug state changes
     useEffect(() => {
-        console.log('[DebtSwapModal] State update:', {
+        logger.debug('[DebtSwapModal] State update:', {
             isOpen,
             fromToken: fromToken?.symbol,
             toToken: toToken?.symbol,
@@ -477,7 +478,7 @@ export const DebtSwapModal = ({
                 const parsed = ethers.parseUnits(value, fromToken?.decimals || 18);
                 const maxAmt = debtBalance || BigInt(0);
                 const finalAmount = parsed > maxAmt ? maxAmt : parsed;
-                console.log('[DebtSwapModal] Input changed:', {
+                logger.debug('[DebtSwapModal] Input changed:', {
                     value,
                     parsed: parsed.toString(),
                     maxAmt: maxAmt.toString(),
@@ -486,7 +487,7 @@ export const DebtSwapModal = ({
                 setSwapAmount(finalAmount);
             }
         } catch (error) {
-            console.warn('Invalid input:', value, error);
+            logger.warn('Invalid input:', value, error);
         }
     }, [fromToken?.decimals, debtBalance]);
 

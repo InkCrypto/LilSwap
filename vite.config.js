@@ -10,6 +10,13 @@ export default defineConfig({
     outDir: 'public',
     assetsDir: 'build/assets',
     emptyOutDir: false,
+    minify: 'terser',
+    terserOptions: {
+      compress: {
+        drop_console: true, // Remove all console.* calls in production
+        drop_debugger: true,
+      },
+    },
     rollupOptions: {
       output: {
         manualChunks: {
