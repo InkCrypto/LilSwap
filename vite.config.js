@@ -10,6 +10,15 @@ export default defineConfig({
     outDir: 'public',
     assetsDir: 'build/assets',
     emptyOutDir: false,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          ethers: ['ethers'],
+          aave: ['@bgd-labs/aave-address-book'],
+          vendor: ['axios', 'lucide-react'],
+        },
+      },
+    },
   },
   plugins: [
     react(),

@@ -1,7 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, lazy, Suspense } from 'react';
 import { Wallet, LogOut, Terminal } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
-import { Dashboard } from './components/Dashboard.jsx';
+
+// Lazy load Dashboard
+const Dashboard = lazy(() => import('./components/Dashboard.jsx').then(module => ({ default: module.Dashboard })));
 
 const LilLogo = ({ className = "w-6 h-6" }) => (
   <svg
@@ -116,7 +118,9 @@ export default function App() {
             </button>
           </div>
         ) : (
-          <Dashboard />
+          <Suspense fallback={<div>Loading...</div>}>
+            <Dashboard />
+          </Suspense>
         )}
 
         {/* LOG TERMINAL */}

@@ -37,6 +37,24 @@ export const useParaswapQuote = ({
         resetRefreshCountdown();
     }, [resetRefreshCountdown]);
 
+    /**
+     * Normalize and validate token address for ParaSwap API
+     * @param {string} address - Raw token address
+     * @param {string} symbol - Token symbol for logging
+     * @returns {string} Normalized address or original if invalid
+     */
+    const normalizeTokenAddress = (address, symbol = 'unknown') => {
+        if (!address) return null;
+        try {
+            const normalized = ethers.getAddress(address);
+            console.log(`[useParaswapQuote] Address normalized for ${symbol}: ${address.substring(0, 10)}... -> ${normalized.substring(0, 10)}...`);
+            return normalized;
+        } catch (error) {
+            console.warn(`[useParaswapQuote] Invalid address checksum for ${symbol}: ${address}`, error.message);
+            return address; // Fallback to original and let backend validate
+        }
+    };
+
     const fetchQuote = useCallback(async () => {
         console.log('[useParaswapQuote] fetchQuote called', {
             debouncedDebtAmount: debouncedDebtAmount?.toString(),
@@ -83,14 +101,18 @@ export const useParaswapQuote = ({
             addLog?.('Finding best route on ParaSwap...', 'info');
             addLog?.(`Quote target: ${toToken.symbol}, repay amount: ${destAmount} (inc. interest buffer)`, 'info');
 
+            // Normalize addresses before sending to backend
+            const fromTokenAddress = normalizeTokenAddress(fromToken.address || fromToken.underlyingAsset, fromToken.symbol);
+            const toTokenAddress = normalizeTokenAddress(toToken.address || toToken.underlyingAsset, toToken.symbol);
+
             const routeResult = await getDebtQuote({
                 fromToken: {
-                    address: fromToken.address || fromToken.underlyingAsset,
+                    address: fromTokenAddress,
                     decimals: fromToken.decimals,
                     symbol: fromToken.symbol,
                 },
                 toToken: {
-                    address: toToken.address || toToken.underlyingAsset,
+                    address: toTokenAddress,
                     decimals: toToken.decimals,
                     symbol: toToken.symbol,
                 },

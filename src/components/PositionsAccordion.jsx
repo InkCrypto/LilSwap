@@ -1,10 +1,12 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, lazy, Suspense } from 'react';
 import { ArrowRightLeft, ChevronDown, ChevronUp, RefreshCw, AlertCircle } from 'lucide-react';
 import { useAllPositions } from '../hooks/useAllPositions';
 import { requestChainSwitch } from '../utils/wallet';
 import { getNetworkByChainId } from '../constants/networks';
-import { DebtSwapModal } from './DebtSwapModal.jsx';
 import logger from '../utils/logger';
+
+// Lazy load DebtSwapModal
+const DebtSwapModal = lazy(() => import('./DebtSwapModal.jsx').then(module => ({ default: module.DebtSwapModal })));
 
 // Helper to get token logo URL from Aave CDN
 const getTokenLogo = (symbol) => {
@@ -228,8 +230,8 @@ export const PositionsAccordion = ({ userAddress }) => {
                                             <>
                                                 {' • '}
                                                 <span className={`font-semibold ${chain.healthFactor >= 2 ? 'text-green-400' :
-                                                        chain.healthFactor >= 1.5 ? 'text-yellow-400' :
-                                                            'text-red-400'
+                                                    chain.healthFactor >= 1.5 ? 'text-yellow-400' :
+                                                        'text-red-400'
                                                     }`}>
                                                     HF: {chain.healthFactor.toFixed(2)}
                                                 </span>
@@ -356,13 +358,15 @@ export const PositionsAccordion = ({ userAddress }) => {
             ))}
 
             {/* Debt Swap Modal */}
-            <DebtSwapModal
-                isOpen={modalState.open}
-                onClose={handleCloseModal}
-                initialFromToken={modalState.initialFromToken}
-                chainId={modalState.chainId}
-                marketAssets={modalState.marketAssets}
-            />
+            <Suspense fallback={<div>Loading...</div>}>
+                <DebtSwapModal
+                    isOpen={modalState.open}
+                    onClose={handleCloseModal}
+                    initialFromToken={modalState.initialFromToken}
+                    chainId={modalState.chainId}
+                    marketAssets={modalState.marketAssets}
+                />
+            </Suspense>
         </div>
     );
 };
