@@ -18,7 +18,17 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
     const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
 
-    const adapterAddress = networkAddresses.DEBT_SWAP_ADAPTER;
+    const adapterAddress = useMemo(() => {
+        if (!networkAddresses?.DEBT_SWAP_ADAPTER) {
+            return null;
+        }
+        try {
+            return ethers.getAddress(networkAddresses.DEBT_SWAP_ADAPTER);
+        } catch (error) {
+            console.warn('[useDebtPositions] Invalid DEBT_SWAP_ADAPTER:', networkAddresses.DEBT_SWAP_ADAPTER, error);
+            return null;
+        }
+    }, [networkAddresses?.DEBT_SWAP_ADAPTER]);
     const readProvider = useMemo(() => networkRpcProvider || provider, [networkRpcProvider, provider]);
 
     const fetchDebtData = useCallback(async () => {
@@ -44,6 +54,13 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             setDebtBalance(backendBalance);
             setFormattedDebt(fromToken.formattedAmount);
             addLog?.(`[Debt] ${fromToken.symbol} balance: ${fromToken.formattedAmount} (from server)`, 'success');
+
+            if (!adapterAddress) {
+                addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
+                setAllowance(BigInt(0));
+                setIsDebtLoading(false);
+                return;
+            }
 
             // Still check allowance on-chain using backend debt token address
             try {
@@ -203,6 +220,13 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
 
             addLog?.(`[Debt] ${fromToken.symbol} balance: ${ethers.formatUnits(balance, fromToken.decimals)}`, balance > BigInt(0) ? 'success' : 'warning');
 
+            if (!adapterAddress) {
+                addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
+                setAllowance(BigInt(0));
+                setIsDebtLoading(false);
+                return;
+            }
+
             // Get the debt token address of the target token for allowance check
             addLog?.(`[Allowance] Checking credit delegation for ${toToken.symbol}...`);
             // Use debt token address from backend, with fallback to on-chain
@@ -264,7 +288,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
                 setIsDebtLoading(false);
             }
         }
-    }, [account, readProvider, fromToken?.underlyingAsset, toToken?.underlyingAsset, addLog, networkAddresses, adapterAddress]);
+    }, [account, readProvider, fromToken?.underlyingAsset, toToken?.underlyingAsset, addLog, networkAddresses, adapterAddress, targetNetwork.label]);
 
     // Cleanup on unmount
     useEffect(() => {

@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import { ADDRESSES } from '../constants/addresses.js';
 import { DEFAULT_NETWORK } from '../constants/networks.js';
@@ -29,7 +29,17 @@ export const useDebtSwitchActions = ({
     const [userRejected, setUserRejected] = useState(false);
     const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
-    const adapterAddress = networkAddresses.DEBT_SWAP_ADAPTER;
+    const adapterAddress = useMemo(() => {
+        if (!networkAddresses?.DEBT_SWAP_ADAPTER) {
+            return null;
+        }
+        try {
+            return ethers.getAddress(networkAddresses.DEBT_SWAP_ADAPTER);
+        } catch (error) {
+            console.warn('[useDebtSwitchActions] Invalid DEBT_SWAP_ADAPTER:', networkAddresses.DEBT_SWAP_ADAPTER, error);
+            return null;
+        }
+    }, [networkAddresses?.DEBT_SWAP_ADAPTER]);
     const augustusMap = networkAddresses.AUGUSTUS;
     const chainId = targetNetwork.chainId;
     const targetHexChainId = targetNetwork.hexChainId;
@@ -70,6 +80,10 @@ export const useDebtSwitchActions = ({
 
     const handleApproveDelegation = useCallback(async () => {
         if (!provider || !toToken) return;
+        if (!adapterAddress) {
+            addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
+            return;
+        }
         try {
             setIsActionLoading(true);
             const signer = await provider.getSigner();
@@ -101,8 +115,12 @@ export const useDebtSwitchActions = ({
         } finally {
             setIsActionLoading(false);
         }
-    }, [provider, toToken?.underlyingAsset, toToken?.address, addLog, fetchDebtData, networkAddresses, adapterAddress]);
+    }, [provider, toToken?.underlyingAsset, toToken?.address, addLog, fetchDebtData, networkAddresses, adapterAddress, targetNetwork.label]);
     const handleSwap = useCallback(async () => {
+        if (!adapterAddress) {
+            addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
+            return;
+        }
         console.log('\n==========================================');
         console.log('🚀🚀🚀 SWAP BUTTON CLICKED! 🚀🚀🚀');
         console.log('==========================================\n');
@@ -780,6 +798,7 @@ export const useDebtSwitchActions = ({
         networkAddresses,
         chainId,
         ensureWalletNetwork,
+        targetNetwork.label,
     ]);
 
     const handleForceSwap = useCallback(async () => {

@@ -8,6 +8,7 @@
     "clean:build": "node -e \"const fs=require('fs');fs.rmSync('public/build',{recursive:true,force:true});\"",
     "build": "npm run clean:build && vite build",
     "build:public": "npm run build",
+    "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview --outDir public --host 127.0.0.1 --strictPort"
   },
