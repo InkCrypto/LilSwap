@@ -13,6 +13,7 @@
     "preview": "vite preview --outDir public --host 127.0.0.1 --strictPort"
   },
   "dependencies": {
+    "@bgd-labs/aave-address-book": "^4.44.19",
     "@tailwindcss/vite": "^4.1.18",
     "axios": "^1.13.5",
     "ethers": "^6.16.0",
