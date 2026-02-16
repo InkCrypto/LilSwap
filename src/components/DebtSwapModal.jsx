@@ -292,6 +292,10 @@ export const DebtSwapModal = ({
     const [showSlippageSettings, setShowSlippageSettings] = useState(false);
     const [activeTab, setActiveTab] = useState('market');
     const [logs, setLogs] = useState([]);
+    // Preference: use permit (EIP-712 signature) by default — session only
+    const [preferPermit, setPreferPermit] = useState(true);
+    const [showMethodMenu, setShowMethodMenu] = useState(false);
+    const methodMenuRef = useRef(null);
 
     const addLog = useCallback((message, type = 'info') => {
         console.log(`[DebtSwapModal] ${type}: ${message}`);
@@ -416,6 +420,7 @@ export const DebtSwapModal = ({
         clearQuote,
         selectedNetwork: effectiveNetwork,
         simulateError: false,
+        preferPermit,
     });
 
     // Destructure clearUserRejected from actions (added in hook)
@@ -540,6 +545,18 @@ export const DebtSwapModal = ({
             clearUserRejected && clearUserRejected();
         }
     }, [fromToken, toToken, inputValue]);
+
+    // Close method menu when clicking outside
+    useEffect(() => {
+        if (!showMethodMenu) return;
+        const handleClickOutside = (e) => {
+            if (methodMenuRef.current && !methodMenuRef.current.contains(e.target)) {
+                setShowMethodMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showMethodMenu]);
 
     // Filter tokens
     const borrowableAssets = useMemo(() => {
@@ -721,6 +738,45 @@ export const DebtSwapModal = ({
                     </div>
                 )}
 
+                {/* Method selector (always shown) */}
+                <div ref={methodMenuRef} className="relative flex justify-end mb-2">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setShowMethodMenu((s) => !s); }}
+                        className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                        aria-expanded={showMethodMenu}
+                        aria-haspopup="menu"
+                        title="Choose approval method"
+                    >
+                        <Settings className="w-3 h-3" />
+                        <span>{preferPermit ? 'Signature (recommended)' : 'Approve on-chain'}</span>
+                    </button>
+
+                    {showMethodMenu && (
+                        <div className="absolute top-6 right-0 w-60 bg-slate-900 border border-slate-700 rounded-md shadow-xl p-2 z-50">
+                            <button
+                                onClick={() => { setPreferPermit(true); setShowMethodMenu(false); }}
+                                className={`w-full text-left px-2 py-2 rounded hover:bg-slate-800 flex items-center justify-between ${preferPermit ? 'bg-slate-800/60' : ''}`}
+                            >
+                                <div>
+                                    <div className="font-bold text-white text-sm">Signature (recommended)</div>
+                                    <div className="text-xs text-slate-400">Faster and fee-free</div>
+                                </div>
+                                {preferPermit && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                            </button>
+                            <button
+                                onClick={() => { setPreferPermit(false); setShowMethodMenu(false); }}
+                                className={`w-full text-left mt-1 px-2 py-2 rounded hover:bg-slate-800 flex items-center justify-between ${!preferPermit ? 'bg-slate-800/60' : ''}`}
+                            >
+                                <div>
+                                    <div className="font-bold text-white text-sm">Approve on-chain</div>
+                                    <div className="text-xs text-slate-400">Send on‑chain approval transaction</div>
+                                </div>
+                                {!preferPermit && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
+                            </button>
+                        </div>
+                    )}
+                </div>
+
                 {/* Action Button */}
                 <button
                     onClick={handleSwap}
@@ -735,21 +791,10 @@ export const DebtSwapModal = ({
                     ) : (
                         <>
                             <ArrowRightLeft className="w-4 h-4" />
-                            {needsApproval && !signedPermit ? 'Assinar e Trocar' : 'Confirmar Troca'}
+                            {needsApproval && !signedPermit ? 'Sign & Swap' : 'Confirm Swap'}
                         </>
                     )}
                 </button>
-
-                {swapQuote && needsApproval && (
-                    <button
-                        onClick={handleApproveDelegation}
-                        disabled={isBusy || !toToken}
-                        className="w-full bg-orange-600/20 hover:bg-orange-600/30 text-orange-300 font-bold py-2 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 border border-orange-500/40"
-                    >
-                        <CheckCircle2 className="w-4 h-4" />
-                        Aprovar onchain (fallback)
-                    </button>
-                )}
 
                 {/* Logs */}
                 {logs.length > 0 && (

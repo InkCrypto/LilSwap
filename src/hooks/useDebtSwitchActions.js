@@ -20,6 +20,7 @@ export const useDebtSwitchActions = ({
     clearQuote,
     selectedNetwork,
     simulateError,
+    preferPermit = true, // default: prefer off-chain signature (permit)
 }) => {
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [signedPermit, setSignedPermit] = useState(null);
@@ -78,12 +79,69 @@ export const useDebtSwitchActions = ({
         }
     }, [provider, chainId, targetHexChainId, targetNetwork.label, addLog]);
 
-    const handleApproveDelegation = useCallback(async () => {
+    // Helper: create and cache an EIP-712 DelegationWithSig (permit)
+    const generateAndCachePermit = useCallback(async (debtTokenAddr, signer) => {
+        try {
+            const debtContract = new ethers.Contract(debtTokenAddr, ABIS.DEBT_TOKEN, signer);
+            const nonce = await debtContract.nonces(account);
+            const name = await debtContract.name();
+            const deadline = Math.floor(Date.now() / 1000) + 3600; // 1 hour
+            const value = ethers.MaxUint256;
+
+            const domain = {
+                name,
+                version: '1',
+                chainId,
+                verifyingContract: debtTokenAddr,
+            };
+
+            const types = {
+                DelegationWithSig: [
+                    { name: 'delegatee', type: 'address' },
+                    { name: 'value', type: 'uint256' },
+                    { name: 'nonce', type: 'uint256' },
+                    { name: 'deadline', type: 'uint256' },
+                ],
+            };
+
+            const message = {
+                delegatee: adapterAddress,
+                value,
+                nonce,
+                deadline,
+            };
+
+            addLog?.('Requesting EIP-712 signature...', 'warning');
+            const signature = await signer.signTypedData(domain, types, message);
+            const sig = ethers.Signature.from(signature);
+
+            const permitParams = {
+                amount: value,
+                deadline,
+                v: sig.v,
+                r: sig.r,
+                s: sig.s,
+            };
+
+            setSignedPermit({ params: permitParams, token: debtTokenAddr, deadline, value });
+            addLog?.('Signature received and cached', 'success');
+            return permitParams;
+        } catch (err) {
+            addLog?.('Signature failed: ' + (err?.message || err), 'error');
+            throw err;
+        }
+    }, [account, adapterAddress, addLog, chainId]);
+
+    const handleApproveDelegation = useCallback(async (preferPermitOverride) => {
+        // preferPermitOverride: optional boolean to override hook-level preferPermit
+        const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
+
         if (!provider || !toToken) return;
         if (!adapterAddress) {
             addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
             return;
         }
+
         try {
             setIsActionLoading(true);
             const signer = await provider.getSigner();
@@ -101,6 +159,14 @@ export const useDebtSwitchActions = ({
                 }
             }
 
+            if (preferPermitFinal) {
+                // Request EIP-712 signature and cache it
+                addLog?.('Requesting signature (user preference)...', 'info');
+                const permit = await generateAndCachePermit(debtTokenAddress, await provider.getSigner());
+                return { type: 'permit', permit };
+            }
+
+            // Fallback: on-chain approval
             const newDebtContract = new ethers.Contract(debtTokenAddress, ABIS.DEBT_TOKEN, signer);
 
             addLog?.('Sending Approval Tx...');
@@ -110,12 +176,14 @@ export const useDebtSwitchActions = ({
 
             addLog?.('Delegation approved!', 'success');
             fetchDebtData();
+            return { type: 'tx', tx };
         } catch (error) {
-            addLog?.('Approval error: ' + error.message, 'error');
+            addLog?.('Approval error: ' + (error?.message || error), 'error');
+            throw error;
         } finally {
             setIsActionLoading(false);
         }
-    }, [provider, toToken?.underlyingAsset, toToken?.address, addLog, fetchDebtData, networkAddresses, adapterAddress, targetNetwork.label]);
+    }, [provider, toToken?.underlyingAsset, toToken?.address, addLog, fetchDebtData, networkAddresses, adapterAddress, targetNetwork.label, preferPermit, generateAndCachePermit]);
     const handleSwap = useCallback(async () => {
         if (!adapterAddress) {
             addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
@@ -288,114 +356,41 @@ export const useDebtSwitchActions = ({
             }
 
             if (allowance < maxNewDebt) {
-                console.log('[handleSwap] ⚠️ Insufficient allowance, need signature...');
+                console.log('[handleSwap] ⚠️ Insufficient allowance, need signature/approval...');
 
                 const currentTs = Math.floor(Date.now() / 1000);
 
-                if (
-                    signedPermit &&
-                    signedPermit.token === newDebtTokenAddr &&
-                    signedPermit.deadline > currentTs &&
-                    signedPermit.value >= maxNewDebt
-                ) {
-                    console.log('[handleSwap] ✅ Using cached signature');
-                    addLog?.('1/3 Using cached signature...', 'info');
-                    permitParams = signedPermit.params;
-                } else {
-                    console.log('[handleSwap] 📝 Requesting EIP-712 signature from user...');
-                    console.log('[handleSwap] 🔍 Creating debt contract with address:', newDebtTokenAddr);
-                    console.log('[handleSwap] 🔍 Token details:', {
-                        symbol: toToken.symbol,
-                        underlyingAsset: toToken.underlyingAsset,
-                        address: toToken.address,
-                        debtTokenFromBackend: toToken.variableDebtTokenAddress,
-                        debtTokenUsing: newDebtTokenAddr
-                    });
-                    addLog?.('1/3 Requesting Signature (EIP-712)...', 'warning');
+                // Respect user preference first. If user chose on-chain, do NOT consume cached signature.
+                if (preferPermit) {
+                    if (
+                        signedPermit &&
+                        signedPermit.token === newDebtTokenAddr &&
+                        signedPermit.deadline > currentTs &&
+                        signedPermit.value >= maxNewDebt
+                    ) {
+                        console.log('[handleSwap] ✅ Using cached signature (per user preference)');
+                        addLog?.('1/3 Using cached signature...', 'info');
+                        permitParams = signedPermit.params;
+                    } else {
+                        addLog?.('1/3 Requesting Signature (EIP-712) due to user preference...', 'warning');
 
-                    let debtContract = new ethers.Contract(newDebtTokenAddr, ABIS.DEBT_TOKEN, signer);
-                    let nonce;
+                        // Request & cache a new permit
+                        await handleApproveDelegation(true);
 
-                    try {
-                        console.log('[handleSwap] 📞 Calling nonces() for account:', account);
-                        nonce = await debtContract.nonces(account);
-                        console.log('[handleSwap] ✅ Nonce received:', nonce.toString());
-                    } catch (nonceError) {
-                        console.error('[handleSwap] ❌ NONCE READ FAILED with backend address, trying on-chain query...', {
-                            error: nonceError.message,
-                            code: nonceError.code,
-                            badDebtTokenAddress: newDebtTokenAddr,
-                            account,
-                            toTokenSymbol: toToken.symbol
-                        });
-
-                        // Backend address is invalid, fallback to on-chain query
-                        console.log('[handleSwap] 🔄 Fetching correct debt token from Pool.getReserveData...');
-                        const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
-                        const toTokenAddress = toToken.address || toToken.underlyingAsset;
-                        const toReserveData = await poolContract.getReserveData(toTokenAddress);
-                        newDebtTokenAddr = toReserveData.variableDebtTokenAddress;
-
-                        console.log('[handleSwap] ✅ Got debt token from on-chain:', newDebtTokenAddr);
-
-                        // Recreate contract with correct address
-                        debtContract = new ethers.Contract(newDebtTokenAddr, ABIS.DEBT_TOKEN, signer);
-                        nonce = await debtContract.nonces(account);
-                        console.log('[handleSwap] ✅ Nonce received with corrected address:', nonce.toString());
+                        if (signedPermit && signedPermit.token === newDebtTokenAddr) {
+                            permitParams = signedPermit.params;
+                        } else {
+                            throw new Error('Signature not provided or cancelled');
+                        }
                     }
-
-                    const name = await debtContract.name();
-                    const deadline = Math.floor(Date.now() / 1000) + 3600;
-                    const value = ethers.MaxUint256;
-
-                    addLog?.(`Generating signature for amount: MaxUint256 (Nonce: ${nonce})`, 'info');
-
-                    const domain = {
-                        name,
-                        version: '1',
-                        chainId,
-                        verifyingContract: newDebtTokenAddr,
-                    };
-
-                    const types = {
-                        DelegationWithSig: [
-                            { name: 'delegatee', type: 'address' },
-                            { name: 'value', type: 'uint256' },
-                            { name: 'nonce', type: 'uint256' },
-                            { name: 'deadline', type: 'uint256' },
-                        ],
-                    };
-
-                    const message = {
-                        delegatee: adapterAddress,
-                        value,
-                        nonce,
-                        deadline,
-                    };
-
-                    console.log('📝 Requesting EIP-712 signature from wallet...');
-                    const signature = await signer.signTypedData(domain, types, message);
-                    console.log('✅ Signature received:', signature.substring(0, 20) + '...');
-
-                    const sig = ethers.Signature.from(signature);
-                    console.log('✅ Signature parsed - v:', sig.v, 'r:', sig.r.substring(0, 10) + '...', 's:', sig.s.substring(0, 10) + '...');
-
-                    permitParams = {
-                        amount: value,
-                        deadline,
-                        v: sig.v,
-                        r: sig.r,
-                        s: sig.s,
-                    };
-                    setSignedPermit({
-                        params: permitParams,
-                        token: newDebtTokenAddr,
-                        deadline,
-                        value,
-                    });
-
-                    console.log('✅ Signature cached for future use');
-                    addLog?.('Signature Received and Cached!', 'success');
+                } else {
+                    // User explicitly chose on-chain approval — ignore any cached signature and send tx
+                    addLog?.('1/3 Sending on-chain approval (user chose on-chain)...', 'info');
+                    await handleApproveDelegation(false);
+                    // Wait a moment for allowance to update, then refetch
+                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await fetchDebtData();
+                    // permitParams remains empty (on-chain allowance will satisfy adapter)
                 }
             } else {
                 console.log('✅ Step 3: Delegation already approved on-chain, skipping signature');
@@ -799,6 +794,8 @@ export const useDebtSwitchActions = ({
         chainId,
         ensureWalletNetwork,
         targetNetwork.label,
+        preferPermit,
+        handleApproveDelegation,
     ]);
 
     const handleForceSwap = useCallback(async () => {

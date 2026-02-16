@@ -232,6 +232,22 @@ export const DebtSwapSwitcher = ({
     fetchQuote,
     clearCachedPermit,
 }) => {
+    // Preference for permit vs on-chain approval (session only)
+    const [preferPermit, setPreferPermit] = useState(true);
+    const [showMethodMenu, setShowMethodMenu] = useState(false);
+    const methodMenuRef = useRef(null);
+
+    // Close method menu when clicking outside
+    useEffect(() => {
+        if (!showMethodMenu) return;
+        const handleClickOutside = (e) => {
+            if (methodMenuRef.current && !methodMenuRef.current.contains(e.target)) {
+                setShowMethodMenu(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showMethodMenu]);
     const getBorrowStatus = (token) => {
         if (!token) return { borrowable: false, reasons: [] };
 
@@ -272,7 +288,7 @@ export const DebtSwapSwitcher = ({
             {isBusy && !debtBalance && (
                 <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 flex items-center justify-center gap-2">
                     <RefreshCw className="w-4 h-4 animate-spin text-purple-400" />
-                    <span className="text-sm text-slate-400">Carregando posição...</span>
+                    <span className="text-sm text-slate-400">Loading position...</span>
                 </div>
             )}
 
@@ -282,13 +298,13 @@ export const DebtSwapSwitcher = ({
                     <div className="flex items-start gap-3">
                         <Info className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
                         <div>
-                            <h3 className="text-amber-300 font-bold text-sm mb-1">Sem Dívida Ativa</h3>
+                            <h3 className="text-amber-300 font-bold text-sm mb-1">No Active Debt</h3>
                             <p className="text-amber-200/80 text-xs mb-2">
-                                Não foi encontrada dívida ativa de {fromToken.symbol} nesta carteira.
-                                Verifique se você está conectado à rede correta ou se esta posição já foi totalmente paga.
+                                No active debt found for {fromToken.symbol} in this wallet.
+                                Verify you’re connected to the correct network or if this position has been fully repaid.
                             </p>
                             <p className="text-amber-300/60 text-[10px] italic">
-                                Dica: Tente atualizar as posições usando o botão ↻ no topo do dashboard.
+                                Tip: Try refreshing positions using the ↻ button at the top of the dashboard.
                             </p>
                         </div>
                     </div>
@@ -367,8 +383,8 @@ export const DebtSwapSwitcher = ({
                 <div className="bg-amber-900/20 border border-amber-500/40 p-3 rounded-xl flex items-start gap-2">
                     <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
                     <div className="text-[11px] text-amber-200/80">
-                        <span className="font-bold text-amber-300">Token indisponivel para borrow.</span>
-                        <span className="ml-2">Selecione outro ativo ou aguarde a disponibilidade.</span>
+                        <span className="font-bold text-amber-300">Token unavailable for borrowing.</span>
+                        <span className="ml-2">Select another asset or wait for availability.</span>
                     </div>
                 </div>
             )}
@@ -379,7 +395,7 @@ export const DebtSwapSwitcher = ({
                     <div className="flex items-start gap-3">
                         <AlertTriangle className="w-5 h-5 text-red-500 shrink-0 mt-0.5" />
                         <div className="flex-1">
-                            <h3 className="text-red-400 font-bold text-xs mb-1">Erro na Transação</h3>
+                            <h3 className="text-red-400 font-bold text-xs mb-1">Transaction error</h3>
                             <p className="text-red-300/80 text-[10px] font-mono break-all">{txError}</p>
                         </div>
                         <button onClick={clearTxError} className="text-red-400 hover:text-red-300 transition-colors">
@@ -396,18 +412,19 @@ export const DebtSwapSwitcher = ({
                             }}
                             className="text-[10px] bg-red-500/20 hover:bg-red-500/30 text-red-300 px-3 py-1.5 rounded border border-red-500/30 transition-colors"
                         >
-                            Limpar Cache e Tentar de Novo
+                            Clear cache and retry
                         </button>
 
                         <button
                             onClick={() => {
                                 clearTxError();
-                                handleApproveDelegation();
+                                handleApproveDelegation(preferPermit);
                             }}
                             className="text-[10px] bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 px-3 py-1.5 rounded border border-blue-500/30 transition-colors flex items-center gap-1"
                         >
-                            Aprovar Manualmente
+                            Approve manually
                         </button>
+                        <div className="ml-2 text-[10px] text-slate-400">Signature recommended</div>
                     </div>
                 </div>
             )}
@@ -417,17 +434,11 @@ export const DebtSwapSwitcher = ({
                 <div className="bg-blue-900/20 shadow-2xl rounded-xl p-4 border border-blue-500/30 animate-in zoom-in-95">
                     <div className="flex items-center gap-3 text-blue-400 mb-2">
                         <RefreshCw className="w-4 h-4 animate-spin" />
-                        <span className="text-sm font-bold">Assinatura Necessária</span>
+                        <span className="text-sm font-bold">Signature required</span>
                     </div>
-                    <p className="text-[10px] text-blue-300/80 mb-4">
-                        Aprovação de Delegação de Crédito necessária. Clique abaixo para assinar via carteira.
+                    <p className="text-[10px] text-blue-300/80 mb-3">
+                        Credit delegation approval required. Please approve to continue.
                     </p>
-                    <button
-                        onClick={handleApproveDelegation}
-                        className="w-full bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold py-2 rounded-lg transition-all"
-                    >
-                        Assinar Aprovação
-                    </button>
                 </div>
             )}
 
@@ -441,31 +452,70 @@ export const DebtSwapSwitcher = ({
             {!swapQuote && isQuoteLoading && (
                 <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 flex items-center justify-center gap-2 animate-pulse">
                     <RefreshCw className="w-4 h-4 animate-spin text-purple-400" />
-                    <span className="text-sm text-slate-400">Buscando melhor cotação...</span>
+                    <span className="text-sm text-slate-400">Fetching best quote...</span>
                 </div>
             )}
 
             {/* WAITING FOR SELECTION */}
             {!swapQuote && !isQuoteLoading && !toToken && (
                 <div className="bg-slate-900/50 rounded-lg p-4 border border-slate-700/50 flex items-center justify-center">
-                    <span className="text-sm text-slate-500">Selecione um ativo de destino para ver a cotação</span>
+                    <span className="text-sm text-slate-500">Select a destination asset to see quote</span>
                 </div>
             )}
 
             {/* ACTION BUTTON */}
             <div className="space-y-3">
+                {/* Method selector (always shown) */}
+                <div ref={methodMenuRef} className="relative flex justify-end mb-2">
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setShowMethodMenu((s) => !s); }}
+                        className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer"
+                        aria-expanded={showMethodMenu}
+                        aria-haspopup="menu"
+                        title="Choose approval method"
+                    >
+                        <Settings className="w-3 h-3" />
+                        <span>{preferPermit ? 'Signature (recommended)' : 'Approve on-chain'}</span>
+                    </button>
+
+                    {showMethodMenu && (
+                        <div className="absolute top-6 right-0 w-60 bg-slate-900 border border-slate-700 rounded-md shadow-xl p-2 z-50">
+                            <button
+                                onClick={() => { setPreferPermit(true); setShowMethodMenu(false); }}
+                                className={`w-full text-left px-2 py-2 rounded hover:bg-slate-800 flex items-center justify-between ${preferPermit ? 'bg-slate-800/60' : ''}`}
+                            >
+                                <div>
+                                    <div className="font-bold text-white text-sm">Signature (recommended)</div>
+                                    <div className="text-xs text-slate-400">Faster and fee-free</div>
+                                </div>
+                                {preferPermit && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
+                            </button>
+                            <button
+                                onClick={() => { setPreferPermit(false); setShowMethodMenu(false); }}
+                                className={`w-full text-left mt-1 px-2 py-2 rounded hover:bg-slate-800 flex items-center justify-between ${!preferPermit ? 'bg-slate-800/60' : ''}`}
+                            >
+                                <div>
+                                    <div className="font-bold text-white text-sm">Approve on-chain</div>
+                                    <div className="text-xs text-slate-400">Send on‑chain approval transaction</div>
+                                </div>
+                                {!preferPermit && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
+                            </button>
+                        </div>
+                    )}
+                </div>
+
                 <button
                     onClick={handleSwap}
                     disabled={isBusy || !debtBalance || debtBalance === BigInt(0) || !swapQuote || !isToTokenBorrowable}
                     className="w-full bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl flex items-center justify-center gap-3 transition-all shadow-lg shadow-purple-900/20"
                 >
                     {isBusy ? <RefreshCw className="animate-spin w-5 h-5" /> : <ArrowRightLeft className="w-5 h-5" />}
-                    {needsApproval && !signedPermit ? "Assinar e Trocar" : "Confirmar Troca"}
+                    {needsApproval && !signedPermit ? 'Sign & Swap' : 'Confirm Swap'}
                 </button>
 
                 {userRejected && (
                     <div className="text-[10px] text-blue-400 text-center">
-                        Transação cancelada. Tente novamente quando estiver pronto.
+                        Transaction cancelled. Try again when ready.
                     </div>
                 )}
             </div>
