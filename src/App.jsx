@@ -1,5 +1,5 @@
-import React, { useState, useCallback, lazy, Suspense } from 'react';
-import { Wallet, LogOut, Terminal } from 'lucide-react';
+import React, { useState, useCallback, lazy, Suspense, useRef, useEffect } from 'react';
+import { Wallet, LogOut, Terminal, ChevronDown, Copy } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
 
 // Lazy load Dashboard
@@ -32,6 +32,19 @@ export default function App() {
   // --- STATES ---
   const [logs, setLogs] = useState([]);
   const [copyButtonState, setCopyButtonState] = useState('idle');
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const menuRef = useRef(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (menuRef.current && !menuRef.current.contains(event.target)) {
+        setShowAccountMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // --- LOG HELPER ---
   const addLog = useCallback((msg, type = 'info') => {
@@ -49,10 +62,33 @@ export default function App() {
 
   const handleConnect = async () => {
     try {
+      if (typeof window === 'undefined' || !window.ethereum) {
+        addLog("No wallet detected! Please install MetaMask.", "error");
+        return;
+      }
       await connectWallet();
       addLog("Wallet connected successfully", "success");
     } catch (err) {
       addLog("Connection failed: " + err.message, "error");
+    }
+  };
+
+  const handleDisconnect = () => {
+    try {
+      disconnectWallet();
+      setShowAccountMenu(false);
+      addLog("Wallet disconnected", "info");
+    } catch (err) {
+      addLog("Disconnect failed: " + err.message, "error");
+    }
+  };
+
+  const handleCopyAddress = () => {
+    if (account) {
+      navigator.clipboard.writeText(account).then(() => {
+        addLog("Address copied to clipboard", "success");
+        setShowAccountMenu(false);
+      });
     }
   };
 
@@ -61,41 +97,64 @@ export default function App() {
       <div className="max-w-4xl mx-auto px-4 py-12">
 
         {/* HEADER */}
-        <header className="flex flex-wrap items-center justify-between gap-6 mb-12">
-          <div className="flex items-center gap-2">
-            <div className="p-3 rounded-2xl">
-              <LilLogo className="w-12 h-12 text-white" />
+        <header className="flex items-center justify-between gap-4 mb-12">
+          <div className="flex items-center gap-2 min-w-0">
+            <div className="p-3 rounded-2xl shrink-0">
+              <LilLogo className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
             </div>
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-2">
-                <h1 className="text-3xl font-black text-white tracking-tight">
+                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
                   LilSwap
                 </h1>
                 <span className="px-1 py-0 rounded text-purple-400 text-[8px] font-bold border-2 border-purple-500/30">BETA</span>
               </div>
               <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-[0.2em]">AAVE V3 Position Manager</span>
+                <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] sm:tracking-[0.2em]">AAVE V3 Position Manager</span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex items-center gap-4 shrink-0">
             {!account ? (
               <button
                 onClick={handleConnect}
-                className="bg-purple-600 hover:bg-purple-500 text-white text-sm font-bold px-6 py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20 active:scale-95"
+                className="bg-purple-600 hover:bg-purple-500 text-white text-xs sm:text-sm font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20 active:scale-95"
               >
                 <Wallet className="w-4 h-4" />
-                Connect
+                <span className="hidden sm:inline">Connect</span>
               </button>
             ) : (
-              <button
-                onClick={disconnectWallet}
-                className="flex items-center gap-2 text-slate-500 hover:text-red-400 transition-colors group"
-              >
-                <span className="text-xs font-mono">{account.slice(0, 6)}...{account.slice(-4)}</span>
-                <LogOut className="w-4 h-4" />
-              </button>
+              <div className="relative" ref={menuRef}>
+                <button
+                  onClick={() => setShowAccountMenu(!showAccountMenu)}
+                  className="bg-slate-800/50 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all border border-slate-700/50 active:scale-95"
+                >
+                  <Wallet className="w-4 h-4 text-purple-400" />
+                  <span className="hidden sm:inline font-mono">{account.slice(0, 6)}...{account.slice(-4)}</span>
+                  <span className="sm:hidden font-bold">Conectado</span>
+                  <ChevronDown className="w-3 h-3" />
+                </button>
+
+                {showAccountMenu && (
+                  <div className="absolute right-0 mt-2 w-44 bg-slate-800 rounded-xl shadow-xl border border-slate-700/50 overflow-hidden z-50">
+                    <button
+                      onClick={handleCopyAddress}
+                      className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-700/50 flex items-center gap-2 transition-colors border-b border-slate-700/50"
+                    >
+                      <Copy className="w-4 h-4" />
+                      Copy Address
+                    </button>
+                    <button
+                      onClick={handleDisconnect}
+                      className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-slate-700/50 flex items-center gap-2 transition-colors"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Disconnect
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </header>
