@@ -14,10 +14,10 @@ export const Web3Provider = ({ children }) => {
     });
     const [account, setAccount] = useState(null);
     const [selectedNetworkKey, setSelectedNetworkKey] = useState(DEFAULT_NETWORK.key);
-    // Initialize from localStorage - persist disconnect state across page reloads
-    const [userDisconnected, setUserDisconnected] = useState(() => {
+    // Initialize from localStorage - ONLY for manual disconnect by user
+    const [manuallyDisconnected, setManuallyDisconnected] = useState(() => {
         if (typeof window === 'undefined') return false;
-        return localStorage.getItem('walletDisconnected') === 'true';
+        return localStorage.getItem('walletManuallyDisconnected') === 'true';
     });
 
     const selectedNetwork = useMemo(() => NETWORKS[selectedNetworkKey] || DEFAULT_NETWORK, [selectedNetworkKey]);
@@ -53,7 +53,7 @@ export const Web3Provider = ({ children }) => {
         const autoConnect = async () => {
             try {
                 // Skip auto-connect if user manually disconnected
-                if (userDisconnected) {
+                if (manuallyDisconnected) {
                     return;
                 }
                 const accounts = await provider.listAccounts();
@@ -101,14 +101,20 @@ export const Web3Provider = ({ children }) => {
 
         const handleAccountsChanged = (accounts) => {
             if (accounts.length > 0) {
+                // Accounts available - wallet unlocked or user connected
                 setAccount(accounts[0]);
-            } else {
-                // User disconnected from wallet extension
-                setAccount(null);
-                setUserDisconnected(true);
-                if (typeof window !== 'undefined') {
-                    localStorage.setItem('walletDisconnected', 'true');
+                // If user reconnected via wallet, clear manual disconnect flag
+                if (manuallyDisconnected) {
+                    setManuallyDisconnected(false);
+                    if (typeof window !== 'undefined') {
+                        localStorage.removeItem('walletManuallyDisconnected');
+                    }
                 }
+            } else {
+                // Accounts unavailable - could be wallet lock OR manual disconnect
+                // DON'T set localStorage here - we can't distinguish the two scenarios
+                // Just clear the account state
+                setAccount(null);
             }
         };
 
@@ -145,14 +151,14 @@ export const Web3Provider = ({ children }) => {
                 window.ethereum.removeListener('chainChanged', handleChainChanged);
             }
         };
-    }, [provider, initializeProvider, userDisconnected]);
+    }, [provider, initializeProvider, manuallyDisconnected]);
 
     const connectWallet = useCallback(async () => {
-        // Clear disconnect flag from localStorage when user manually connects
+        // Clear manual disconnect flag when user explicitly connects
         if (typeof window !== 'undefined') {
-            localStorage.removeItem('walletDisconnected');
+            localStorage.removeItem('walletManuallyDisconnected');
         }
-        setUserDisconnected(false);
+        setManuallyDisconnected(false);
 
         let activeProvider = provider;
         if (!activeProvider) {
@@ -187,15 +193,14 @@ export const Web3Provider = ({ children }) => {
 
     const disconnectWallet = useCallback(() => {
         setAccount(null);
-        setUserDisconnected(true);
+        setManuallyDisconnected(true);
 
-        // Persist disconnect state to localStorage to prevent auto-reconnect on page reload
+        // Persist MANUAL disconnect to localStorage - distinguishes from wallet lock
         if (typeof window !== 'undefined') {
-            localStorage.setItem('walletDisconnected', 'true');
+            localStorage.setItem('walletManuallyDisconnected', 'true');
         }
 
         // Try experimental wallet_revokePermissions (MetaMask 10.17.0+)
-        // This is optional and not supported by all wallets
         if (window.ethereum?.request) {
             window.ethereum.request({
                 method: 'wallet_revokePermissions',
@@ -206,7 +211,7 @@ export const Web3Provider = ({ children }) => {
             });
         }
 
-        logger.debug('[Web3Provider] Wallet disconnected (local state cleared, auto-reconnect disabled)');
+        logger.debug('[Web3Provider] Wallet manually disconnected by user (auto-reconnect disabled)');
     }, []);
 
     return (
