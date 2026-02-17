@@ -21,7 +21,7 @@ export const useAllPositions = (userAddress, opts = {}) => {
         setError(null);
 
         try {
-            const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1';
+            const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/v1';
             const url = `${baseURL}/position/${userAddress}${force ? '?force=1' : ''}`;
 
             logger.debug('Fetching all positions', { userAddress, url });

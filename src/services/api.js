@@ -4,7 +4,7 @@ import logger from '../utils/logger';
 // Axios instance configured for the backend
 // Uses VITE_API_URL from environment files (.env.development or .env.production)
 const apiClient = axios.create({
-    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/api/v1',
+    baseURL: import.meta.env.VITE_API_URL || 'http://localhost:3001/v1',
     headers: {
         'Content-Type': 'application/json',
     },
