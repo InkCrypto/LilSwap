@@ -22,11 +22,14 @@ export const useAllPositions = (userAddress, opts = {}) => {
 
         try {
             const baseURL = import.meta.env.VITE_API_URL || 'http://localhost:3001/v1';
-            const url = `${baseURL}/position/${userAddress}${force ? '?force=1' : ''}`;
+            const url = `${baseURL}/position`;
 
             logger.debug('Fetching all positions', { userAddress, url });
 
-            const response = await axios.get(url, {
+            const response = await axios.post(url, {
+                userAddress,
+                ...(force && { force: true })
+            }, {
                 timeout: 30000 // 30s timeout for multi-chain request
             });
 

@@ -121,8 +121,9 @@ export const buildDebtSwapTx = async (params) => {
  */
 export const getUserPosition = async (userAddress, chainId) => {
     try {
-        const response = await apiClient.get(`/position/${userAddress}`, {
-            params: { chainId }
+        const response = await apiClient.post('/position', {
+            userAddress,
+            chainId
         });
         logger.debug('User position fetched', {
             supplies: response.data.supplies?.length || 0,
@@ -131,7 +132,7 @@ export const getUserPosition = async (userAddress, chainId) => {
         return response.data;
     } catch (error) {
         const errorMessage = error.response?.data?.error || error.message || 'Error fetching position';
-        logger.error('Failed to fetch user position', { error: errorMessage, userAddress });
+        logger.error('Failed to fetch user position', { error: errorMessage });
         throw new Error(errorMessage);
     }
 };
