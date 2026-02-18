@@ -4,6 +4,7 @@ import { ADDRESSES } from '../constants/addresses.js';
 import { DEFAULT_NETWORK } from '../constants/networks.js';
 import { ABIS } from '../constants/abis.js';
 import { buildDebtSwapTx } from '../services/api.js';
+import { recordTransactionHash, confirmTransactionOnChain } from '../services/transactionsApi.js';
 
 import logger from '../utils/logger.js';
 export const useDebtSwitchActions = ({
@@ -29,6 +30,7 @@ export const useDebtSwitchActions = ({
     const [pendingTxParams, setPendingTxParams] = useState(null);
     const [lastAttemptedQuote, setLastAttemptedQuote] = useState(null);
     const [userRejected, setUserRejected] = useState(false);
+    const [currentTransactionId, setCurrentTransactionId] = useState(null);
     const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
     const adapterAddress = useMemo(() => {
@@ -287,7 +289,12 @@ export const useDebtSwitchActions = ({
             const { priceRoute, srcAmount, fromToken, toToken, version } = activeQuote;
             // Ensure srcAmount is BigInt (can come as string or BigInt)
             const srcAmountBigInt = typeof srcAmount === 'bigint' ? srcAmount : BigInt(srcAmount);
-            const maxNewDebt = (srcAmountBigInt * BigInt(1005)) / BigInt(1000);
+
+            // Buffer in basis points (bps) - received from backend's quote response
+            // Backend determines the buffer, frontend just uses it for validation
+            const bufferBps = swapQuote?.bufferBps || 13; // Fallback to 13 if not provided
+            const numerator = 10000 + bufferBps;
+            const maxNewDebt = (srcAmountBigInt * BigInt(numerator)) / BigInt(10000);
 
             let permitParams = { amount: 0, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
 
@@ -422,11 +429,18 @@ export const useDebtSwitchActions = ({
                 },
                 priceRoute,
                 userAddress: adapterAddress,
-                slippage,
+                destAmount: exactDebtRepayAmount.toString(),
+                srcAmount: activeQuote.srcAmount.toString(),
+                slippage,  // User's chosen slippage - backend will respect this
                 chainId,
+                userWalletAddress: account,  // Pass user's wallet for tracking
             });
 
-            const { swapCallData: paraswapCalldata, augustus: augustusAddress, version: txVersion } = txResult;
+            const { swapCallData: paraswapCalldata, augustus: augustusAddress, version: txVersion, transactionId } = txResult;
+
+            // Store transaction ID for later use
+            setCurrentTransactionId(transactionId);
+            logger.debug('[handleSwap] Transaction ID stored:', transactionId);
 
             logger.debug('✅ Step 4 Complete: Transaction calldata built successfully');
             logger.debug('  - Augustus:', augustusAddress);
@@ -448,7 +462,7 @@ export const useDebtSwitchActions = ({
                         : txVersion || 'unknown';
 
             addLog?.(`📦 ParaSwap Route: Augustus ${augustusVersion} (${augustusAddress.slice(0, 10)}...)`, 'success');
-            addLog?.(`MaxNewDebt (with 0.5% buffer): ${maxNewDebt}`, 'info');
+            addLog?.(`MaxNewDebt (with ${(bufferBps / 100).toFixed(2)}% buffer): ${maxNewDebt}`, 'info');
 
             if (paraswapCalldata && paraswapCalldata.length >= 10) {
                 const selector = paraswapCalldata.slice(0, 10);
@@ -653,6 +667,11 @@ export const useDebtSwitchActions = ({
             addLog?.(`Tx hash: ${tx.hash}`, 'warning');
             addLog?.(`🔍 BaseScan: https://basescan.org/tx/${tx.hash}`, 'info');
 
+            // Record transaction hash on backend for tracking
+            if (currentTransactionId) {
+                await recordTransactionHash(currentTransactionId, tx.hash);
+            }
+
             let receipt;
             let waitRetryCount = 0;
             const waitMaxRetries = 5;
@@ -744,11 +763,21 @@ export const useDebtSwitchActions = ({
                 const gasPrice = receipt.gasPrice || receipt.effectiveGasPrice;
                 const gasCostInGwei = (gasUsed * gasPrice) / BigInt(1e9);
                 addLog?.(`📊 Gas used: ${gasUsed.toString()} (~${ethers.formatUnits(gasCostInGwei, 9)} Gwei)`, 'info');
+
+                // Confirm transaction on backend with final details
+                if (currentTransactionId) {
+                    await confirmTransactionOnChain(currentTransactionId, {
+                        gasUsed: gasUsed.toString(),
+                        actualPaid: maxNewDebt.toString()
+                    });
+                }
             }
 
             addLog?.('🚀 SUCCESS! Swap complete.', 'success');
+
             clearQuote();
             setSignedPermit(null);
+            setCurrentTransactionId(null);  // Clear transaction ID
             fetchDebtData();
         } catch (error) {
             logger.error('❌ [handleSwap] Caught error in main try-catch:', error);
@@ -777,6 +806,7 @@ export const useDebtSwitchActions = ({
             resetRefreshCountdown();
         } finally {
             setIsActionLoading(false);
+            setCurrentTransactionId(null);  // Always clear transaction ID on completion or error
         }
     }, [
         account,

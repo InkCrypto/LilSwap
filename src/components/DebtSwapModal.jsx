@@ -300,7 +300,7 @@ export const DebtSwapModal = ({
 
     const addLog = useCallback((message, type = 'info') => {
         logger.debug(`[DebtSwapModal] ${type}: ${message}`);
-        setLogs(prev => [...prev.slice(-4), { message, type, timestamp: Date.now() }]);
+        setLogs(prev => [...prev.slice(-20), { message, type, timestamp: Date.now() }]);
     }, []);
 
     // Initialize tokens from props
@@ -437,7 +437,10 @@ export const DebtSwapModal = ({
                 ? swapQuote.srcAmount
                 : BigInt(swapQuote.srcAmount);
 
-            const maxNewDebt = (srcAmountBigInt * BigInt(1005)) / BigInt(1000);
+            // Buffer in basis points (bps) - received from backend's quote response
+            const bufferBps = swapQuote.bufferBps || 13; // Fallback to 13 if not provided
+            const numerator = 10000 + bufferBps;
+            const maxNewDebt = (srcAmountBigInt * BigInt(numerator)) / BigInt(10000);
             return allowance < maxNewDebt;
         } catch (error) {
             logger.warn('[DebtSwapModal] Failed to compute needsApproval from quote:', error);
@@ -799,12 +802,24 @@ export const DebtSwapModal = ({
 
                 {/* Logs */}
                 {logs.length > 0 && (
-                    <div className="bg-slate-800/30 rounded-lg p-2 space-y-1 max-h-24 overflow-y-auto text-xs">
-                        {logs.map((log, idx) => (
-                            <div key={idx} className={`text-${log.type === 'error' ? 'red' : log.type === 'success' ? 'green' : 'slate'}-400`}>
-                                {log.message}
-                            </div>
-                        ))}
+                    <div className="relative">
+                        <button
+                            onClick={() => {
+                                const logText = logs.map(l => l.message).join('\n');
+                                navigator.clipboard.writeText(logText).catch(err => console.error('Erro ao copiar:', err));
+                            }}
+                            className="absolute top-2 right-2 text-xs text-slate-400 hover:text-slate-200 transition-colors z-10"
+                            title="Copy logs to clipboard"
+                        >
+                            Copy
+                        </button>
+                        <div className="bg-slate-800/30 rounded-lg p-2 space-y-1 max-h-60 overflow-y-auto text-xs pt-6">
+                            {logs.map((log, idx) => (
+                                <div key={idx} className={`text-${log.type === 'error' ? 'red' : log.type === 'success' ? 'green' : 'slate'}-400`}>
+                                    {log.message}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 )}
             </div>

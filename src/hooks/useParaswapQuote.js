@@ -88,7 +88,7 @@ export const useParaswapQuote = ({
             addLog?.(`Swapping debt: ${fromToken.symbol} -> ${toToken.symbol}...`, 'info');
             addLog?.('Updating quote...', 'info');
 
-            const destAmount = (debouncedDebtAmount * BigInt(1001) / BigInt(1000)).toString();
+            const destAmount = debouncedDebtAmount.toString();
 
             logger.debug('[useParaswapQuote] Fetching quote with params:', {
                 fromToken: fromToken.symbol,
@@ -100,7 +100,7 @@ export const useParaswapQuote = ({
             });
 
             addLog?.('Finding best route on ParaSwap...', 'info');
-            addLog?.(`Quote target: ${toToken.symbol}, repay amount: ${destAmount} (inc. interest buffer)`, 'info');
+            addLog?.(`Quote target: ${toToken.symbol}, repay amount: ${destAmount} (exact amount)`, 'info');
 
             // Normalize addresses before sending to backend
             const fromTokenAddress = normalizeTokenAddress(fromToken.address || fromToken.underlyingAsset, fromToken.symbol);
