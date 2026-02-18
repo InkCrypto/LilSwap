@@ -23,6 +23,7 @@ export const useDebtSwitchActions = ({
     selectedNetwork,
     simulateError,
     preferPermit = true, // default: prefer off-chain signature (permit)
+    freezeQuote = false,
 }) => {
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [signedPermit, setSignedPermit] = useState(null);
@@ -292,9 +293,11 @@ export const useDebtSwitchActions = ({
 
             // Buffer in basis points (bps) - received from backend's quote response
             // Backend determines the buffer, frontend just uses it for validation
-            const bufferBps = swapQuote?.bufferBps || 13; // Fallback to 13 if not provided
+            // Use activeQuote (which may have been refreshed) not swapQuote (stale state)
+            const bufferBps = activeQuote?.bufferBps || 13; // Fallback to 13 if not provided
             const numerator = 10000 + bufferBps;
             const maxNewDebt = (srcAmountBigInt * BigInt(numerator)) / BigInt(10000);
+            const exactDebtRepayAmount = activeQuote.destAmount; // Amount to repay (exact output)
 
             let permitParams = { amount: 0, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
 
@@ -482,7 +485,6 @@ export const useDebtSwitchActions = ({
             addLog?.(`Augustus (final): ${augustusAddress} (${augustusVersion})`, 'info');
 
             const offset = augustusVersion === 'v6.2-sdk' ? 0x84 : 0;
-            const exactDebtRepayAmount = activeQuote.destAmount;
 
             addLog?.(`Offset: ${offset} (0x${offset.toString(16)}) - ${augustusVersion === 'v6.2-sdk' ? 'SDK v6.2' : 'API v5 fallback'}`, 'info');
             addLog?.(`Target Debt to Repay: ${exactDebtRepayAmount.toString()} (${ethers.formatUnits(exactDebtRepayAmount, fromToken.decimals)} ${fromToken.symbol})`, 'info');

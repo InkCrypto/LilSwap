@@ -76,6 +76,14 @@ const shouldLog = (level) => {
 };
 
 /**
+ * Get current log level (public API for checking if debug level is enabled)
+ * @returns {string}
+ */
+export const getLogLevel = () => {
+    return currentLevel;
+};
+
+/**
  * Format timestamp
  * @returns {string}
  */
@@ -97,7 +105,7 @@ export const error = (message, data = null) => {
     if (!shouldLog(LOG_LEVELS.ERROR)) return;
 
     const timestamp = getTimestamp();
-    console.groupCollapsed(
+    console.group(
         `%c[${timestamp}] %c[ERROR]%c ${message}`,
         STYLES.timestamp,
         STYLES.error,
@@ -172,7 +180,7 @@ export const api = (method, url, data = null) => {
     if (!shouldLog(LOG_LEVELS.DEBUG)) return;
 
     const timestamp = getTimestamp();
-    console.groupCollapsed(
+    console.group(
         `%c[${timestamp}] %c[API]%c ${method.toUpperCase()} ${url}`,
         STYLES.timestamp,
         'color: #00aa88; font-weight: bold;',

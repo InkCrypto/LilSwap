@@ -1,6 +1,7 @@
 import React, { useState, useCallback, lazy, Suspense, useRef, useEffect } from 'react';
 import { Wallet, LogOut, Terminal, ChevronDown, Copy } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
+import { getLogLevel } from './utils/logger.js';
 
 // Lazy load Dashboard
 const Dashboard = lazy(() => import('./components/Dashboard.jsx').then(module => ({ default: module.Dashboard })));
@@ -182,44 +183,46 @@ export default function App() {
           </Suspense>
         )}
 
-        {/* LOG TERMINAL */}
-        <div className="mt-12 bg-black/50 rounded-2xl border border-white/5 overflow-hidden font-mono text-[10px] backdrop-blur-sm">
-          <div className="bg-white/5 px-4 py-2 border-b border-white/5 flex justify-between items-center">
-            <div className="flex items-center gap-2 text-slate-500">
-              <Terminal className="w-3 h-3" />
-              <span className="font-bold uppercase tracking-widest">System Logs</span>
-            </div>
-            <div className="flex gap-2">
-              <button
-                onClick={handleCopyLogs}
-                className="text-slate-600 hover:text-slate-400 transition-colors uppercase font-bold"
-              >
-                {copyButtonState === 'copied' ? 'Copied!' : 'Copy'}
-              </button>
-              <button
-                onClick={() => setLogs([])}
-                className="text-slate-600 hover:text-slate-400 transition-colors uppercase font-bold"
-              >
-                Clear
-              </button>
-            </div>
-          </div>
-          <div className="p-4 h-32 overflow-y-auto space-y-1 custom-scrollbar">
-            {logs.length === 0 && <div className="text-slate-700 italic">No activity logs...</div>}
-            {logs.map((log, i) => (
-              <div key={i} className="flex gap-2">
-                <span className="text-slate-600 shrink-0">[{log.time}]</span>
-                <span className={
-                  log.type === 'error' ? 'text-red-400' :
-                    log.type === 'success' ? 'text-green-400' :
-                      log.type === 'warning' ? 'text-yellow-400' : 'text-slate-300'
-                }>
-                  {log.msg}
-                </span>
+        {/* LOG TERMINAL (only visible in debug mode) */}
+        {getLogLevel() === 'debug' && (
+          <div className="mt-12 bg-black/50 rounded-2xl border border-white/5 overflow-hidden font-mono text-[10px] backdrop-blur-sm">
+            <div className="bg-white/5 px-4 py-2 border-b border-white/5 flex justify-between items-center">
+              <div className="flex items-center gap-2 text-slate-500">
+                <Terminal className="w-3 h-3" />
+                <span className="font-bold uppercase tracking-widest">System Logs</span>
               </div>
-            ))}
+              <div className="flex gap-2">
+                <button
+                  onClick={handleCopyLogs}
+                  className="text-slate-600 hover:text-slate-400 transition-colors uppercase font-bold"
+                >
+                  {copyButtonState === 'copied' ? 'Copied!' : 'Copy'}
+                </button>
+                <button
+                  onClick={() => setLogs([])}
+                  className="text-slate-600 hover:text-slate-400 transition-colors uppercase font-bold"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+            <div className="p-4 h-32 overflow-y-auto space-y-1 custom-scrollbar">
+              {logs.length === 0 && <div className="text-slate-700 italic">No activity logs...</div>}
+              {logs.map((log, i) => (
+                <div key={i} className="flex gap-2">
+                  <span className="text-slate-600 shrink-0">[{log.time}]</span>
+                  <span className={
+                    log.type === 'error' ? 'text-red-400' :
+                      log.type === 'success' ? 'text-green-400' :
+                        log.type === 'warning' ? 'text-yellow-400' : 'text-slate-300'
+                  }>
+                    {log.msg}
+                  </span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

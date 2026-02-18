@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
 // https://vitejs.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   base: '/',
   publicDir: false,
   build: {
@@ -13,7 +13,7 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true, // Remove all console.* calls in production
+        drop_console: mode === 'production', // Only drop console in production builds
         drop_debugger: true,
       },
     },
@@ -31,4 +31,4 @@ export default defineConfig({
     react(),
     tailwindcss(),
   ],
-})
+}))

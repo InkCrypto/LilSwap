@@ -21,7 +21,7 @@ import { useDebtSwitchActions } from '../hooks/useDebtSwitchActions.js';
 import { useDebtPositions } from '../hooks/useDebtPositions.js';
 import { useUserPosition } from '../hooks/useUserPosition.js';
 
-import logger from '../utils/logger.js';
+import logger, { getLogLevel } from '../utils/logger.js';
 // Helper to get token logo URL from Aave CDN
 const getTokenLogo = (symbol) => {
     if (!symbol) return null;
@@ -292,15 +292,15 @@ export const DebtSwapModal = ({
     const [inputValue, setInputValue] = useState('');
     const [showSlippageSettings, setShowSlippageSettings] = useState(false);
     const [activeTab, setActiveTab] = useState('market');
-    const [logs, setLogs] = useState([]);
     // Preference: use permit (EIP-712 signature) by default — session only
     const [preferPermit, setPreferPermit] = useState(true);
     const [showMethodMenu, setShowMethodMenu] = useState(false);
     const methodMenuRef = useRef(null);
+    const [freezeQuote, setFreezeQuote] = useState(false);
+    const slippageMenuRef = useRef(null);
 
     const addLog = useCallback((message, type = 'info') => {
         logger.debug(`[DebtSwapModal] ${type}: ${message}`);
-        setLogs(prev => [...prev.slice(-20), { message, type, timestamp: Date.now() }]);
     }, []);
 
     // Initialize tokens from props
@@ -339,7 +339,7 @@ export const DebtSwapModal = ({
             setInputValue('');
             setSwapAmount(BigInt(0));
             setShowSlippageSettings(false);
-            setLogs([]);
+            setFreezeQuote(false);
         }
     }, [isOpen, initialFromToken, initialToToken, marketAssets]);
 
@@ -392,6 +392,7 @@ export const DebtSwapModal = ({
         selectedNetwork: effectiveNetwork,
         account,
         enabled: isOpen,
+        freezeQuote,
     });
 
     // Actions hook
@@ -422,6 +423,7 @@ export const DebtSwapModal = ({
         selectedNetwork: effectiveNetwork,
         simulateError: false,
         preferPermit,
+        freezeQuote,
     });
 
     // Destructure clearUserRejected from actions (added in hook)
@@ -448,6 +450,9 @@ export const DebtSwapModal = ({
         }
     }, [allowance, toToken, swapQuote]);
     const isBusy = isActionLoading || isDebtLoading;
+    const displayBufferBps = swapQuote?.bufferBps ?? 13;
+    const displayBufferPct = (displayBufferBps / 100).toFixed(2);
+    const isDev = import.meta.env?.MODE === 'development';
 
     // Debug state changes
     useEffect(() => {
@@ -562,6 +567,18 @@ export const DebtSwapModal = ({
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, [showMethodMenu]);
 
+    // Close slippage popover when clicking outside
+    useEffect(() => {
+        if (!showSlippageSettings) return;
+        const handleClickOutside = (e) => {
+            if (slippageMenuRef.current && !slippageMenuRef.current.contains(e.target)) {
+                setShowSlippageSettings(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [showSlippageSettings]);
+
     // Filter tokens
     const borrowableAssets = useMemo(() => {
         if (!marketAssets) return [];
@@ -618,7 +635,10 @@ export const DebtSwapModal = ({
 
                 {/* Slippage Settings Popover */}
                 {showSlippageSettings && (
-                    <div className="absolute top-16 right-4 bg-slate-800 border border-slate-700 p-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-top-2 duration-150">
+                    <div
+                        ref={slippageMenuRef}
+                        className="absolute top-16 right-4 bg-slate-800 border border-slate-700 p-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-top-2 duration-150"
+                    >
                         <div className="flex items-center justify-between mb-2">
                             <label className="text-xs text-slate-400 uppercase font-bold">Slippage Tolerance</label>
                             <span className="text-sm font-bold text-white">{(slippage / 10).toFixed(1)}%</span>
@@ -640,6 +660,27 @@ export const DebtSwapModal = ({
                                 </button>
                             ))}
                         </div>
+                        {isDev && (
+                            <>
+                                <div className="mt-3 flex items-center justify-between gap-3">
+                                    <label className="text-xs text-slate-400 uppercase font-bold">Freeze Quote</label>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFreezeQuote((prev) => !prev)}
+                                        className={`px-3 py-1 text-xs font-bold rounded-md transition-all ${freezeQuote
+                                            ? 'bg-emerald-600 text-white'
+                                            : 'bg-slate-900 text-slate-400 hover:bg-slate-700'
+                                            }`}
+                                    >
+                                        {freezeQuote ? 'On' : 'Off'}
+                                    </button>
+                                </div>
+                                <div className="mt-2 flex items-center justify-between">
+                                    <label className="text-xs text-slate-400 uppercase font-bold">Buffer</label>
+                                    <span className="text-sm font-bold text-white">{displayBufferPct}%</span>
+                                </div>
+                            </>
+                        )}
                     </div>
                 )}
 
@@ -663,9 +704,23 @@ export const DebtSwapModal = ({
                 {inputValue && (
                     <div className="flex justify-center">
                         <div className="text-xs text-slate-500 flex items-center gap-2">
-                            <RefreshCw className="w-3 h-3" />
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    fetchQuote();
+                                    resetRefreshCountdown();
+                                }}
+                                className="text-slate-500 hover:text-slate-300 transition-colors"
+                                title="Refresh quote"
+                                aria-label="Refresh quote"
+                                disabled={isQuoteLoading}
+                            >
+                                <RefreshCw className={`w-3 h-3 ${isQuoteLoading ? 'animate-spin' : ''}`} />
+                            </button>
                             {isQuoteLoading || !swapQuote ? (
                                 'Loading quote...'
+                            ) : freezeQuote && isDev ? (
+                                'Quote frozen'
                             ) : (
                                 `Auto refresh in ${nextRefreshIn}s`
                             )}
@@ -800,28 +855,7 @@ export const DebtSwapModal = ({
                     )}
                 </button>
 
-                {/* Logs */}
-                {logs.length > 0 && (
-                    <div className="relative">
-                        <button
-                            onClick={() => {
-                                const logText = logs.map(l => l.message).join('\n');
-                                navigator.clipboard.writeText(logText).catch(err => console.error('Erro ao copiar:', err));
-                            }}
-                            className="absolute top-2 right-2 text-xs text-slate-400 hover:text-slate-200 transition-colors z-10"
-                            title="Copy logs to clipboard"
-                        >
-                            Copy
-                        </button>
-                        <div className="bg-slate-800/30 rounded-lg p-2 space-y-1 max-h-60 overflow-y-auto text-xs pt-6">
-                            {logs.map((log, idx) => (
-                                <div key={idx} className={`text-${log.type === 'error' ? 'red' : log.type === 'success' ? 'green' : 'slate'}-400`}>
-                                    {log.message}
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+                {/* Logs - Hidden, all output to console */}
             </div>
         </Modal>
     );

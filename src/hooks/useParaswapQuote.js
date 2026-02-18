@@ -16,7 +16,8 @@ export const useParaswapQuote = ({
     onQuoteLoaded,
     selectedNetwork,
     account,
-    enabled = true
+    enabled = true,
+    freezeQuote = false
 }) => {
     const [swapQuote, setSwapQuote] = useState(null);
     const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
@@ -122,7 +123,7 @@ export const useParaswapQuote = ({
                 chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
             });
 
-            const { priceRoute, srcAmount, version, augustus } = routeResult;
+            const { priceRoute, srcAmount, version, augustus, bufferBps, feeBps } = routeResult;
             const quoteTimestamp = Math.floor(Date.now() / 1000);
 
             // Convert strings to BigInt
@@ -134,7 +135,9 @@ export const useParaswapQuote = ({
                 destAmount: destAmountBigInt.toString(),
                 srcAmountFormatted: ethers.formatUnits(srcAmountBigInt, toToken.decimals),
                 version,
-                augustus
+                augustus,
+                bufferBps,
+                feeBps
             });
 
             addLog?.(`Quote received - will need ${ethers.formatUnits(srcAmountBigInt, toToken.decimals)} ${toToken.symbol}`, 'success');
@@ -148,6 +151,8 @@ export const useParaswapQuote = ({
                 timestamp: quoteTimestamp,
                 version,
                 augustus,
+                bufferBps,
+                feeBps,
             };
 
             setSwapQuote(quotePayload);
@@ -193,7 +198,13 @@ export const useParaswapQuote = ({
             toAddress: toToken?.underlyingAsset
         });
 
-        if (!enabled || !debouncedDebtAmount || debouncedDebtAmount === BigInt(0) || !fromToken || !toToken) {
+        if (!enabled) {
+            logger.debug('[useParaswapQuote] Disabled, clearing quote');
+            clearQuote();
+            return;
+        }
+
+        if (!debouncedDebtAmount || debouncedDebtAmount === BigInt(0) || !fromToken || !toToken) {
             logger.debug('[useParaswapQuote] Conditions not met, clearing quote');
             clearQuote();
             return;
@@ -205,7 +216,7 @@ export const useParaswapQuote = ({
 
     // Refresh interval
     useEffect(() => {
-        if (!autoRefreshEnabled || !enabled) return;
+        if (!autoRefreshEnabled || !enabled || freezeQuote) return;
 
         const interval = setInterval(() => {
             setNextRefreshIn((prev) => {
@@ -218,7 +229,7 @@ export const useParaswapQuote = ({
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [autoRefreshEnabled, fetchQuote, enabled]);
+    }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote]);
 
     return {
         swapQuote,
