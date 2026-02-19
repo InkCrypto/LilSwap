@@ -348,7 +348,8 @@ export const DebtSwapSwitcher = ({
                             <label className="text-xs text-slate-400 uppercase font-bold tracking-wider mb-1">Nova Dívida Estimada</label>
                             <div className="text-2xl font-mono font-bold text-white">
                                 {swapQuote && toToken ? (
-                                    Number(ethers.formatUnits(swapQuote.destAmount, toToken.decimals)).toLocaleString(undefined, { maximumFractionDigits: 6 })
+                                    // Show full precision (no rounding) for quote amounts
+                                    ethers.formatUnits(swapQuote.destAmount, toToken.decimals)
                                 ) : (
                                     <span className="text-slate-500 text-lg">Enter an amount</span>
                                 )}

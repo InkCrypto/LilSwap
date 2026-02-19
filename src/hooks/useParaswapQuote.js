@@ -22,7 +22,8 @@ export const useParaswapQuote = ({
     const [swapQuote, setSwapQuote] = useState(null);
     const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
     const [nextRefreshIn, setNextRefreshIn] = useState(AUTO_REFRESH_SECONDS);
-    const [slippage, setSlippage] = useState(5);
+    // slippage is expressed in basis points (bps) across the app: 50 = 0.5%
+    const [slippage, setSlippage] = useState(50);
     const [isQuoteLoading, setIsQuoteLoading] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
 

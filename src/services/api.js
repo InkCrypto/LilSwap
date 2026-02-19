@@ -97,7 +97,7 @@ export const getDebtQuote = async (params) => {
  * @param {Object} params.fromToken - Source token data (address, decimals, symbol)
  * @param {Object} params.toToken - Destination token data (address, decimals, symbol)
  * @param {string} params.userAddress - Adapter address
- * @param {number} params.slippage - Slippage in basis points (e.g., 100 = 1%)
+ * @param {number} params.slippageBps - Slippage in basis points (e.g., 100 = 1%)
  * @param {number} params.chainId - Chain ID
  * @returns {Promise<Object>} Transaction data (to, data, value, gasLimit)
  */

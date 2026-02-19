@@ -27,12 +27,13 @@ export const PositionsAccordion = ({ userAddress }) => {
         open: false,
         chainId: null,
         initialFromToken: null,
-        marketAssets: []
+        marketAssets: [],
+        borrows: []
     });
     const [switchingChain, setSwitchingChain] = useState(null);
 
     // Handle opening swap modal and switching chain
-    const handleOpenSwap = async (chainId, asset, marketAssets) => {
+    const handleOpenSwap = async (chainId, asset, marketAssets, borrows = []) => {
         logger.debug('Opening swap modal', { chainId, asset: asset.symbol });
         setSwitchingChain(chainId);
 
@@ -47,7 +48,8 @@ export const PositionsAccordion = ({ userAddress }) => {
                 open: true,
                 chainId,
                 initialFromToken: asset,
-                marketAssets: marketAssets || []
+                marketAssets: marketAssets || [],
+                borrows: borrows || []
             });
         } catch (err) {
             logger.error('Failed to switch chain', { chainId, error: err.message });
@@ -69,7 +71,8 @@ export const PositionsAccordion = ({ userAddress }) => {
             open: false,
             chainId: null,
             initialFromToken: null,
-            marketAssets: []
+            marketAssets: [],
+            borrows: []
         });
     };
 
@@ -296,7 +299,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
-                                                        handleOpenSwap(chain.chainId, borrow, chain.marketAssets);
+                                                        handleOpenSwap(chain.chainId, borrow, chain.marketAssets, chain.borrows);
                                                     }}
                                                     disabled={switchingChain === chain.chainId}
                                                     className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -365,6 +368,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                     initialFromToken={modalState.initialFromToken}
                     chainId={modalState.chainId}
                     marketAssets={modalState.marketAssets}
+                    providedBorrows={modalState.borrows}
                 />
             </Suspense>
         </div>

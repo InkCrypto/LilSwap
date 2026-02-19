@@ -7,6 +7,7 @@ import { buildDebtSwapTx } from '../services/api.js';
 import { recordTransactionHash, confirmTransactionOnChain } from '../services/transactionsApi.js';
 
 import logger from '../utils/logger.js';
+import { calcApprovalAmount } from '../utils/swapMath.js';
 export const useDebtSwitchActions = ({
     account,
     provider,
@@ -292,11 +293,9 @@ export const useDebtSwitchActions = ({
             const srcAmountBigInt = typeof srcAmount === 'bigint' ? srcAmount : BigInt(srcAmount);
 
             // Buffer in basis points (bps) - received from backend's quote response
-            // Backend determines the buffer, frontend just uses it for validation
             // Use activeQuote (which may have been refreshed) not swapQuote (stale state)
-            const bufferBps = activeQuote?.bufferBps || 13; // Fallback to 13 if not provided
-            const numerator = 10000 + bufferBps;
-            const maxNewDebt = (srcAmountBigInt * BigInt(numerator)) / BigInt(10000);
+            const bufferBps = activeQuote?.bufferBps || 50; // Fallback to 50 bps if not provided
+            const maxNewDebt = calcApprovalAmount(srcAmountBigInt, bufferBps);
             const exactDebtRepayAmount = activeQuote.destAmount; // Amount to repay (exact output)
 
             let permitParams = { amount: 0, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
@@ -434,7 +433,7 @@ export const useDebtSwitchActions = ({
                 userAddress: adapterAddress,
                 destAmount: exactDebtRepayAmount.toString(),
                 srcAmount: activeQuote.srcAmount.toString(),
-                slippage,  // User's chosen slippage - backend will respect this
+                slippageBps: slippage,  // User's chosen slippage in BPS (e.g., 50 = 0.5%)
                 chainId,
                 userWalletAddress: account,  // Pass user's wallet for tracking
             });

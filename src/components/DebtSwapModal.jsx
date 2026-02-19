@@ -20,8 +20,10 @@ import { useParaswapQuote } from '../hooks/useParaswapQuote.js';
 import { useDebtSwitchActions } from '../hooks/useDebtSwitchActions.js';
 import { useDebtPositions } from '../hooks/useDebtPositions.js';
 import { useUserPosition } from '../hooks/useUserPosition.js';
+import { getUserPosition } from '../services/api.js';
 
 import logger, { getLogLevel } from '../utils/logger.js';
+import { calcApprovalAmount } from '../utils/swapMath.js';
 // Helper to get token logo URL from Aave CDN
 const getTokenLogo = (symbol) => {
     if (!symbol) return null;
@@ -106,8 +108,9 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                                     {selectedToken?.symbol?.[0] || '?'}
                                 </span>
                             </div>
-                            <div className="text-left">
+                            <div className="text-left min-w-0">
                                 <span className="text-sm font-bold text-white block">{selectedToken?.symbol || 'Select'}</span>
+                                <span className="text-[10px] text-slate-400 block truncate">{selectedToken?.variableBorrowRate != null ? `${(selectedToken.variableBorrowRate * 100).toFixed(2)}% APY` : (selectedToken?.name || '')}</span>
                             </div>
                         </div>
                         <ChevronDown className={`w-4 h-4 text-slate-500 transition-transform ${isOpen ? 'rotate-180' : ''}`} />
@@ -123,7 +126,7 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                             className="bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150"
                             style={portalStyle}
                         >
-                            <div className="p-2 border-b border-slate-700">
+                            <div className="p-2">
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                                     <input
@@ -174,6 +177,7 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                                                     <div className="text-[10px] text-slate-500">{token.name}</div>
                                                 </div>
                                             </div>
+                                            <div className="text-xs text-slate-400 ml-2">{(token.variableBorrowRate ?? token.borrowRate) != null ? `${((token.variableBorrowRate ?? token.borrowRate) * 100).toFixed(2)}%` : '-'}</div>
                                         </button>
                                     );
                                 })}
@@ -221,7 +225,13 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                     />
                 </div>
                 {/* Token badge */}
-                <div className="bg-slate-900 px-2 sm:px-3 py-1 rounded-full border border-slate-700 flex items-center gap-1 sm:gap-2 cursor-pointer" onClick={onTokenSelect}>
+                <button
+                    type="button"
+                    onClick={onTokenSelect}
+                    disabled={disabled}
+                    aria-haspopup="dialog"
+                    className={`bg-slate-900 px-2 sm:px-3 py-1 rounded-full border border-slate-700 flex items-center gap-2 cursor-pointer hover:bg-slate-800 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                >
                     {token?.symbol ? (
                         <img
                             src={getTokenLogo(token.symbol)}
@@ -233,7 +243,8 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                         <span className="text-xs font-bold">?</span>
                     )}
                     <span className="text-sm sm:text-sm font-bold text-white">{token?.symbol}</span>
-                </div>
+                    <ChevronDown className="w-4 h-4 text-slate-500" />
+                </button>
             </div>
             {/* Bottom row: borrowed and percent buttons */}
             <div className="flex items-center justify-between mt-2">
@@ -272,14 +283,19 @@ export const DebtSwapModal = ({
     initialFromToken = null,
     initialToToken = null,
     chainId = null,
-    marketAssets: providedMarketAssets = null
+    marketAssets: providedMarketAssets = null,
+    providedBorrows = null,
 }) => {
     const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
 
     // Use provided marketAssets as fallback if selectedNetwork isn't synced yet
     // In normal flow, selectedNetwork will be updated by Web3Provider's chainChanged handler
-    const { marketAssets: fetchedMarketAssets } = useUserPosition();
+    const { marketAssets: fetchedMarketAssets, borrows, loading: positionsLoading, refresh: refreshPositions } = useUserPosition();
     const marketAssets = providedMarketAssets || fetchedMarketAssets;
+
+    // Fallback: sometimes the hook instance for this modal doesn't yet have `borrows` cached
+    const [fallbackBorrows, setFallbackBorrows] = useState(null);
+    const [fallbackLoading, setFallbackLoading] = useState(false);
 
     // For hooks, use selectedNetwork (should be updated by Web3Provider)
     // chainId prop is kept for debug/fallback purposes
@@ -299,9 +315,48 @@ export const DebtSwapModal = ({
     const [freezeQuote, setFreezeQuote] = useState(false);
     const slippageMenuRef = useRef(null);
 
+    const [tokenSelectorOpen, setTokenSelectorOpen] = useState(false);
+    const [selectingForFrom, setSelectingForFrom] = useState(false);
+    const [tokenModalSearch, setTokenModalSearch] = useState('');
+
     const addLog = useCallback((message, type = 'info') => {
         logger.debug(`[DebtSwapModal] ${type}: ${message}`);
     }, []);
+
+    // Stable token-selector openers
+    const openTokenSelectorForFrom = useCallback(() => {
+
+        // Only refresh if parent did NOT provide borrows (avoid duplicate fetch when modal opened from PositionsAccordion)
+        const hasProvidedBorrows = providedBorrows && providedBorrows.length > 0;
+
+        // If no provided borrows and no cached borrows in hook, refresh shared hook
+        if (!hasProvidedBorrows && (!borrows || borrows.length === 0) && !positionsLoading && typeof refreshPositions === 'function') {
+            refreshPositions(true).catch((e) => logger.warn('[DebtSwapModal] refreshPositions failed', e));
+        }
+
+        // If still empty after a short delay and parent didn't provide borrows, fetch directly from backend as a fallback
+        if (!hasProvidedBorrows && (!borrows || borrows.length === 0) && (!fallbackBorrows || fallbackBorrows.length === 0)) {
+            if (account && selectedNetwork?.chainId) {
+                setFallbackLoading(true);
+                getUserPosition(account, selectedNetwork.chainId)
+                    .then((pos) => {
+                        setFallbackBorrows(pos?.borrows || []);
+                    })
+                    .catch((err) => logger.warn('[DebtSwapModal] fallback fetch failed', err))
+                    .finally(() => setFallbackLoading(false));
+            }
+        }
+
+        setSelectingForFrom(true);
+        setTokenModalSearch('');
+        setTokenSelectorOpen(true);
+    }, [borrows, positionsLoading, marketAssets, refreshPositions, account, selectedNetwork, fallbackBorrows, setTokenModalSearch]);
+
+    const openTokenSelectorForTo = useCallback(() => {
+        setSelectingForFrom(false);
+        setTokenModalSearch('');
+        setTokenSelectorOpen(true);
+    }, [setTokenModalSearch]);
 
     // Initialize tokens from props
     useEffect(() => {
@@ -343,6 +398,18 @@ export const DebtSwapModal = ({
         }
     }, [isOpen, initialFromToken, initialToToken, marketAssets]);
 
+    // Ensure `toToken` is never the same as `fromToken`. If user changes `fromToken` to the
+    // currently-selected `toToken`, clear `toToken` so we don't attempt an invalid quote.
+    useEffect(() => {
+        if (!fromToken) return;
+        if (!toToken) return;
+        const fromAddr = (fromToken.underlyingAsset || fromToken.address || '').toLowerCase();
+        const toAddr = (toToken.underlyingAsset || toToken.address || '').toLowerCase();
+        if (fromAddr && toAddr && fromAddr === toAddr) {
+            setToToken(null);
+        }
+    }, [fromToken, toToken]);
+
     // Debt positions hook
     const {
         debtBalance,
@@ -360,17 +427,7 @@ export const DebtSwapModal = ({
         selectedNetwork: effectiveNetwork,
     });
 
-    // Debug debt data
-    useEffect(() => {
-        logger.debug('[DebtSwapModal] Debt data:', {
-            isDebtLoading,
-            hasFromToken: !!fromToken,
-            fromTokenSymbol: fromToken?.symbol,
-            formattedDebt,
-            debtBalance: debtBalance?.toString(),
-            allowance: allowance?.toString()
-        });
-    }, [isDebtLoading, fromToken, formattedDebt, debtBalance, allowance]);
+
 
     // Quote hook
     const {
@@ -440,9 +497,8 @@ export const DebtSwapModal = ({
                 : BigInt(swapQuote.srcAmount);
 
             // Buffer in basis points (bps) - received from backend's quote response
-            const bufferBps = swapQuote.bufferBps || 13; // Fallback to 13 if not provided
-            const numerator = 10000 + bufferBps;
-            const maxNewDebt = (srcAmountBigInt * BigInt(numerator)) / BigInt(10000);
+            const bufferBps = swapQuote.bufferBps || 50; // Fallback to 50 bps if not provided
+            const maxNewDebt = calcApprovalAmount(srcAmountBigInt, bufferBps);
             return allowance < maxNewDebt;
         } catch (error) {
             logger.warn('[DebtSwapModal] Failed to compute needsApproval from quote:', error);
@@ -454,22 +510,14 @@ export const DebtSwapModal = ({
     const displayBufferPct = (displayBufferBps / 100).toFixed(2);
     const isDev = import.meta.env?.MODE === 'development';
 
-    // Debug state changes
-    useEffect(() => {
-        logger.debug('[DebtSwapModal] State update:', {
-            isOpen,
-            fromToken: fromToken?.symbol,
-            toToken: toToken?.symbol,
-            debtBalance: debtBalance?.toString(),
-            formattedDebt,
-            swapAmount: swapAmount?.toString(),
-            inputValue,
-            hasQuote: !!swapQuote,
-            isQuoteLoading,
-            isBusy,
-            needsApproval
-        });
-    }, [isOpen, fromToken, toToken, debtBalance, formattedDebt, swapAmount, inputValue, swapQuote, isQuoteLoading, isBusy, needsApproval]);
+    const modalTitle = useMemo(() => {
+        if (fromToken && toToken) return `Swap ${fromToken.symbol} → ${toToken.symbol}`;
+        if (fromToken) return `Swap ${fromToken.symbol} debt`;
+        if (toToken) return `Swap to ${toToken.symbol}`;
+        return 'Swap debt';
+    }, [fromToken, toToken]);
+
+
 
     // Initialize input value when debtBalance is loaded
     useEffect(() => {
@@ -486,12 +534,7 @@ export const DebtSwapModal = ({
                 const parsed = ethers.parseUnits(value, fromToken?.decimals || 18);
                 const maxAmt = debtBalance || BigInt(0);
                 const finalAmount = parsed > maxAmt ? maxAmt : parsed;
-                logger.debug('[DebtSwapModal] Input changed:', {
-                    value,
-                    parsed: parsed.toString(),
-                    maxAmt: maxAmt.toString(),
-                    finalAmount: finalAmount.toString()
-                });
+
                 setSwapAmount(finalAmount);
             }
         } catch (error) {
@@ -588,14 +631,40 @@ export const DebtSwapModal = ({
         });
     }, [marketAssets, getBorrowStatus]);
 
+    // Build a detailed list for borrowed tokens by merging borrow entries with market asset metadata
     const activeDebtAssets = useMemo(() => {
-        if (!marketAssets) return [];
-        return marketAssets.filter(asset => asset.amount && BigInt(asset.amount) > BigInt(0));
-    }, [marketAssets]);
+        // prefer borrows provided by parent (PositionsAccordion) so modal can show positions immediately
+        const sourceBorrows = (providedBorrows && providedBorrows.length > 0)
+            ? providedBorrows
+            : (borrows && borrows.length > 0) ? borrows : (fallbackBorrows || []);
+        if (!sourceBorrows || sourceBorrows.length === 0) return [];
+        const chainMarket = marketAssets || [];
+        return sourceBorrows
+            .filter(b => b.amount && BigInt(b.amount) > BigInt(0))
+            .map((b) => {
+                const match = chainMarket.find(m => m.underlyingAsset?.toLowerCase() === b.underlyingAsset?.toLowerCase());
+                return {
+                    underlyingAsset: b.underlyingAsset,
+                    symbol: b.symbol || match?.symbol,
+                    name: match?.name || b.symbol || '',
+                    decimals: b.decimals || match?.decimals || 18,
+                    amount: b.amount,
+                    formattedAmount: b.formattedAmount,
+                    isActive: match?.isActive,
+                    isFrozen: match?.isFrozen,
+                    isPaused: match?.isPaused,
+                    borrowingEnabled: match?.borrowingEnabled,
+                    debtTokenAddress: b.debtTokenAddress,
+                    // prefer market's variableBorrowRate (exact source used by backend), fallback to borrow entry
+                    variableBorrowRate: (typeof match?.variableBorrowRate === 'number') ? match.variableBorrowRate : (b.borrowRate ?? 0),
+                    borrowRate: b.borrowRate,
+                };
+            });
+    }, [providedBorrows, borrows, marketAssets, fallbackBorrows]);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title="Swap USDC debt" maxWidth="520px">
-            <div className="p-4 space-y-4">
+        <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} maxWidth="520px" headerBorder={false}>
+            <div className="p-3 space-y-3">
                 {/* Header with Tabs and Slippage */}
                 <div className="flex items-center justify-between gap-2 relative">
                     {/* Tabs: Market / Limit */}
@@ -627,7 +696,7 @@ export const DebtSwapModal = ({
                     <button
                         onClick={() => setShowSlippageSettings(!showSlippageSettings)}
                         className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
-                        title={`Slippage: ${(slippage / 10).toFixed(1)}%`}
+                        title={`Slippage: ${(slippage / 100).toFixed(2)}%`}
                     >
                         <Settings className="w-5 h-5" />
                     </button>
@@ -641,10 +710,10 @@ export const DebtSwapModal = ({
                     >
                         <div className="flex items-center justify-between mb-2">
                             <label className="text-xs text-slate-400 uppercase font-bold">Slippage Tolerance</label>
-                            <span className="text-sm font-bold text-white">{(slippage / 10).toFixed(1)}%</span>
+                            <span className="text-sm font-bold text-white">{(slippage / 100).toFixed(2)}%</span>
                         </div>
                         <div className="flex gap-2">
-                            {[5, 10, 30, 50].map((val) => (
+                            {[25, 50, 150, 500].map((val) => (
                                 <button
                                     key={val}
                                     onClick={() => {
@@ -656,7 +725,7 @@ export const DebtSwapModal = ({
                                         : 'bg-slate-900 text-slate-400 hover:bg-slate-700'
                                         }`}
                                 >
-                                    {val / 10}%
+                                    {(val / 100).toFixed(2)}%
                                 </button>
                             ))}
                         </div>
@@ -695,7 +764,7 @@ export const DebtSwapModal = ({
                             decimals={fromToken.decimals}
                             disabled={isBusy}
                             formattedDebt={formattedDebt}
-                            onTokenSelect={() => { setSelectingForFrom(true); setTokenSelectorOpen(true); }}
+                            onTokenSelect={openTokenSelectorForFrom}
                         />
                     </>
                 )}
@@ -744,8 +813,8 @@ export const DebtSwapModal = ({
                                         <span className="text-2xl font-mono font-bold text-white block">
                                             {(() => {
                                                 try {
-                                                    const formatted = ethers.formatUnits(swapQuote.srcAmount, toToken.decimals);
-                                                    return Number(formatted).toLocaleString(undefined, { maximumFractionDigits: 4 });
+                                                    // Show full precision (no rounding) using ethers.formatUnits
+                                                    return ethers.formatUnits(swapQuote.srcAmount, toToken.decimals);
                                                 } catch (e) {
                                                     return '...';
                                                 }
@@ -763,14 +832,21 @@ export const DebtSwapModal = ({
 
                         {/* Token Selector Button - Compact (moved to right) */}
                         <div className="shrink-0 ml-2">
-                            <TokenSelector
-                                selectedToken={toToken}
-                                tokens={borrowableAssets}
-                                onSelect={setToToken}
+                            <button
+                                type="button"
+                                onClick={(e) => { openTokenSelectorForTo(); }}
+                                className="bg-slate-900 px-2 sm:px-3 py-1 rounded-full border border-slate-700 flex items-center gap-2 cursor-pointer hover:bg-slate-800"
                                 disabled={isBusy}
-                                getBorrowStatus={getBorrowStatus}
-                                compact={true}
-                            />
+                                aria-haspopup="dialog"
+                            >
+                                {toToken?.symbol ? (
+                                    <img src={getTokenLogo(toToken.symbol)} alt={toToken.symbol} className="w-6 h-6 rounded-full" onError={(e) => e.target.style.display = 'none'} />
+                                ) : (
+                                    <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center">?</div>
+                                )}
+                                <span className="text-sm font-bold text-white">{toToken?.symbol || 'Select'}</span>
+                                <ChevronDown className="w-4 h-4 text-slate-500" />
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -835,6 +911,108 @@ export const DebtSwapModal = ({
                         </div>
                     )}
                 </div>
+
+                {/* Full-screen token selector modal (used for both `from` and `to`) */}
+                {tokenSelectorOpen && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
+                        <div className="fixed inset-0 bg-black/40" onClick={() => { setTokenSelectorOpen(false); setSelectingForFrom(false); }} />
+                        <div className="relative z-10 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+                            <div className="p-3 flex items-start justify-between gap-3">
+                                <div className="flex-1 min-w-0">
+                                    <div className="font-bold text-white">{selectingForFrom ? 'Swap From' : 'Swap To'}</div>
+                                    <div className="text-xs text-slate-400 mt-1">{selectingForFrom ? 'Choose a token to swap from your debt positions' : 'Choose a token to borrow/swap to'}</div>
+                                </div>
+
+                                <div className="ml-2 flex-shrink-0 self-start">
+                                    <button className="text-slate-400 p-1 rounded hover:bg-slate-800" aria-label="Close token selector" onClick={() => { setTokenSelectorOpen(false); setSelectingForFrom(false); setTokenModalSearch(''); }}>
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* Search row - full width but padded */}
+                            <div className="px-3 pb-2">
+                                <div className="relative w-full">
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
+                                    <input
+                                        type="text"
+                                        autoFocus
+                                        placeholder="Search token..."
+                                        value={tokenModalSearch}
+                                        onChange={(e) => setTokenModalSearch(e.target.value)}
+                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-4 text-xs text-white focus:outline-none focus:border-purple-500"
+                                        onClick={(e) => e.stopPropagation()}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="p-2">
+                                {selectingForFrom && positionsLoading ? (
+                                    <div className="p-4 text-center text-slate-500 text-xs">Loading tokens...</div>
+                                ) : (() => {
+                                    let baseList = selectingForFrom ? activeDebtAssets : (borrowableAssets || []);
+
+                                    // When selecting the `to` token, exclude the currently-selected `fromToken`
+                                    // to prevent choosing the same asset as both source and destination.
+                                    if (!selectingForFrom && fromToken) {
+                                        const fromAddr = (fromToken.underlyingAsset || fromToken.address || '').toLowerCase();
+                                        baseList = baseList.filter((t) => {
+                                            const tAddr = (t.underlyingAsset || t.address || '').toLowerCase();
+                                            return !fromAddr || !tAddr || fromAddr !== tAddr;
+                                        });
+                                    }
+
+                                    const list = tokenModalSearch?.trim()
+                                        ? baseList.filter(t => (t.symbol || '').toLowerCase().includes(tokenModalSearch.toLowerCase()) || (t.name || '').toLowerCase().includes(tokenModalSearch.toLowerCase()))
+                                        : baseList;
+                                    if (!list || list.length === 0) {
+                                        return (
+                                            <div className="p-4 text-center text-slate-500 text-xs space-y-2">
+                                                <div>No tokens available</div>
+                                                {selectingForFrom && !positionsLoading && (
+                                                    <div className="flex items-center justify-center mt-2">
+                                                        <button
+                                                            className="text-xs px-3 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-750"
+                                                            onClick={() => { if (typeof refreshPositions === 'function') { refreshPositions(true); } }}
+                                                        >
+                                                            Refresh positions
+                                                        </button>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    }
+
+                                    return list.map((token) => {
+                                        const status = getBorrowStatus ? getBorrowStatus(token) : { borrowable: true };
+                                        const disabled = !status.borrowable;
+                                        return (
+                                            <button
+                                                key={token.underlyingAsset || token.address}
+                                                disabled={disabled}
+                                                onClick={() => {
+                                                    if (selectingForFrom) setFromToken(token); else setToToken(token);
+                                                    setSelectingForFrom(false);
+                                                    setTokenSelectorOpen(false);
+                                                }}
+                                                className={`w-full text-left px-3 py-2 rounded-lg mb-1 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-800'}`}
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <img src={getTokenLogo(token.symbol)} alt={token.symbol} className="w-6 h-6" onError={(e) => e.target.style.display = 'none'} />
+                                                    <div className="flex-1">
+                                                        <div className="font-bold text-white text-sm">{token.symbol}</div>
+                                                        <div className="text-xs text-slate-400">{token.name}</div>
+                                                    </div>
+                                                    {!disabled && <div className="text-xs text-slate-400">{(token.variableBorrowRate ?? token.borrowRate) != null ? `${((token.variableBorrowRate ?? token.borrowRate) * 100).toFixed(2)}%` : '-'}</div>}
+                                                </div>
+                                            </button>
+                                        );
+                                    });
+                                })()}
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Action Button */}
                 <button

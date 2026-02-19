@@ -6,7 +6,7 @@ import { X } from 'lucide-react';
  * Modal Component
  * Generic modal with backdrop, centering, and close handlers
  */
-export const Modal = ({ isOpen, onClose, title, children, maxWidth = '500px' }) => {
+export const Modal = ({ isOpen, onClose, title, children, maxWidth = '500px', headerBorder = true }) => {
     const modalRef = useRef(null);
 
     useEffect(() => {
@@ -56,7 +56,7 @@ export const Modal = ({ isOpen, onClose, title, children, maxWidth = '500px' }) 
             >
                 {/* Header */}
                 {title && (
-                    <div className="flex items-center justify-between p-4 border-b border-slate-700">
+                    <div className={`flex items-center justify-between p-4 ${headerBorder ? 'border-b border-slate-700' : ''}`}>
                         <h2 className="text-lg font-bold text-white">{title}</h2>
                         <button
                             onClick={onClose}
