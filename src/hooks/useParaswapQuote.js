@@ -90,7 +90,13 @@ export const useParaswapQuote = ({
             addLog?.(`Swapping debt: ${fromToken.symbol} -> ${toToken.symbol}...`, 'info');
             addLog?.('Updating quote...', 'info');
 
-            const destAmount = debouncedDebtAmount.toString();
+            // convert to BigInt and add a single unit to cover potential dust rounding issues
+            let destAmountBigInt = BigInt(debouncedDebtAmount.toString());
+            if (destAmountBigInt > 0n) {
+                destAmountBigInt += 1n;
+                logger.debug('[useParaswapQuote] Added 1 wei to destAmount to avoid dust underpay');
+            }
+            const destAmount = destAmountBigInt.toString();
 
             logger.debug('[useParaswapQuote] Fetching quote with params:', {
                 fromToken: fromToken.symbol,
@@ -108,6 +114,12 @@ export const useParaswapQuote = ({
             const fromTokenAddress = normalizeTokenAddress(fromToken.address || fromToken.underlyingAsset, fromToken.symbol);
             const toTokenAddress = normalizeTokenAddress(toToken.address || toToken.underlyingAsset, toToken.symbol);
 
+            // Include APY from frontend token data (prefer variableBorrowRate) so backend uses
+            // the authoritative frontend value instead of falling back to on-chain/defaults.
+            const apyPercentToSend = (typeof fromToken?.variableBorrowRate === 'number')
+                ? fromToken.variableBorrowRate * 100
+                : (typeof fromToken?.borrowRate === 'number' ? fromToken.borrowRate * 100 : null);
+
             const routeResult = await getDebtQuote({
                 fromToken: {
                     address: fromTokenAddress,
@@ -121,15 +133,16 @@ export const useParaswapQuote = ({
                 },
                 destAmount: destAmount,
                 userAddress: account,
+                apyPercent: apyPercentToSend,
                 chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
             });
 
-            const { priceRoute, srcAmount, version, augustus, bufferBps, feeBps } = routeResult;
+            const { priceRoute, srcAmount, version, augustus, bufferBps, feeBps, apyPercent } = routeResult;
             const quoteTimestamp = Math.floor(Date.now() / 1000);
 
             // Convert strings to BigInt
             const srcAmountBigInt = BigInt(srcAmount);
-            const destAmountBigInt = BigInt(destAmount);
+            const destAmountBn = BigInt(destAmount);
 
             logger.debug('[useParaswapQuote] Quote received:', {
                 srcAmount: srcAmountBigInt.toString(),
@@ -146,7 +159,7 @@ export const useParaswapQuote = ({
             const quotePayload = {
                 priceRoute,
                 srcAmount: srcAmountBigInt,
-                destAmount: destAmountBigInt,
+                destAmount: destAmountBn,
                 fromToken,
                 toToken,
                 timestamp: quoteTimestamp,
@@ -154,6 +167,7 @@ export const useParaswapQuote = ({
                 augustus,
                 bufferBps,
                 feeBps,
+                apyPercent: typeof apyPercent === 'number' ? apyPercent : null,
             };
 
             setSwapQuote(quotePayload);

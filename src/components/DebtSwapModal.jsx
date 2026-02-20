@@ -15,6 +15,7 @@ import {
     Info
 } from 'lucide-react';
 import { Modal } from './Modal.jsx';
+import { InfoTooltip } from './InfoTooltip.jsx';
 import { useWeb3 } from '../context/web3Context.js';
 import { useParaswapQuote } from '../hooks/useParaswapQuote.js';
 import { useDebtSwitchActions } from '../hooks/useDebtSwitchActions.js';
@@ -410,6 +411,8 @@ export const DebtSwapModal = ({
         }
     }, [fromToken, toToken]);
 
+
+
     // Debt positions hook
     const {
         debtBalance,
@@ -452,10 +455,27 @@ export const DebtSwapModal = ({
         freezeQuote,
     });
 
+    // When the user changes the source token, clear any previously-entered amount and
+    // reset the computed swap amount/quote to avoid sending stale values that may be
+    // invalid for the newly-selected `fromToken`.
+    useEffect(() => {
+        if (!isOpen) return; // only clear when modal is open
+        setInputValue('');
+        setSwapAmount(BigInt(0));
+        clearQuote && clearQuote();
+
+        // Immediately refresh on-chain debt data for the newly-selected `fromToken` so
+        // the MAX button uses up-to-date values (prevents inserting old token's max).
+        if (typeof fetchDebtData === 'function') {
+            fetchDebtData().catch((e) => logger.warn('[DebtSwapModal] fetchDebtData failed on fromToken change', e));
+        }
+    }, [fromToken, isOpen, clearQuote, fetchDebtData]);
+
     // Actions hook
     const {
         isActionLoading,
         signedPermit,
+        forceRequirePermit,
         txError,
         pendingTxParams,
         userRejected,
@@ -467,6 +487,7 @@ export const DebtSwapModal = ({
     } = useDebtSwitchActions({
         account,
         provider,
+        networkRpcProvider,
         fromToken,
         toToken,
         allowance,
@@ -482,6 +503,7 @@ export const DebtSwapModal = ({
         preferPermit,
         freezeQuote,
     });
+
 
     // Destructure clearUserRejected from actions (added in hook)
     // (Note: clearUserRejected is returned by useDebtSwitchActions)
@@ -706,7 +728,7 @@ export const DebtSwapModal = ({
                 {showSlippageSettings && (
                     <div
                         ref={slippageMenuRef}
-                        className="absolute top-16 right-4 bg-slate-800 border border-slate-700 p-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-top-2 duration-150"
+                        className="absolute top-16 right-4 bg-slate-800 border border-slate-700 p-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-top-2 duration-150 overflow-visible"
                     >
                         <div className="flex items-center justify-between mb-2">
                             <label className="text-xs text-slate-400 uppercase font-bold">Slippage Tolerance</label>
@@ -749,6 +771,33 @@ export const DebtSwapModal = ({
                                     <span className="text-sm font-bold text-white">{displayBufferPct}%</span>
                                 </div>
                             </>
+                        )}
+
+                        {getLogLevel() === 'debug' && (
+                            <div className="mt-3">
+                                <label className="text-xs text-slate-400 uppercase font-bold">Developer</label>
+
+                                <div className="mt-2 flex items-center gap-3">
+                                    <InfoTooltip message="This will also attempt to ask your wallet to forget site permissions/signatures (may disconnect). If your wallet still auto-approves, remove the site from your wallet's Connected/Trusted sites.">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                clearCachedPermit();
+                                                addLog?.('Cached permit signatures cleared', 'success');
+                                                addLog?.('Next swap will request a fresh permit signature', 'info');
+                                                logger.info('Cached permit signatures cleared via UI');
+                                            }}
+                                            className="px-3 py-1 text-xs font-bold rounded-md transition-all bg-slate-900 text-slate-400 hover:bg-slate-700"
+                                        >
+                                            Clear cached permits
+                                        </button>
+                                    </InfoTooltip>
+
+                                    {forceRequirePermit && (
+                                        <div className="text-xs text-amber-300 italic">Will require fresh signature (persisted)</div>
+                                    )}
+                                </div>
+                            </div>
                         )}
                     </div>
                 )}
@@ -923,7 +972,7 @@ export const DebtSwapModal = ({
                                     <div className="text-xs text-slate-400 mt-1">{selectingForFrom ? 'Choose a token to swap from your debt positions' : 'Choose a token to borrow/swap to'}</div>
                                 </div>
 
-                                <div className="ml-2 flex-shrink-0 self-start">
+                                <div className="ml-2 shrink-0 self-start">
                                     <button className="text-slate-400 p-1 rounded hover:bg-slate-800" aria-label="Close token selector" onClick={() => { setTokenSelectorOpen(false); setSelectingForFrom(false); setTokenModalSearch(''); }}>
                                         <X className="w-4 h-4" />
                                     </button>
@@ -1028,7 +1077,7 @@ export const DebtSwapModal = ({
                     ) : (
                         <>
                             <ArrowRightLeft className="w-4 h-4" />
-                            {needsApproval && !signedPermit ? 'Sign & Swap' : 'Confirm Swap'}
+                            {(needsApproval && !signedPermit) || forceRequirePermit ? 'Sign & Swap' : 'Confirm Swap'}
                         </>
                     )}
                 </button>

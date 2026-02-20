@@ -12,6 +12,20 @@ import logger from '../utils/logger.js';
 export const useDebtPositions = ({ account, provider, networkRpcProvider, fromToken, toToken, addLog, selectedNetwork }) => {
     const [debtBalance, setDebtBalance] = useState(null);
     const [formattedDebt, setFormattedDebt] = useState('0');
+
+    // format BigInt balance to decimal string avoiding exponential notation
+    const formatUnitsFixed = (balance, decimals) => {
+        const s = ethers.formatUnits(balance, decimals);
+        if (!/[eE]/.test(s)) return s;
+        // manual conversion
+        const b = balance.toString();
+        if (decimals === 0) return b;
+        const intPart = b.length > decimals ? b.slice(0, -decimals) : '0';
+        let frac = b.length > decimals ? b.slice(-decimals) : b.padStart(decimals, '0');
+        // trim trailing zeros
+        frac = frac.replace(/0+$/, '');
+        return frac ? `${intPart}.${frac}` : intPart;
+    };
     const [allowance, setAllowance] = useState(BigInt(0));
     const [isDebtLoading, setIsDebtLoading] = useState(false);
     const abortControllerRef = useRef(null);
@@ -53,8 +67,10 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             });
 
             setDebtBalance(backendBalance);
-            setFormattedDebt(fromToken.formattedAmount);
-            addLog?.(`[Debt] ${fromToken.symbol} balance: ${fromToken.formattedAmount} (from server)`, 'success');
+            // use same formatting function as on-chain path so UI always displays full decimal
+            const human = formatUnitsFixed(backendBalance, fromToken.decimals);
+            setFormattedDebt(human);
+            addLog?.(`[Debt] ${fromToken.symbol} balance: ${human} (from server)`, 'success');
 
             if (!adapterAddress) {
                 addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
@@ -189,7 +205,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             }
 
             setDebtBalance(balance);
-            setFormattedDebt(ethers.formatUnits(balance, fromToken.decimals));
+            setFormattedDebt(formatUnitsFixed(balance, fromToken.decimals));
 
             logger.debug('[useDebtPositions] ✅ Debt balance fetched:', {
                 debtTokenAddress: currentDebtTokenAddr,

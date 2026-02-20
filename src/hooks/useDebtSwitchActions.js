@@ -11,6 +11,7 @@ import { calcApprovalAmount } from '../utils/swapMath.js';
 export const useDebtSwitchActions = ({
     account,
     provider,
+    networkRpcProvider, // read-only RPC provider (fallback) - passed from Web3 context
     fromToken,
     toToken,
     allowance,
@@ -28,6 +29,18 @@ export const useDebtSwitchActions = ({
 }) => {
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [signedPermit, setSignedPermit] = useState(null);
+    // Persisted flag: when true we WILL request a fresh off-chain permit even if on-chain allowance exists.
+    // Persist to localStorage so a page reload does not silently bypass the intent of "Clear cached permits".
+    const [forceRequirePermit, setForceRequirePermit] = useState(() => {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                return window.localStorage.getItem('lilswap.forceRequirePermit') === '1';
+            }
+        } catch (err) {
+            logger.debug('[useDebtSwitchActions] localStorage read failed for forceRequirePermit:', err?.message || err);
+        }
+        return false;
+    });
     const [txError, setTxError] = useState(null);
     const [pendingTxParams, setPendingTxParams] = useState(null);
     const [lastAttemptedQuote, setLastAttemptedQuote] = useState(null);
@@ -129,6 +142,8 @@ export const useDebtSwitchActions = ({
             };
 
             setSignedPermit({ params: permitParams, token: debtTokenAddr, deadline, value });
+            setForceRequirePermit(false);
+            try { if (typeof window !== 'undefined' && window.localStorage) window.localStorage.removeItem('lilswap.forceRequirePermit'); } catch (err) { logger.debug('[generateAndCachePermit] failed to clear persisted flag:', err?.message || err); }
             addLog?.('Signature received and cached', 'success');
             return permitParams;
         } catch (err) {
@@ -365,15 +380,20 @@ export const useDebtSwitchActions = ({
                 setSignedPermit(null); // Clear invalid cache
             }
 
-            if (allowance < maxNewDebt) {
-                logger.debug('[handleSwap] ⚠️ Insufficient allowance, need signature/approval...');
+            // Treat a forced-clear as an explicit request to re-obtain an off-chain permit
+            const effectivePreferPermit = forceRequirePermit || preferPermit;
+
+            if (allowance < maxNewDebt || forceRequirePermit) {
+                logger.debug('[handleSwap] ⚠️ Insufficient allowance or force-permit, need signature/approval...');
 
                 const currentTs = Math.floor(Date.now() / 1000);
 
-                // Respect user preference first. If user chose on-chain, do NOT consume cached signature.
-                if (preferPermit) {
+                // If forceRequirePermit is set we will prefer collecting a fresh permit even if on-chain allowance
+                // would otherwise let the flow proceed without a signature.
+                if (effectivePreferPermit) {
                     if (
                         signedPermit &&
+                        !forceRequirePermit &&
                         signedPermit.token === newDebtTokenAddr &&
                         signedPermit.deadline > currentTs &&
                         signedPermit.value >= maxNewDebt
@@ -382,12 +402,17 @@ export const useDebtSwitchActions = ({
                         addLog?.('1/3 Using cached signature...', 'info');
                         permitParams = signedPermit.params;
                     } else {
-                        addLog?.('1/3 Requesting Signature (EIP-712) due to user preference...', 'warning');
+                        addLog?.('1/3 Requesting Signature (EIP-712)...', 'warning');
 
-                        // Request & cache a new permit
-                        await handleApproveDelegation(true);
+                        // Request & cache a new permit — prefer the returned value to avoid stale React state
+                        const permitResult = await handleApproveDelegation(true);
 
-                        if (signedPermit && signedPermit.token === newDebtTokenAddr) {
+                        if (permitResult && permitResult.permit) {
+                            permitParams = permitResult.permit;
+                            setForceRequirePermit(false);
+                            try { if (typeof window !== 'undefined' && window.localStorage) window.localStorage.removeItem('lilswap.forceRequirePermit'); } catch (err) { logger.debug('[handleSwap] failed to clear persisted flag after permit:', err?.message || err); }
+                        } else if (signedPermit && signedPermit.token === newDebtTokenAddr && !forceRequirePermit) {
+                            // fallback to cached state if present
                             permitParams = signedPermit.params;
                         } else {
                             throw new Error('Signature not provided or cancelled');
@@ -433,6 +458,8 @@ export const useDebtSwitchActions = ({
                 userAddress: adapterAddress,
                 destAmount: exactDebtRepayAmount.toString(),
                 srcAmount: activeQuote.srcAmount.toString(),
+                // Pass APY from the frontend quote so backend can persist it
+                apyPercent: activeQuote?.apyPercent ?? null,
                 slippageBps: slippage,  // User's chosen slippage in BPS (e.g., 50 = 0.5%)
                 chainId,
                 userWalletAddress: account,  // Pass user's wallet for tracking
@@ -575,57 +602,154 @@ export const useDebtSwitchActions = ({
                 addLog?.('Estimating required gas...', 'info');
 
                 if (simulateError) {
-                    throw new Error("Manual Error Simulation: Forced failure for testing.");
+                    throw new Error('Manual Error Simulation: Forced failure for testing.');
                 }
 
                 logger.debug('  - Starting estimateGas call with 15s timeout...');
 
-                // Add timeout to prevent indefinite hang
-                const estimateGasPromise = adapterContract.swapDebt.estimateGas(
-                    swapParams,
-                    creditPermit,
-                    collateralPermit
-                );
+                // Retry / diagnostics policy for estimateGas to handle transient RPC/provider issues
+                const maxAttempts = 3;
+                let lastEstimateError = null;
+                let diagnosticReason = null;
+                for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+                    try {
+                        const estimateGasPromise = adapterContract.swapDebt.estimateGas(
+                            swapParams,
+                            creditPermit,
+                            collateralPermit
+                        );
 
-                const timeoutPromise = new Promise((_, reject) =>
-                    setTimeout(() => reject(new Error('Gas estimation timeout after 15 seconds')), 15000)
-                );
+                        const timeoutPromise = new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Gas estimation timeout after 15 seconds')), 15000)
+                        );
 
-                const estimatedGas = await Promise.race([estimateGasPromise, timeoutPromise]);
+                        const estimatedGas = await Promise.race([estimateGasPromise, timeoutPromise]);
 
-                logger.debug('  - estimateGas returned successfully!');
-                gasLimit = (estimatedGas * BigInt(150)) / BigInt(100);
-                const minGas = BigInt(2000000);
-                const maxGas = BigInt(15000000);
-                if (gasLimit < minGas) gasLimit = minGas;
-                if (gasLimit > maxGas) gasLimit = maxGas;
+                        logger.debug('  - estimateGas returned successfully! (attempt', attempt, ')');
+                        gasLimit = (estimatedGas * BigInt(150)) / BigInt(100);
+                        const minGas = BigInt(2000000);
+                        const maxGas = BigInt(15000000);
+                        if (gasLimit < minGas) gasLimit = minGas;
+                        if (gasLimit > maxGas) gasLimit = maxGas;
 
-                logger.debug('✅ Gas estimation successful:', {
-                    estimated: estimatedGas.toString(),
-                    withBuffer: gasLimit.toString()
-                });
-                addLog?.(`📊 Estimated gas: ${estimatedGas.toString()}, using: ${gasLimit.toString()} (1.5x buffer)`, 'success');
-            } catch (estimateError) {
-                logger.error('❌ GAS ESTIMATION FAILED:', estimateError);
-                logger.error('  - Error name:', estimateError?.name);
-                logger.error('  - Error code:', estimateError?.code);
-                logger.error('  - Error message:', estimateError?.message);
-                logger.error('  - Error data:', estimateError?.data);
-                logger.error('  - Error reason:', estimateError?.reason);
-                logger.error('  - Error shortMessage:', estimateError?.shortMessage);
+                        logger.debug('✅ Gas estimation successful:', {
+                            estimated: estimatedGas.toString(),
+                            withBuffer: gasLimit.toString()
+                        });
+                        addLog?.(`📊 Estimated gas: ${estimatedGas.toString()}, using: ${gasLimit.toString()} (1.5x buffer)`, 'success');
+                        lastEstimateError = null;
+                        break; // success
+                    } catch (err) {
+                        lastEstimateError = err;
+                        logger.warn(`[estimateGas] attempt ${attempt} failed:`, err?.message || err);
 
-                addLog?.(`❌ Simulation failed - Transaction cancelled`, 'error');
-                addLog?.(`Reason: ${estimateError?.shortMessage || estimateError.message.substring(0, 150)}`, 'error');
-                addLog?.(`🔍 Revert Data: ${estimateError?.data || 'N/A'}`, 'debug');
-                addLog?.(`🔄 Auto-refreshing quote for a new attempt...`, 'warning');
+                        // Attempt diagnostics and actionable fallback via read-only RPC provider (if available)
+                        if (networkRpcProvider && account) {
+                            try {
+                                const adapterRead = new ethers.Contract(adapterAddress, ABIS.ADAPTER, networkRpcProvider);
+                                logger.debug('[estimateGas] running diagnostic via networkRpcProvider (callStatic/estimateGas)');
 
-                // Auto-refresh quote to change parameters for next attempt
+                                // Try callStatic to surface revert reason if present
+                                try {
+                                    await adapterRead.callStatic.swapDebt(swapParams, creditPermit, collateralPermit, { from: account });
+                                } catch (callErr) {
+                                    diagnosticReason = callErr?.reason || callErr?.data || String(callErr?.message || callErr);
+                                    logger.debug('[estimateGas][diagnostic] callStatic threw:', diagnosticReason);
+                                }
+
+                                // Try estimateGas on the read provider — if it succeeds, use it as a valid fallback
+                                try {
+                                    const est = await adapterRead.estimateGas(swapParams, creditPermit, collateralPermit, { from: account });
+                                    logger.debug('[estimateGas][diagnostic] networkRpcProvider estimated gas:', est.toString());
+
+                                    // Accept the read-provider estimate as a fallback and continue flow
+                                    logger.info('[estimateGas] Using networkRpcProvider estimate as fallback for gasLimit');
+                                    const estimatedGas = est;
+                                    gasLimit = (estimatedGas * BigInt(150)) / BigInt(100);
+                                    const minGas = BigInt(2000000);
+                                    const maxGas = BigInt(15000000);
+                                    if (gasLimit < minGas) gasLimit = minGas;
+                                    if (gasLimit > maxGas) gasLimit = maxGas;
+
+                                    logger.debug('✅ Fallback gas estimate successful (networkRpcProvider):', {
+                                        estimated: estimatedGas.toString(),
+                                        withBuffer: gasLimit.toString()
+                                    });
+
+                                    // Treat as success and exit retry loop
+                                    lastEstimateError = null;
+                                    diagnosticReason = diagnosticReason || 'Fallback estimate used';
+                                    break;
+                                } catch (estErr) {
+                                    logger.debug('[estimateGas][diagnostic] networkRpcProvider estimateGas failed:', estErr?.message || estErr);
+                                    if (!diagnosticReason) diagnosticReason = estErr?.message || String(estErr);
+                                }
+                            } catch (diagErr) {
+                                logger.debug('[estimateGas][diagnostic] diagnostics failed:', diagErr?.message || diagErr);
+                                if (!diagnosticReason) diagnosticReason = diagErr?.message || String(diagErr);
+                            }
+                        }
+
+                        // Detect malformed RPC responses / parse errors and give more actionable feedback
+                        const msg = String(err?.message || '');
+                        const isParseError = /invalid character|could not coalesce error|unexpected token/i.test(msg);
+
+                        if (isParseError) {
+                            logger.warn('[estimateGas] Detected RPC/parse error; consider switching RPC endpoint or retrying');
+                        }
+
+                        // If not last attempt, wait briefly and retry
+                        if (attempt < maxAttempts) {
+                            await new Promise(r => setTimeout(r, 300 * attempt));
+                            continue;
+                        }
+                    }
+                }
+
+                // If after retries we still have an error, handle it (preserve previous UX)
+                if (lastEstimateError) {
+                    logger.error('❌ GAS ESTIMATION FAILED:', lastEstimateError);
+                    logger.error('  - Error name:', lastEstimateError?.name);
+                    logger.error('  - Error code:', lastEstimateError?.code);
+                    logger.error('  - Error message:', lastEstimateError?.message);
+                    logger.error('  - Error data:', lastEstimateError?.data);
+                    logger.error('  - Error reason:', lastEstimateError?.reason);
+                    logger.error('  - Error shortMessage:', lastEstimateError?.shortMessage);
+
+                    // Surface a clearer message when diagnostics found a revert reason
+                    if (diagnosticReason) {
+                        addLog?.(`🔍 Simulation diagnostic: ${diagnosticReason}`, 'debug');
+                    }
+
+                    // If parse/RPC error was detected, suggest RPC switch
+                    const msg = String(lastEstimateError?.message || '');
+                    const isParseError = /invalid character|could not coalesce error|unexpected token/i.test(msg);
+
+                    addLog?.(`❌ Simulation failed - Transaction cancelled`, 'error');
+
+                    if (isParseError) {
+                        addLog?.('⚠️ RPC returned malformed response; try switching RPC endpoint or refresh the page.', 'error');
+                        setTxError('RPC returned malformed response. Try switching RPC endpoint or refresh the page.');
+                    } else if (diagnosticReason) {
+                        addLog?.(`Reason: ${diagnosticReason}`, 'error');
+                        setTxError(`Simulation failed: ${String(diagnosticReason).substring(0, 200)}`);
+                    } else {
+                        addLog?.(`Reason: ${lastEstimateError?.shortMessage || lastEstimateError.message.substring(0, 150)}`, 'error');
+                        setTxError('Simulation failed. The quote has been updated. Please try again.');
+                    }
+
+                    addLog?.(`🔄 Auto-refreshing quote for a new attempt...`, 'warning');
+                    fetchQuote();
+
+                    setIsActionLoading(false);
+                    return;
+                }
+            } catch (e) {
+                // Safety net - should not reach here
+                logger.error('[estimateGas] Unexpected error in estimation flow:', e);
+                addLog?.('❌ Simulation failed due to an internal error. Try again.', 'error');
+                setTxError('Internal error during simulation. Try again.');
                 fetchQuote();
-
-                // Set simple error message for UI
-                setTxError(`Simulation failed. The quote has been updated. Please try again.`);
-
-                // Stop execution - do not send transaction
                 setIsActionLoading(false);
                 return;
             }
@@ -704,8 +828,27 @@ export const useDebtSwitchActions = ({
                         addLog?.(`🔍 Checking manually on blockchain...`, 'info');
 
                         try {
-                            // Fetch transaction directly
-                            const txData = await provider.getTransaction(tx.hash);
+                            // Fetch transaction directly (first try wallet provider)
+                            let txData = null;
+                            try {
+                                txData = await provider.getTransaction(tx.hash);
+                            } catch (providerErr) {
+                                logger.debug('[wait][manualCheck] provider.getTransaction failed, will try networkRpcProvider as fallback:', providerErr?.message || providerErr);
+                            }
+
+                            // If wallet provider didn't return useful data, try read-only RPC provider
+                            if ((!txData || !txData.blockNumber) && networkRpcProvider) {
+                                try {
+                                    const remoteTx = await networkRpcProvider.getTransaction(tx.hash);
+                                    if (remoteTx && remoteTx.blockNumber) {
+                                        txData = remoteTx;
+                                        logger.debug('[wait][manualCheck] networkRpcProvider returned transaction info:', { blockNumber: remoteTx.blockNumber });
+                                    }
+                                } catch (rpcErr) {
+                                    logger.debug('[wait][manualCheck] networkRpcProvider.getTransaction failed:', rpcErr?.message || rpcErr);
+                                }
+                            }
+
                             if (txData && txData.blockNumber) {
                                 addLog?.(`✅ Transaction CONFIRMED in block ${txData.blockNumber}!`, 'success');
                                 addLog?.(`🔍 Check details: https://basescan.org/tx/${tx.hash}`, 'info');
@@ -767,9 +910,11 @@ export const useDebtSwitchActions = ({
 
                 // Confirm transaction on backend with final details
                 if (currentTransactionId) {
+                    // Record actual debt repaid (exact output) instead of the authorization ceiling
                     await confirmTransactionOnChain(currentTransactionId, {
                         gasUsed: gasUsed.toString(),
-                        actualPaid: maxNewDebt.toString()
+                        actualPaid: exactDebtRepayAmount.toString(),
+                        apyPercent: swapQuote?.apyPercent ?? null
                     });
                 }
             }
@@ -778,6 +923,8 @@ export const useDebtSwitchActions = ({
 
             clearQuote();
             setSignedPermit(null);
+            setForceRequirePermit(false);
+            try { if (typeof window !== 'undefined' && window.localStorage) window.localStorage.removeItem('lilswap.forceRequirePermit'); } catch (err) { logger.debug('[handleSwap] failed to clear persisted flag:', err?.message || err); }
             setCurrentTransactionId(null);  // Clear transaction ID
             fetchDebtData();
         } catch (error) {
@@ -827,7 +974,9 @@ export const useDebtSwitchActions = ({
         ensureWalletNetwork,
         targetNetwork.label,
         preferPermit,
+        forceRequirePermit,
         handleApproveDelegation,
+        networkRpcProvider,
     ]);
 
     const handleForceSwap = useCallback(async () => {
@@ -856,6 +1005,8 @@ export const useDebtSwitchActions = ({
             addLog?.('🚀 SUCCESS! Swap complete.', 'success');
             clearQuote();
             setSignedPermit(null);
+            setForceRequirePermit(false);
+            try { if (typeof window !== 'undefined' && window.localStorage) window.localStorage.removeItem('lilswap.forceRequirePermit'); } catch (err) { logger.debug('[handleForceSwap] failed to clear persisted flag:', err?.message || err); }
             setPendingTxParams(null);
             fetchDebtData();
         } catch (error) {
@@ -868,11 +1019,64 @@ export const useDebtSwitchActions = ({
 
     const clearTxError = useCallback(() => setTxError(null), []);
     const clearUserRejected = useCallback(() => setUserRejected(false), []);
-    const clearCachedPermit = useCallback(() => setSignedPermit(null), []);
+    const clearCachedPermit = useCallback(async () => {
+        // Clear in-memory cached signature
+        setSignedPermit(null);
+        // Force the next swap to request a fresh off-chain signature even if on-chain allowance exists
+        setForceRequirePermit(true);
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                window.localStorage.setItem('lilswap.forceRequirePermit', '1');
+            }
+        } catch (err) {
+            logger.debug('[clearCachedPermit] failed to persist forceRequirePermit:', err?.message || err);
+        }
+
+        // Aggressive cleanup to avoid reusing a stale simulation or pending tx params
+        setPendingTxParams(null);
+        setLastAttemptedQuote(null);
+        setTxError(null);
+
+        // Clear frontend quote so UI shows a fresh flow and the next action will re-fetch/require signature
+        if (typeof clearQuote === 'function') {
+            try { clearQuote(); } catch (err) { logger.debug('[clearCachedPermit] clearQuote failed:', err?.message || err); }
+        }
+
+        addLog?.('Cached permit cleared — next swap will request a fresh signature', 'success');
+
+        // Ask wallet (if available) to forget site permissions / cached approvals.
+        // This is best-effort: some wallets (MetaMask, Rabby) expose wallet_getPermissions / wallet_revokePermissions.
+        if (typeof window !== 'undefined' && window.ethereum && window.ethereum.request) {
+            try {
+                let perms = null;
+                try {
+                    perms = await window.ethereum.request({ method: 'wallet_getPermissions' });
+                    logger.debug('[clearCachedPermit] wallet_getPermissions:', perms);
+                } catch (gErr) {
+                    logger.debug('[clearCachedPermit] wallet_getPermissions not available or failed:', gErr?.message || gErr);
+                }
+
+                // Try to revoke account permissions (best-effort). This may disconnect the wallet/ui.
+                try {
+                    await window.ethereum.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] });
+                    addLog?.('Requested wallet to forget site permissions — reconnect to continue', 'info');
+                    logger.info('[clearCachedPermit] wallet_revokePermissions called');
+                } catch (revErr) {
+                    logger.debug('[clearCachedPermit] wallet_revokePermissions failed:', revErr?.message || revErr);
+                    addLog?.('Wallet did not accept permission-revoke request. Please remove site trust in your wallet settings (Rabby/MetaMask).', 'warning');
+                }
+            } catch (err) {
+                logger.debug('[clearCachedPermit] wallet forget attempt failed:', err?.message || err);
+            }
+        } else {
+            addLog?.('No injected wallet detected; clear cached permit in your wallet extension if present.', 'info');
+        }
+    }, [setForceRequirePermit, clearQuote, addLog]);
 
     return {
         isActionLoading,
         signedPermit,
+        forceRequirePermit,
         txError,
         pendingTxParams,
         lastAttemptedQuote,

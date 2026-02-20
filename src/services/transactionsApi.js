@@ -46,12 +46,22 @@ export async function recordTransactionHash(transactionId, txHash) {
  */
 export async function confirmTransactionOnChain(transactionId, confirmData) {
     try {
+        const payload = {
+            gasUsed: confirmData.gasUsed,
+            actualPaid: confirmData.actualPaid,
+            // optional fields
+            srcActualAmount: confirmData.srcActualAmount || null,
+            collectorAmount: confirmData.collectorAmount || null,
+            priceImplicitUsd: confirmData.priceImplicitUsd || null,
+            apyPercent: confirmData.apyPercent || null
+        };
+
         const response = await fetch(`${API_URL}/transactions/${transactionId}/confirm`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(confirmData),
+            body: JSON.stringify(payload),
         });
 
         if (!response.ok) {
