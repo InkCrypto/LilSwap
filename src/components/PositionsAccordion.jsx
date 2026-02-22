@@ -1,5 +1,5 @@
 import React, { useState, useMemo, lazy, Suspense } from 'react';
-import { ArrowRightLeft, ChevronDown, ChevronUp, RefreshCw, AlertCircle } from 'lucide-react';
+import { ArrowRightLeft, ChevronDown, ChevronUp, RefreshCw, AlertCircle, Network } from 'lucide-react';
 import { useAllPositions } from '../hooks/useAllPositions';
 import { requestChainSwitch } from '../utils/wallet';
 import { getNetworkByChainId } from '../constants/networks';
@@ -181,7 +181,9 @@ export const PositionsAccordion = ({ userAddress }) => {
         <div className="w-full space-y-4">
             {/* Header with refresh button */}
             <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-white">Positions by Network</h2>
+                <h2 className="text-xl font-bold text-white flex items-center gap-2">
+                    <Network className="w-5 h-5 text-purple-400" /> Multi-Chain Positions
+                </h2>
                 <div className="flex items-center gap-3">
                     {lastFetch && (
                         <span className="text-xs text-slate-500">
@@ -203,12 +205,17 @@ export const PositionsAccordion = ({ userAddress }) => {
             {chainEntries.map((chain) => (
                 <div
                     key={chain.chainId}
-                    className="bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden transition-all hover:border-slate-600"
+                    className={`bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden transition-all ${chain.hasPositions ? 'hover:border-slate-600' : 'opacity-50 grayscale select-none'
+                        }`}
                 >
                     {/* Accordion header */}
                     <div
-                        className="flex items-center justify-between p-4 cursor-pointer"
-                        onClick={() => setOpenChain(openChain === chain.chainId ? null : chain.chainId)}
+                        className={`flex items-center justify-between p-4 ${chain.hasPositions ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                        onClick={() => {
+                            if (chain.hasPositions) {
+                                setOpenChain(openChain === chain.chainId ? null : chain.chainId);
+                            }
+                        }}
                     >
                         <div className="flex-1">
                             <div className="flex items-center gap-2">
@@ -232,11 +239,11 @@ export const PositionsAccordion = ({ userAddress }) => {
                                         {chain.healthFactor !== null && (
                                             <>
                                                 {' • '}
-                                                <span className={`font-semibold ${chain.healthFactor >= 2 ? 'text-green-400' :
+                                                <span className={`font-semibold ${chain.healthFactor === -1 || chain.healthFactor >= 2 ? 'text-green-400' :
                                                     chain.healthFactor >= 1.5 ? 'text-yellow-400' :
                                                         'text-red-400'
                                                     }`}>
-                                                    HF: {chain.healthFactor.toFixed(2)}
+                                                    HF: {chain.healthFactor === -1 ? '∞' : chain.healthFactor.toFixed(2)}
                                                 </span>
                                             </>
                                         )}
@@ -255,24 +262,60 @@ export const PositionsAccordion = ({ userAddress }) => {
                                     </div>
                                 </div>
                             )}
-                            <div className="text-slate-400">
-                                {openChain === chain.chainId ? (
-                                    <ChevronUp className="w-5 h-5" />
-                                ) : (
-                                    <ChevronDown className="w-5 h-5" />
-                                )}
-                            </div>
+                            {chain.hasPositions && (
+                                <div className="text-slate-400">
+                                    {openChain === chain.chainId ? (
+                                        <ChevronUp className="w-5 h-5" />
+                                    ) : (
+                                        <ChevronDown className="w-5 h-5" />
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
 
                     {/* Accordion content */}
                     {openChain === chain.chainId && chain.hasPositions && (
-                        <div className="border-t border-slate-700 p-4 space-y-3 bg-slate-900/30">
+                        <div className="border-t border-slate-700 p-4 bg-slate-900/30 flex flex-col md:flex-row gap-4">
+                            {/* Show supplies */}
+                            {chain.supplies.length > 0 && (
+                                <div className="flex-1 min-w-0">
+                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">
+                                        Supplies
+                                    </h4>
+                                    <div className="space-y-2">
+                                        {chain.supplies.map((supply) => (
+                                            <div
+                                                key={supply.underlyingAsset}
+                                                className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700/50"
+                                            >
+                                                <div className="flex items-center gap-3">
+                                                    <img
+                                                        src={getTokenLogo(supply.symbol)}
+                                                        alt={supply.symbol}
+                                                        className="w-8 h-8 rounded-full"
+                                                        onError={(e) => { e.target.style.display = 'none'; }}
+                                                    />
+                                                    <div>
+                                                        <div className="font-mono text-sm font-bold text-white">
+                                                            {parseFloat(supply.formattedAmount).toFixed(4)}
+                                                        </div>
+                                                        <div className="text-xs text-slate-500">
+                                                            {supply.symbol}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Show borrows */}
                             {chain.borrows.length > 0 && (
-                                <div>
+                                <div className="flex-1 min-w-0">
                                     <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">
-                                        Borrowed Assets
+                                        Borrows
                                     </h4>
                                     <div className="space-y-2">
                                         {chain.borrows.map((borrow) => (
@@ -302,54 +345,20 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                         handleOpenSwap(chain.chainId, borrow, chain.marketAssets, chain.borrows);
                                                     }}
                                                     disabled={switchingChain === chain.chainId}
-                                                    className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                                                    className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                                                 >
                                                     {switchingChain === chain.chainId ? (
                                                         <>
                                                             <RefreshCw className="w-4 h-4 animate-spin" />
-                                                            <span className="text-sm font-semibold">Switching...</span>
+                                                            <span className="text-sm font-semibold hidden sm:inline">Switching...</span>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <ArrowRightLeft className="w-4 h-4" />
-                                                            <span className="text-sm font-semibold">Swap</span>
+                                                            <span className="text-sm font-semibold hidden sm:inline">Swap</span>
                                                         </>
                                                     )}
                                                 </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Show supplies (optional, collapsed by default) */}
-                            {chain.supplies.length > 0 && (
-                                <div className="pt-2">
-                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">
-                                        Supplied Assets
-                                    </h4>
-                                    <div className="space-y-2">
-                                        {chain.supplies.map((supply) => (
-                                            <div
-                                                key={supply.underlyingAsset}
-                                                className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700/50"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <img
-                                                        src={getTokenLogo(supply.symbol)}
-                                                        alt={supply.symbol}
-                                                        className="w-6 h-6 rounded-full"
-                                                        onError={(e) => { e.target.style.display = 'none'; }}
-                                                    />
-                                                    <div>
-                                                        <div className="font-mono text-sm text-white">
-                                                            {parseFloat(supply.formattedAmount).toFixed(4)}
-                                                        </div>
-                                                        <div className="text-xs text-slate-500">
-                                                            {supply.symbol}
-                                                        </div>
-                                                    </div>
-                                                </div>
                                             </div>
                                         ))}
                                     </div>
