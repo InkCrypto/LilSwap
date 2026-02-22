@@ -133,7 +133,7 @@ export default function App() {
                 >
                   <Wallet className="w-4 h-4 text-purple-400" />
                   <span className="hidden sm:inline font-mono">{account.slice(0, 6)}...{account.slice(-4)}</span>
-                  <span className="sm:hidden font-bold">Conectado</span>
+                  <span className="sm:hidden font-bold">Connected</span>
                   <ChevronDown className="w-3 h-3" />
                 </button>
 

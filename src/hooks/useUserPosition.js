@@ -3,7 +3,7 @@ import { useWeb3 } from '../context/web3Context';
 import { getUserPosition } from '../services/api';
 import logger from '../utils/logger.js';
 /**
- * Hook para buscar e gerenciar a posição agregada do usuário na Aave
+ * Hook to fetch and manage user's aggregated Aave position
  * @returns {Object} { supplies, borrows, summary, loading, error, refresh }
  */
 export const useUserPosition = () => {
@@ -58,13 +58,13 @@ export const useUserPosition = () => {
             setData(newData);
         } catch (err) {
             logger.error('Error fetching user position:', err);
-            const errorMsg = err.message || 'Falha ao carregar posições na Aave';
+            const errorMsg = err.message || 'Failed to load Aave positions';
 
             // Provide more specific error messages
             if (errorMsg.includes('rate limit')) {
-                setError('RPC rate limit atingido. Aguarde alguns segundos e tente novamente.');
+                setError('RPC rate limit reached. Please wait a few seconds and try again.');
             } else if (errorMsg.includes('CALL_EXCEPTION')) {
-                setError('Erro ao consultar Aave. Tente novamente em alguns segundos.');
+                setError('Error querying Aave. Please try again in a few seconds.');
             } else {
                 setError(errorMsg);
             }
@@ -73,7 +73,7 @@ export const useUserPosition = () => {
         }
     }, [account, selectedNetwork?.chainId]);
 
-    // Refresh automático com debounce quando conta ou rede muda
+    // Automatic refresh with debounce when account or network changes
     useEffect(() => {
         if (fetchTimeoutRef.current) {
             clearTimeout(fetchTimeoutRef.current);

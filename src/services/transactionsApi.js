@@ -15,6 +15,7 @@ const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001/v1';
  */
 export async function recordTransactionHash(transactionId, txHash) {
     try {
+        logger.debug('[Transactions] Sending hash to backend', { transactionId, txHash });
         const response = await fetch(`${API_URL}/transactions/${transactionId}/send-hash`, {
             method: 'POST',
             headers: {
@@ -24,7 +25,8 @@ export async function recordTransactionHash(transactionId, txHash) {
         });
 
         if (!response.ok) {
-            logger.warn('[Transactions] Failed to record hash:', response.status);
+            const text = await response.text().catch(() => '');
+            logger.warn('[Transactions] Failed to record hash:', response.status, text);
             return false;
         }
 
@@ -53,7 +55,9 @@ export async function confirmTransactionOnChain(transactionId, confirmData) {
             srcActualAmount: confirmData.srcActualAmount || null,
             collectorAmount: confirmData.collectorAmount || null,
             priceImplicitUsd: confirmData.priceImplicitUsd || null,
-            apyPercent: confirmData.apyPercent || null
+            apyPercent: confirmData.apyPercent || null,
+            gasPrice: confirmData.gasPrice || null,
+            txFee: confirmData.txFee || null
         };
 
         const response = await fetch(`${API_URL}/transactions/${transactionId}/confirm`, {
@@ -100,5 +104,46 @@ export async function getUserTransactionHistory(userAddress, limit = 50) {
     } catch (error) {
         logger.warn('[Transactions] Error fetching history:', error.message);
         return [];
+    }
+}
+
+
+/**
+ * Marca uma transação como rejeitada pelo usuário
+ */
+export async function rejectTransaction(transactionId, reason) {
+    try {
+        const url = `${API_URL}/transactions/${transactionId}/reject`;
+        logger.debug('[Transactions API] calling reject', { url, reason });
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason })
+        });
+        if (!res.ok) {
+            const text = await res.text().catch(() => '');
+            logger.warn('[Transactions API] reject request failed', { status: res.status, body: text });
+        }
+        return res.ok;
+    } catch (err) {
+        logger.warn('[Transactions] reject failure', err.message);
+        return false;
+    }
+}
+
+/**
+ * Marca manualmente como falhada (debbuging/fallback)
+ */
+export async function failTransaction(transactionId, reason) {
+    try {
+        const res = await fetch(`${API_URL}/transactions/${transactionId}/fail`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason })
+        });
+        return res.ok;
+    } catch (err) {
+        logger.warn('[Transactions] fail failure', err.message);
+        return false;
     }
 }

@@ -1,10 +1,10 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
 import { ADDRESSES } from '../constants/addresses.js';
 import { DEFAULT_NETWORK } from '../constants/networks.js';
 import { ABIS } from '../constants/abis.js';
 import { buildDebtSwapTx } from '../services/api.js';
-import { recordTransactionHash, confirmTransactionOnChain } from '../services/transactionsApi.js';
+import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction, failTransaction } from '../services/transactionsApi.js';
 
 import logger from '../utils/logger.js';
 import { calcApprovalAmount } from '../utils/swapMath.js';
@@ -45,7 +45,28 @@ export const useDebtSwitchActions = ({
     const [pendingTxParams, setPendingTxParams] = useState(null);
     const [lastAttemptedQuote, setLastAttemptedQuote] = useState(null);
     const [userRejected, setUserRejected] = useState(false);
-    const [currentTransactionId, setCurrentTransactionId] = useState(null);
+    const [currentTransactionId, setCurrentTransactionId] = useState(() => {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                return window.localStorage.getItem('lilswap.txId');
+            }
+        } catch (_) { }
+        return null;
+    });
+    const [latestTxStatus, setLatestTxStatus] = useState(null); // placeholder for future real-time updates
+
+
+    // wrapper to keep storage in sync
+    const updateCurrentTransactionId = id => {
+        setCurrentTransactionId(id);
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                if (id) window.localStorage.setItem('lilswap.txId', id); else window.localStorage.removeItem('lilswap.txId');
+            }
+        } catch (err) {
+            logger.debug('[useDebtSwitchActions] failed to sync txId to storage', err.message);
+        }
+    };
     const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
     const adapterAddress = useMemo(() => {
@@ -226,6 +247,9 @@ export const useDebtSwitchActions = ({
         setTxError(null);
         setPendingTxParams(null);
         setUserRejected(false);
+
+        // local copy of transaction ID so we don't rely on state (which updates asynchronously)
+        let localTxId = null;
 
         let activeQuote = swapQuote;
         if (!activeQuote) {
@@ -465,10 +489,13 @@ export const useDebtSwitchActions = ({
                 userWalletAddress: account,  // Pass user's wallet for tracking
             });
 
-            const { swapCallData: paraswapCalldata, augustus: augustusAddress, version: txVersion, transactionId } = txResult;
+            const { transactionId, swapCallData: paraswapCalldata, augustus: augustusAddress, version: txVersion, bufferBps: backendBufferBps, dynamicOffset } = txResult;
 
-            // Store transaction ID for later use
-            setCurrentTransactionId(transactionId);
+            // keep local copy for the duration of this handleSwap invocation
+            localTxId = transactionId;
+
+            // Store transaction ID in state/localStorage for UI persistence
+            updateCurrentTransactionId(transactionId);
             logger.debug('[handleSwap] Transaction ID stored:', transactionId);
 
             logger.debug('✅ Step 4 Complete: Transaction calldata built successfully');
@@ -510,9 +537,11 @@ export const useDebtSwitchActions = ({
             addLog?.(`ParaSwap Calldata (first 100 chars): ${paraswapCalldata.substring(0, 100)}`, 'info');
             addLog?.(`Augustus (final): ${augustusAddress} (${augustusVersion})`, 'info');
 
-            const offset = augustusVersion === 'v6.2-sdk' ? 0x84 : 0;
+            // NEW LOGIC: Use the dynamic offset explicitly calculated by the backend.
+            // This prevents issues where ParaSwap shifts the destination amount byte position based on complex routes.
+            const offset = dynamicOffset != null ? dynamicOffset : 0;
 
-            addLog?.(`Offset: ${offset} (0x${offset.toString(16)}) - ${augustusVersion === 'v6.2-sdk' ? 'SDK v6.2' : 'API v5 fallback'}`, 'info');
+            addLog?.(`Offset: ${offset} (0x${offset.toString(16)}) - ${dynamicOffset != null ? 'Dynamic Backend' : 'API Fallback (0)'}`, 'info');
             addLog?.(`Target Debt to Repay: ${exactDebtRepayAmount.toString()} (${ethers.formatUnits(exactDebtRepayAmount, fromToken.decimals)} ${fromToken.symbol})`, 'info');
 
             const swapParams = {
@@ -649,12 +678,12 @@ export const useDebtSwitchActions = ({
                                 const adapterRead = new ethers.Contract(adapterAddress, ABIS.ADAPTER, networkRpcProvider);
                                 logger.debug('[estimateGas] running diagnostic via networkRpcProvider (callStatic/estimateGas)');
 
-                                // Try callStatic to surface revert reason if present
+                                // Try staticCall to surface revert reason if present
                                 try {
-                                    await adapterRead.callStatic.swapDebt(swapParams, creditPermit, collateralPermit, { from: account });
+                                    await adapterRead.swapDebt.staticCall(swapParams, creditPermit, collateralPermit, { from: account });
                                 } catch (callErr) {
                                     diagnosticReason = callErr?.reason || callErr?.data || String(callErr?.message || callErr);
-                                    logger.debug('[estimateGas][diagnostic] callStatic threw:', diagnosticReason);
+                                    logger.debug('[estimateGas][diagnostic] staticCall threw:', diagnosticReason);
                                 }
 
                                 // Try estimateGas on the read provider — if it succeeds, use it as a valid fallback
@@ -776,6 +805,25 @@ export const useDebtSwitchActions = ({
                     addLog?.('User rejected action.', 'warning');
                     setUserRejected(true);
                     resetRefreshCountdown();
+                    // inform backend so status isn't left PENDING forever
+                    // use localTxId which is guaranteed to be set if we reached this point
+                    if (localTxId) {
+                        logger.debug('[useDebtSwitchActions] about to notify backend of rejection', { transactionId: localTxId });
+                        try {
+                            const ok = await rejectTransaction(localTxId, 'wallet_rejected');
+                            logger.debug('[useDebtSwitchActions] rejectTransaction returned', { ok });
+                            if (!ok) {
+                                logger.warn('[useDebtSwitchActions] reject endpoint returned false; will retry once');
+                                // simple retry once
+                                const ok2 = await rejectTransaction(localTxId, 'wallet_rejected');
+                                logger.debug('[useDebtSwitchActions] second reject attempt returned', { ok: ok2 });
+                            } else {
+                                logger.debug('[useDebtSwitchActions] reject recorded successfully');
+                            }
+                        } catch (e) {
+                            logger.warn('[useDebtSwitchActions] failed to notify reject:', e.message);
+                        }
+                    }
                     throw swapError;
                 }
                 addLog?.(`\n❌ swapDebt failed: ${swapError.message.substring(0, 150)}`, 'error');
@@ -793,8 +841,8 @@ export const useDebtSwitchActions = ({
             addLog?.(`🔍 BaseScan: https://basescan.org/tx/${tx.hash}`, 'info');
 
             // Record transaction hash on backend for tracking
-            if (currentTransactionId) {
-                await recordTransactionHash(currentTransactionId, tx.hash);
+            if (localTxId) {
+                await recordTransactionHash(localTxId, tx.hash);
             }
 
             let receipt;
@@ -871,13 +919,21 @@ export const useDebtSwitchActions = ({
                         addLog?.(`🔍 Check details: https://basescan.org/tx/${tx.hash}`, 'error');
 
                         // Try to decode revert reason
+                        let reason = null;
                         if (waitError.reason) {
+                            reason = waitError.reason;
                             addLog?.(`Revert reason: ${waitError.reason}`, 'error');
                         } else if (waitError.data) {
+                            reason = waitError.data;
                             addLog?.(`Revert data: ${waitError.data.substring(0, 100)}`, 'error');
                         }
 
-                        throw new Error(`Transaction reverted: ${waitError.reason || 'Check BaseScan for details'}`);
+                        // notify backend failure
+                        if (currentTransactionId) {
+                            try { await failTransaction(currentTransactionId, reason || 'reverted'); } catch (e) { logger.warn('[useDebtSwitchActions] fail notify error', e.message); }
+                        }
+
+                        throw new Error(`Transaction reverted: ${reason || 'Check BaseScan for details'}`);
                     }
 
                     // If reached here and not a temporary error, throw
@@ -892,12 +948,19 @@ export const useDebtSwitchActions = ({
                     addLog?.('❌ Transaction REVERTED on-chain!', 'error');
 
                     // Try to get revert reason
+                    let reason = null;
                     try {
                         const code = await provider.call(tx, tx.blockNumber);
+                        reason = code;
                         addLog?.(`Revert reason: ${code}`, 'error');
                     } catch (revertError) {
-                        const reason = revertError.reason || revertError.data || 'Unknown reason';
+                        reason = revertError.reason || revertError.data || 'Unknown reason';
                         addLog?.(`Revert reason: ${reason}`, 'error');
+                    }
+
+                    // notify backend
+                    if (currentTransactionId) {
+                        try { await failTransaction(currentTransactionId, reason); } catch (e) { logger.warn('[useDebtSwitchActions] fail notify error', e.message); }
                     }
 
                     throw new Error(`Transaction reverted. Check BaseScan: https://basescan.org/tx/${tx.hash}`);
@@ -907,12 +970,15 @@ export const useDebtSwitchActions = ({
                 const gasPrice = receipt.gasPrice || receipt.effectiveGasPrice;
                 const gasCostInGwei = (gasUsed * gasPrice) / BigInt(1e9);
                 addLog?.(`📊 Gas used: ${gasUsed.toString()} (~${ethers.formatUnits(gasCostInGwei, 9)} Gwei)`, 'info');
+                const fee = gasPrice ? (gasUsed * gasPrice).toString() : null;
 
                 // Confirm transaction on backend with final details
-                if (currentTransactionId) {
+                if (localTxId) {
                     // Record actual debt repaid (exact output) instead of the authorization ceiling
-                    await confirmTransactionOnChain(currentTransactionId, {
+                    await confirmTransactionOnChain(localTxId, {
                         gasUsed: gasUsed.toString(),
+                        gasPrice: gasPrice?.toString(),
+                        txFee: fee,
                         actualPaid: exactDebtRepayAmount.toString(),
                         apyPercent: swapQuote?.apyPercent ?? null
                     });
@@ -925,7 +991,7 @@ export const useDebtSwitchActions = ({
             setSignedPermit(null);
             setForceRequirePermit(false);
             try { if (typeof window !== 'undefined' && window.localStorage) window.localStorage.removeItem('lilswap.forceRequirePermit'); } catch (err) { logger.debug('[handleSwap] failed to clear persisted flag:', err?.message || err); }
-            setCurrentTransactionId(null);  // Clear transaction ID
+            updateCurrentTransactionId(null);  // Clear transaction ID
             fetchDebtData();
         } catch (error) {
             logger.error('❌ [handleSwap] Caught error in main try-catch:', error);
@@ -954,7 +1020,7 @@ export const useDebtSwitchActions = ({
             resetRefreshCountdown();
         } finally {
             setIsActionLoading(false);
-            setCurrentTransactionId(null);  // Always clear transaction ID on completion or error
+            updateCurrentTransactionId(null);  // Always clear transaction ID on completion or error
         }
     }, [
         account,
@@ -977,6 +1043,7 @@ export const useDebtSwitchActions = ({
         forceRequirePermit,
         handleApproveDelegation,
         networkRpcProvider,
+        currentTransactionId, // ensure we see the latest tx ID in closures
     ]);
 
     const handleForceSwap = useCallback(async () => {

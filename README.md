@@ -55,8 +55,8 @@ LilSwap is a high-performance interface built for managing Aave V3 positions. It
    cp .env.example .env.local
    # Edit .env.local to point to the API you want to use for development.
    # For a local engine: http://localhost:3001
-   # For testing against production API: https://engine.PROD_DOMAIN/api/v1
-   # Example: VITE_API_URL=https://engine.PROD_DOMAIN/api/v1
+   # For testing against production API: https://api.lilswap.xyz/v1
+   # Example: VITE_API_URL=https://api.lilswap.xyz/v1
    ```
 
 - By default contributors should point to the official production API unless they explicitly run a local engine.

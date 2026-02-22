@@ -90,11 +90,29 @@ export const useParaswapQuote = ({
             addLog?.(`Swapping debt: ${fromToken.symbol} -> ${toToken.symbol}...`, 'info');
             addLog?.('Updating quote...', 'info');
 
-            // convert to BigInt and add a single unit to cover potential dust rounding issues
+            // Calculate a buffer to cover APY drift while the transaction is mining
+            // If gas is slow, debt grows. The AAVE adapter will only repay up to this `destAmount`.
+            // If `destAmount` is less than actual debt, it leaves dust.
+            // We pad it by ~30 minutes of interest to guarantee it's always higher than the actual debt.
+            const apyDecimal = typeof fromToken?.variableBorrowRate === 'number'
+                ? fromToken.variableBorrowRate
+                : (typeof fromToken?.borrowRate === 'number' ? fromToken.borrowRate : 0.05); // Default 5%
+
             let destAmountBigInt = BigInt(debouncedDebtAmount.toString());
             if (destAmountBigInt > 0n) {
-                destAmountBigInt += 1n;
-                logger.debug('[useParaswapQuote] Added 1 wei to destAmount to avoid dust underpay');
+                // drift = debt * (apy) * (30 minutes) / (1 year)
+                const thirtyMinSeconds = 30 * 60;
+                const yearSeconds = 365 * 24 * 60 * 60;
+
+                // Using Number for math to handle decimals, then back to BigInt
+                const rawDebt = Number(destAmountBigInt);
+                const driftBuffer = Math.ceil(rawDebt * apyDecimal * (thirtyMinSeconds / yearSeconds));
+
+                // Add the drift buffer + 1 wei safety
+                const driftBigInt = BigInt(driftBuffer) + 1n;
+                destAmountBigInt += driftBigInt;
+
+                logger.debug(`[useParaswapQuote] Added ${driftBigInt.toString()} wei to destAmount to cover up to 30min of APY drift (${(apyDecimal * 100).toFixed(2)}%)`);
             }
             const destAmount = destAmountBigInt.toString();
 

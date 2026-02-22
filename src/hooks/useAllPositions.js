@@ -3,9 +3,9 @@ import axios from 'axios';
 import logger from '../utils/logger';
 
 /**
- * Hook para buscar posições do usuário em todas as redes suportadas
- * @param {string} userAddress - Endereço da carteira do usuário
- * @param {Object} opts - Opções: { refreshIntervalMs }
+ * Hook to fetch user positions across all supported networks
+ * @param {string} userAddress - User's wallet address
+ * @param {Object} opts - Options: { refreshIntervalMs }
  * @returns {Object} { positionsByChain, loading, error, lastFetch, refresh }
  */
 export const useAllPositions = (userAddress, opts = {}) => {

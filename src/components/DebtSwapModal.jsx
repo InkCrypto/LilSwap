@@ -97,7 +97,7 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                                 {selectedToken?.symbol ? (
                                     <img
                                         src={getTokenLogo(selectedToken.symbol)}
-                                        alt={selectedToken.symbol} // Corrigido o fechamento do atributo alt
+                                        alt={selectedToken.symbol} // Fixed alt attribute closing
                                         className="w-6 h-6"
                                         onError={(e) => {
                                             e.target.style.display = 'none';
