@@ -1,5 +1,5 @@
 import React, { useState, useMemo, lazy, Suspense } from 'react';
-import { ArrowRightLeft, ChevronDown, ChevronUp, RefreshCw, AlertCircle, Network } from 'lucide-react';
+import { ArrowRightLeft, ChevronDown, ChevronUp, RefreshCw, AlertCircle, Network, ExternalLink } from 'lucide-react';
 import { useAllPositions } from '../hooks/useAllPositions';
 import { requestChainSwitch } from '../utils/wallet';
 import { getNetworkByChainId } from '../constants/networks';
@@ -11,8 +11,34 @@ const DebtSwapModal = lazy(() => import('./DebtSwapModal.jsx').then(module => ({
 // Helper to get token logo URL from Aave CDN
 const getTokenLogo = (symbol) => {
     if (!symbol) return null;
-    const normalizedSymbol = symbol.toLowerCase();
-    return `https://app.aave.com/icons/tokens/${normalizedSymbol}.svg`;
+
+    const iconAliasMap = {
+        'BTCB': 'btc',
+    };
+
+    const upperSymbol = symbol.toUpperCase();
+    const mappedSymbol = iconAliasMap[upperSymbol] || symbol.toLowerCase();
+
+    return `https://app.aave.com/icons/tokens/${mappedSymbol}.svg`;
+};
+
+// Formatting helpers
+const formatUSD = (value) => {
+    if (value === 0) return '$0.00';
+    if (value < 0.01) return '< $0.01';
+    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const formatTokenAmount = (amount, symbol) => {
+    if (amount === 0) return `0 ${symbol}`;
+    if (amount < 0.0000001) return `< 0.0000001 ${symbol}`;
+
+    // For smaller values, show up to 7 decimals, otherwise 4 decimals or less based on float limits
+    if (amount < 0.1) {
+        return `${Number(amount.toFixed(7)).toString()} ${symbol}`;
+    }
+
+    return `${Number(amount.toFixed(4)).toString()} ${symbol}`;
 };
 
 /**
@@ -112,8 +138,10 @@ export const PositionsAccordion = ({ userAddress }) => {
 
             const totalPositions = suppliesCount + borrowsCount;
 
-            // Extract health factor if available
+            // Extract health factor and net metrics if available
             const healthFactor = info?.summary?.healthFactor ? parseFloat(info.summary.healthFactor) : null;
+            const netWorthUSD = info?.summary?.netWorthUSD ? parseFloat(info.summary.netWorthUSD) : 0;
+            const netAPY = info?.summary?.netAPY ? parseFloat(info.summary.netAPY) : 0;
 
             return {
                 chainId: chainIdNum,
@@ -127,6 +155,8 @@ export const PositionsAccordion = ({ userAddress }) => {
                 totalSupplied,
                 totalPositions,
                 healthFactor,
+                netWorthUSD,
+                netAPY,
                 supplies: info?.supplies || [],
                 borrows: info?.borrows || [],
                 marketAssets: info?.marketAssets || [],
@@ -210,14 +240,16 @@ export const PositionsAccordion = ({ userAddress }) => {
                 >
                     {/* Accordion header */}
                     <div
-                        className={`flex items-center justify-between p-4 ${chain.hasPositions ? 'cursor-pointer' : 'cursor-not-allowed'}`}
+                        className={`flex flex-col sm:flex-row p-4 w-full sm:items-center ${chain.hasPositions ? 'cursor-pointer' : 'cursor-not-allowed'}`}
                         onClick={() => {
                             if (chain.hasPositions) {
                                 setOpenChain(openChain === chain.chainId ? null : chain.chainId);
                             }
                         }}
                     >
-                        <div className="flex-1">
+                        {/* Mobile Top Row / Desktop Logo Column */}
+                        <div className="flex justify-between items-center w-full sm:w-auto">
+                            {/* Logo & Name */}
                             <div className="flex items-center gap-2">
                                 {chain.icon && (
                                     <img
@@ -227,43 +259,83 @@ export const PositionsAccordion = ({ userAddress }) => {
                                         onError={(e) => { e.target.style.display = 'none'; }}
                                     />
                                 )}
-                                <div className="text-sm font-bold text-white">{chain.label}</div>
+                                <div className="flex items-center gap-1.5 mt-0.5">
+                                    <span className="text-sm font-bold text-white leading-none">{chain.label}</span>
+                                    {chain.hasPositions && (
+                                        <a
+                                            href={`https://app.aave.com/dashboard/?marketName=${{
+                                                1: 'proto_mainnet_v3',
+                                                8453: 'proto_base_v3',
+                                                56: 'proto_bnb_v3',
+                                                137: 'proto_polygon_v3'
+                                            }[chain.chainId] || 'proto_mainnet_v3'}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            onClick={(e) => e.stopPropagation()}
+                                            className="text-slate-500 hover:text-purple-400 transition-colors flex items-center"
+                                            title={`View positions on Aave (${chain.label})`}
+                                        >
+                                            <ExternalLink className="w-3.5 h-3.5" />
+                                        </a>
+                                    )}
+                                </div>
                                 {chain.hasError && (
-                                    <AlertCircle className="w-4 h-4 text-yellow-500" title={chain.error} />
+                                    <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" title={chain.error} />
                                 )}
                             </div>
-                            <div className="text-xs text-slate-400 mt-1">
-                                {chain.hasPositions ? (
-                                    <>
-                                        {chain.suppliesCount} supplied • {chain.borrowsCount} borrowed
-                                        {chain.healthFactor !== null && (
-                                            <>
-                                                {' • '}
-                                                <span className={`font-semibold ${chain.healthFactor === -1 || chain.healthFactor >= 2 ? 'text-green-400' :
-                                                    chain.healthFactor >= 1.5 ? 'text-yellow-400' :
-                                                        'text-red-400'
-                                                    }`}>
-                                                    HF: {chain.healthFactor === -1 ? '∞' : chain.healthFactor.toFixed(2)}
-                                                </span>
-                                            </>
+
+                            {/* Mobile-Only Chevron / Empty State */}
+                            <div className="flex items-center sm:hidden">
+                                {!chain.hasPositions && (
+                                    <span className="text-sm text-slate-500 italic mr-2">No positions</span>
+                                )}
+                                {chain.hasPositions && (
+                                    <div className="text-slate-400 transition-transform duration-200 flex items-center">
+                                        {openChain === chain.chainId ? (
+                                            <ChevronUp className="w-5 h-5" />
+                                        ) : (
+                                            <ChevronDown className="w-5 h-5" />
                                         )}
-                                    </>
-                                ) : (
-                                    'No positions'
+                                    </div>
                                 )}
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
-                            {chain.hasPositions && (
-                                <div className="text-right">
-                                    <div className="text-xs text-slate-500">Total Borrowed</div>
-                                    <div className="text-sm font-mono text-white">
-                                        {chain.borrowsCount > 0 ? `${chain.borrowsCount} assets` : '—'}
+
+                        {/* Metrics Grid (Wraps below on mobile, inline on desktop) */}
+                        <div className="mt-4 sm:mt-0 sm:ml-10 flex-1 flex justify-start items-center">
+                            {chain.hasPositions ? (
+                                <div className="flex items-center gap-6 w-full">
+                                    <div className="flex flex-col">
+                                        <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net worth</span>
+                                        <span className="text-sm font-mono font-bold text-white leading-none mt-1">
+                                            ${chain.netWorthUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net APY</span>
+                                        <span className="text-sm font-mono font-bold text-white leading-none mt-1">
+                                            {chain.netAPY.toFixed(2)}%
+                                        </span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Health factor</span>
+                                        <span className={`text-sm font-mono font-bold leading-none mt-1 ${chain.healthFactor === -1 || chain.healthFactor >= 3 ? 'text-green-400' :
+                                            chain.healthFactor >= 1.1 ? 'text-orange-400' :
+                                                'text-red-500'
+                                            }`}>
+                                            {chain.healthFactor === -1 ? '∞' : chain.healthFactor.toFixed(2)}
+                                        </span>
                                     </div>
                                 </div>
+                            ) : (
+                                <span className="text-sm text-slate-500 italic hidden sm:block">No positions</span>
                             )}
+                        </div>
+
+                        {/* Desktop-Only Chevron */}
+                        <div className="hidden sm:flex items-center justify-end pl-4">
                             {chain.hasPositions && (
-                                <div className="text-slate-400">
+                                <div className="text-slate-400 transition-transform duration-200 flex items-center">
                                     {openChain === chain.chainId ? (
                                         <ChevronUp className="w-5 h-5" />
                                     ) : (
@@ -297,14 +369,20 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                         onError={(e) => { e.target.style.display = 'none'; }}
                                                     />
                                                     <div>
-                                                        <div className="font-mono text-sm font-bold text-white">
-                                                            {parseFloat(supply.formattedAmount).toFixed(4)}
+                                                        <div className="font-mono text-sm font-bold text-emerald-400">
+                                                            {formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || 0))}
                                                         </div>
-                                                        <div className="text-xs text-slate-500">
-                                                            {supply.symbol}
+                                                        <div className="text-xs text-slate-500 font-medium whitespace-pre">
+                                                            {formatTokenAmount(parseFloat(supply.formattedAmount), supply.symbol)}
                                                         </div>
                                                     </div>
                                                 </div>
+                                                <button
+                                                    disabled
+                                                    className="px-4 py-2 rounded-lg bg-slate-700/50 text-slate-400 font-medium text-sm flex items-center gap-2 cursor-not-allowed shrink-0"
+                                                >
+                                                    Soon
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
@@ -331,11 +409,11 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                         onError={(e) => { e.target.style.display = 'none'; }}
                                                     />
                                                     <div>
-                                                        <div className="font-mono font-bold text-white">
-                                                            {parseFloat(borrow.formattedAmount).toFixed(4)}
+                                                        <div className="font-mono text-sm font-bold text-white">
+                                                            {formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || 0))}
                                                         </div>
-                                                        <div className="text-xs text-slate-400">
-                                                            {borrow.symbol}
+                                                        <div className="text-xs text-slate-400 font-medium whitespace-pre">
+                                                            {formatTokenAmount(parseFloat(borrow.formattedAmount), borrow.symbol)}
                                                         </div>
                                                     </div>
                                                 </div>
@@ -350,12 +428,12 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                     {switchingChain === chain.chainId ? (
                                                         <>
                                                             <RefreshCw className="w-4 h-4 animate-spin" />
-                                                            <span className="text-sm font-semibold hidden sm:inline">Switching...</span>
+                                                            <span className="text-sm font-semibold inline">Switching...</span>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <ArrowRightLeft className="w-4 h-4" />
-                                                            <span className="text-sm font-semibold hidden sm:inline">Swap</span>
+                                                            <span className="text-sm font-semibold inline">Swap</span>
                                                         </>
                                                     )}
                                                 </button>

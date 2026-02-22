@@ -56,6 +56,8 @@ export const useAllPositions = (userAddress, opts = {}) => {
             return;
         }
 
+        // Clear previous user's data when address changes to trigger global loading animation
+        setData(null);
         fetchPositions();
 
         // Auto refresh every 90s (configurable)

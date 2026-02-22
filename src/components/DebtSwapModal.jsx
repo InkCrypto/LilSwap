@@ -28,8 +28,15 @@ import { calcApprovalAmount } from '../utils/swapMath.js';
 // Helper to get token logo URL from Aave CDN
 const getTokenLogo = (symbol) => {
     if (!symbol) return null;
-    const normalizedSymbol = symbol.toLowerCase();
-    return `https://app.aave.com/icons/tokens/${normalizedSymbol}.svg`;
+
+    const iconAliasMap = {
+        'BTCB': 'btc',
+    };
+
+    const upperSymbol = symbol.toUpperCase();
+    const mappedSymbol = iconAliasMap[upperSymbol] || symbol.toLowerCase();
+
+    return `https://app.aave.com/icons/tokens/${mappedSymbol}.svg`;
 };
 
 // Token Selector Component
@@ -309,6 +316,7 @@ export const DebtSwapModal = ({
     const [inputValue, setInputValue] = useState('');
     const [showSlippageSettings, setShowSlippageSettings] = useState(false);
     const [activeTab, setActiveTab] = useState('market');
+    const [invertRate, setInvertRate] = useState(false);
     // Preference: use permit (EIP-712 signature) by default — session only
     const [preferPermit, setPreferPermit] = useState(true);
     const [showMethodMenu, setShowMethodMenu] = useState(false);
@@ -567,12 +575,41 @@ export const DebtSwapModal = ({
     // Get borrow status for token
     const getBorrowStatus = useCallback((token) => {
         if (!token) return { borrowable: false, reasons: [] };
-        const isFrozen = token.isFrozen;
-        const isPaused = token.isPaused;
-        const isInactive = !token.isActive;
-        const borrowingDisabled = !token.borrowingEnabled;
-        const notBorrowable = isFrozen || isPaused || isInactive || borrowingDisabled;
-        return { borrowable: !notBorrowable, reasons: [] };
+
+        let notBorrowable = false;
+        const reasons = [];
+
+        if (token.isFrozen) { reasons.push('Frozen'); notBorrowable = true; }
+        if (token.isPaused) { reasons.push('Paused'); notBorrowable = true; }
+        if (!token.isActive) { reasons.push('Inactive'); notBorrowable = true; }
+        if (!token.borrowingEnabled) { reasons.push('Borrowing Disabled'); notBorrowable = true; }
+
+        try {
+            // Aave V3 borrowCap is typically in whole tokens. totalDebt is also in whole tokens from formattedReserves.
+            if (token.borrowCap && token.borrowCap !== "0" && token.totalDebt) {
+                const cap = parseFloat(token.borrowCap);
+                const debt = parseFloat(token.totalDebt);
+
+                // If debt is 99.5% of cap or greater, prevent borrowing
+                if (cap > 0 && debt >= cap * 0.995) {
+                    reasons.push('Borrow Cap Reached');
+                    notBorrowable = true;
+                }
+            }
+
+            // Liquidity check: availableLiquidity is in wei usually
+            if (token.availableLiquidity) {
+                const liquidity = BigInt(token.availableLiquidity);
+                if (liquidity === 0n) {
+                    reasons.push('No Liquidity');
+                    notBorrowable = true;
+                }
+            }
+        } catch (error) {
+            logger.warn('Failed to parse liquidity or borrow cap for', token.symbol, error);
+        }
+
+        return { borrowable: !notBorrowable, reasons };
     }, []);
 
     // Clear transaction errors when key data changes so old errors don't persist
@@ -900,6 +937,43 @@ export const DebtSwapModal = ({
                     </div>
                 </div>
 
+                {/* Exchange Rate Indicator */}
+                {fromToken && toToken && fromToken.priceInUSD && toToken.priceInUSD && (
+                    <div className="flex justify-center mt-2 px-1">
+                        <button
+                            type="button"
+                            onClick={() => setInvertRate(!invertRate)}
+                            className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-slate-300 transition-colors cursor-pointer group"
+                            title="Invert rate"
+                        >
+                            <span>1 {invertRate ? toToken.symbol : fromToken.symbol}</span>
+                            <ArrowRightLeft className="w-3 h-3 text-slate-500 group-hover:text-slate-400" />
+                            <span>
+                                {(() => {
+                                    if (swapQuote && swapQuote.srcAmount && swapAmount && swapAmount > BigInt(0)) {
+                                        try {
+                                            const inputF = parseFloat(ethers.formatUnits(swapAmount, fromToken.decimals));
+                                            const outputF = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals));
+                                            if (inputF > 0 && outputF > 0) {
+                                                if (invertRate) {
+                                                    return (inputF / outputF).toLocaleString(undefined, { maximumFractionDigits: 6 }) + ' ' + fromToken.symbol;
+                                                } else {
+                                                    return (outputF / inputF).toLocaleString(undefined, { maximumFractionDigits: 6 }) + ' ' + toToken.symbol;
+                                                }
+                                            }
+                                        } catch (e) {
+                                            // Fall back to oracle
+                                        }
+                                    }
+                                    return invertRate
+                                        ? (parseFloat(toToken.priceInUSD) / parseFloat(fromToken.priceInUSD)).toLocaleString(undefined, { maximumFractionDigits: 6 }) + ' ' + fromToken.symbol
+                                        : (parseFloat(fromToken.priceInUSD) / parseFloat(toToken.priceInUSD)).toLocaleString(undefined, { maximumFractionDigits: 6 }) + ' ' + toToken.symbol;
+                                })()}
+                            </span>
+                        </button>
+                    </div>
+                )}
+
                 {/* Error Display */}
                 {txError && (
                     <div className="bg-red-900/20 border border-red-500/50 p-3 rounded-lg">
@@ -923,37 +997,40 @@ export const DebtSwapModal = ({
                 )}
 
                 {/* Method selector (always shown) */}
-                <div ref={methodMenuRef} className="relative flex justify-end mb-2">
-                    <button
-                        onClick={(e) => { e.stopPropagation(); setShowMethodMenu((s) => !s); }}
-                        className="inline-flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 underline cursor-pointer"
-                        aria-expanded={showMethodMenu}
-                        aria-haspopup="menu"
-                        title="Choose approval method"
-                    >
-                        <Settings className="w-3 h-3" />
-                        <span>{preferPermit ? 'Signature (recommended)' : 'Approve on-chain'}</span>
-                    </button>
+                <div ref={methodMenuRef} className="relative flex justify-end mb-4">
+                    <div className="flex items-center gap-1.5 text-xs">
+                        <span className="text-slate-400 font-medium">Approve with</span>
+                        <button
+                            onClick={(e) => { e.stopPropagation(); setShowMethodMenu((s) => !s); }}
+                            className="inline-flex items-center gap-1 text-[#2EBDE3] hover:text-[#21a8cc] font-bold transition-colors cursor-pointer"
+                            aria-expanded={showMethodMenu}
+                            aria-haspopup="menu"
+                            title="Choose approval method"
+                        >
+                            <span>{preferPermit ? 'Signed message' : 'Transaction'}</span>
+                            <Settings className="w-3.5 h-3.5" />
+                        </button>
+                    </div>
 
                     {showMethodMenu && (
-                        <div className="absolute top-6 right-0 w-60 bg-slate-900 border border-slate-700 rounded-md shadow-xl p-2 z-50">
+                        <div className="absolute bottom-full mb-2 right-0 w-60 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl p-2 z-[100]">
                             <button
                                 onClick={() => { setPreferPermit(true); setShowMethodMenu(false); }}
-                                className={`w-full text-left px-2 py-2 rounded hover:bg-slate-800 flex items-center justify-between ${preferPermit ? 'bg-slate-800/60' : ''}`}
+                                className={`w-full text-left px-2 py-2 rounded-md hover:bg-slate-800 flex items-center justify-between ${preferPermit ? 'bg-slate-800/60' : ''}`}
                             >
                                 <div>
-                                    <div className="font-bold text-white text-sm">Signature (recommended)</div>
+                                    <div className="font-bold text-white text-sm">Signature (free)</div>
                                     <div className="text-xs text-slate-400">Faster and fee-free</div>
                                 </div>
                                 {preferPermit && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                             </button>
                             <button
                                 onClick={() => { setPreferPermit(false); setShowMethodMenu(false); }}
-                                className={`w-full text-left mt-1 px-2 py-2 rounded hover:bg-slate-800 flex items-center justify-between ${!preferPermit ? 'bg-slate-800/60' : ''}`}
+                                className={`w-full text-left mt-1 px-2 py-2 rounded-md hover:bg-slate-800 flex items-center justify-between ${!preferPermit ? 'bg-slate-800/60' : ''}`}
                             >
                                 <div>
-                                    <div className="font-bold text-white text-sm">Approve on-chain</div>
-                                    <div className="text-xs text-slate-400">Send on‑chain approval transaction</div>
+                                    <div className="font-bold text-white text-sm">Transaction</div>
+                                    <div className="text-xs text-slate-400">Send on‑chain approval</div>
                                 </div>
                                 {!preferPermit && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
                             </button>
