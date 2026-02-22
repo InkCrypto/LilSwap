@@ -407,6 +407,16 @@ export const DebtSwapModal = ({
         }
     }, [isOpen, initialFromToken, initialToToken, marketAssets]);
 
+    // Close modal strongly if the actual wallet address changes while open
+    const prevAccountRef = useRef(account);
+    useEffect(() => {
+        if (isOpen && account && prevAccountRef.current && prevAccountRef.current !== account) {
+            logger.debug('[DebtSwapModal] Wallet address changed while open. Closing modal to prevent desync.');
+            onClose();
+        }
+        prevAccountRef.current = account;
+    }, [account, isOpen, onClose]);
+
     // Ensure `toToken` is never the same as `fromToken`. If user changes `fromToken` to the
     // currently-selected `toToken`, clear `toToken` so we don't attempt an invalid quote.
     useEffect(() => {

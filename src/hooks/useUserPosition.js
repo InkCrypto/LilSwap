@@ -14,6 +14,7 @@ export const useUserPosition = () => {
     const [lastFetch, setLastFetch] = useState(null);
     const cacheRef = useRef({ data: null, timestamp: 0, key: '' });
     const fetchTimeoutRef = useRef(null);
+    const prevAddressRef = useRef(account);
 
     const CACHE_TTL = 10000; // 10 seconds cache
     const DEBOUNCE_DELAY = 500; // 500ms debounce
@@ -21,7 +22,14 @@ export const useUserPosition = () => {
     const refresh = useCallback(async (force = false) => {
         if (!account || !selectedNetwork?.chainId) {
             setData({ supplies: [], borrows: [], marketAssets: [], summary: null });
+            prevAddressRef.current = null;
             return;
+        }
+
+        // Only clear data completely if the user actually changed their wallet
+        if (prevAddressRef.current !== account) {
+            setData({ supplies: [], borrows: [], marketAssets: [], summary: null });
+            prevAddressRef.current = account;
         }
 
         const cacheKey = `${account}-${selectedNetwork.chainId}`;

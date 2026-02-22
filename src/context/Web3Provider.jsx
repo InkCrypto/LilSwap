@@ -121,10 +121,10 @@ export const Web3Provider = ({ children }) => {
         const handleChainChanged = async (chainIdHex) => {
             logger.debug('[Web3Provider] Chain changed event:', chainIdHex);
 
-            const nextProvider = initializeProvider();
-            if (nextProvider) {
-                setProvider(nextProvider);
-            }
+            // Do NOT re-initialize the entire Ethers provider here.
+            // Destroying the provider reference forces all React Context consumers to unmount/remount,
+            // which destroys the `prevAddressRef` in our hooks and causes UI flickering.
+            // Ethers v6 and the new selectedNetworkKey will handle the data change naturally.
 
             // Update selectedNetwork based on new chain
             const chainId = parseInt(chainIdHex, 16);

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import axios from 'axios';
 import logger from '../utils/logger';
 
@@ -13,6 +13,7 @@ export const useAllPositions = (userAddress, opts = {}) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [lastFetch, setLastFetch] = useState(null);
+    const prevAddressRef = useRef(userAddress);
 
     const fetchPositions = useCallback(async (force = false) => {
         if (!userAddress) return;
@@ -53,11 +54,17 @@ export const useAllPositions = (userAddress, opts = {}) => {
     useEffect(() => {
         if (!userAddress) {
             setData(null);
+            prevAddressRef.current = null;
             return;
         }
 
-        // Clear previous user's data when address changes to trigger global loading animation
-        setData(null);
+        // Only clear previous data if the actual wallet address changed
+        // This prevents network switches from triggering the loading animation
+        if (prevAddressRef.current !== userAddress) {
+            setData(null);
+            prevAddressRef.current = userAddress;
+        }
+
         fetchPositions();
 
         // Auto refresh every 90s (configurable)
