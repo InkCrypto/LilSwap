@@ -3,7 +3,7 @@ name: Deploy App (Frontend)
 on:
   push:
     tags:
-      - 'v*'
+      - "v*"
 
 jobs:
   deploy:
@@ -21,7 +21,7 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: 'pnpm'
+          cache: "pnpm"
 
       - name: Install Dependencies
         run: pnpm install --frozen-lockfile
@@ -56,10 +56,18 @@ jobs:
           script: |
             ROOT="${{ vars.REMOTE_APP_ROOT }}"
             TAG="${{ steps.version.outputs.tag }}"
+            TIMESTAMP=$(date +%Y%m%d%H%M%S)
 
-            # Atomic symlink update
+            # Safety check: if it's a real directory, back it up instead of deleting
+            if [ -d "$ROOT/public_html" ] && [ ! -L "$ROOT/public_html" ]; then
+              mv "$ROOT/public_html" "$ROOT/public_html_backup_$TIMESTAMP"
+            fi
+
+            # Prepare the new symlink
             ln -sfn $ROOT/releases/$TAG $ROOT/public_html_new
+
+            # Atomic swap to avoid downtime
             mv -fT $ROOT/public_html_new $ROOT/public_html
 
-            # Keep only the last 3 tagged releases
+            # Keep only the last 3 releases for storage efficiency
             cd $ROOT/releases && ls -1dt v* | tail -n +4 | xargs rm -rf
