@@ -11,7 +11,11 @@ export const InfoTooltip = ({ message, children }) => {
     const handleMouseEnter = () => {
         if (anchorRef.current) {
             const rect = anchorRef.current.getBoundingClientRect();
-            setCoords({ top: rect.top, left: rect.right + 4 });
+            // Position centered below the anchor
+            setCoords({
+                top: rect.bottom + 8,
+                left: rect.left + (rect.width / 2)
+            });
         }
         setVisible(true);
     };
@@ -32,13 +36,13 @@ export const InfoTooltip = ({ message, children }) => {
             </span>
             {visible && createPortal(
                 <div
-                    className="p-3 rounded-md bg-slate-900 border border-slate-700 text-xs text-slate-400 shadow-lg"
+                    className="p-2.5 rounded-md bg-slate-900 border border-slate-700 text-[11px] text-slate-300 shadow-xl text-center leading-relaxed backdrop-blur-md z-[11000]"
                     style={{
                         position: 'fixed',
                         top: coords.top,
                         left: coords.left,
-                        zIndex: 11000,
-                        maxWidth: '280px',
+                        transform: 'translateX(-50%)',
+                        maxWidth: '140px', // Force two-line design for short phrases
                     }}
                 >
                     {message}

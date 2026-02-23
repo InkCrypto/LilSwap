@@ -39,6 +39,16 @@ const getTokenLogo = (symbol) => {
     return `https://app.aave.com/icons/tokens/${mappedSymbol}.svg`;
 };
 
+// Format a numeric USD value to a compact string like "$1.21K" or "$1,234.56"
+const formatUSD = (value) => {
+    if (value == null || isNaN(value)) return null;
+    if (value === 0) return '$0.00';
+    if (value < 0.01) return '< $0.01';
+    if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
+    if (value >= 10_000) return `$${(value / 1_000).toFixed(2)}K`;
+    return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
 // Token Selector Component
 const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBorrowStatus, compact = false }) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -138,7 +148,6 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                                 <div className="relative">
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                                     <input
-                                        autoFocus
                                         type="text"
                                         placeholder="Search token..."
                                         className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-4 text-xs text-white focus:outline-none focus:border-purple-500"
@@ -199,19 +208,48 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
     );
 };
 
-// Compact Amount Input Row
-const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, disabled, formattedDebt, onTokenSelect }) => {
 
-    const handlePercentage = (percentage) => {
-        if (!maxAmount || maxAmount === BigInt(0)) return;
-        const calculatedAmount = (maxAmount * BigInt(percentage)) / BigInt(100);
-        const formatted = ethers.formatUnits(calculatedAmount, decimals);
-        onChange(formatted);
+// Compact Amount Input Row
+const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, disabled, formattedDebt, onTokenSelect, usdValue }) => {
+    const [pctPopoverOpen, setPctPopoverOpen] = useState(false);
+    const pctBtnRef = useRef(null);
+    const pctPopoverRef = useRef(null);
+
+    // Format large numbers compactly: 1200 → "1.21K", 1500000 → "1.50M"
+    const compactNumber = (str) => {
+        const n = parseFloat(str);
+        if (isNaN(n)) return str;
+        if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
+        if (n >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
+        return Number(n.toFixed(4)).toString();
     };
 
-    const formattedMax = maxAmount > BigInt(0)
-        ? Number(ethers.formatUnits(maxAmount, decimals)).toLocaleString(undefined, { maximumFractionDigits: 4 })
-        : '0';
+    // Close popover when clicking outside
+    useEffect(() => {
+        if (!pctPopoverOpen) return;
+        const handler = (e) => {
+            if (
+                pctBtnRef.current && !pctBtnRef.current.contains(e.target) &&
+                pctPopoverRef.current && !pctPopoverRef.current.contains(e.target)
+            ) {
+                setPctPopoverOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [pctPopoverOpen]);
+
+    const applyPct = (pct) => {
+        if (!maxAmount || maxAmount === BigInt(0)) return;
+        const calculatedAmount = (maxAmount * BigInt(pct)) / BigInt(100);
+        onChange(ethers.formatUnits(calculatedAmount, decimals));
+        setPctPopoverOpen(false);
+    };
+
+    const applyMax = () => {
+        if (!maxAmount || maxAmount === BigInt(0)) return;
+        onChange(ethers.formatUnits(maxAmount, decimals));
+    };
 
     return (
         <div className="bg-slate-800 border border-slate-700 rounded-xl p-3">
@@ -238,40 +276,66 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                     onClick={onTokenSelect}
                     disabled={disabled}
                     aria-haspopup="dialog"
-                    className={`bg-slate-900 px-2 sm:px-3 py-1 rounded-full border border-slate-700 flex items-center gap-2 cursor-pointer hover:bg-slate-800 ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`flex items-center gap-1.5 py-1 px-1 hover:opacity-75 transition-opacity ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                     {token?.symbol ? (
                         <img
                             src={getTokenLogo(token.symbol)}
                             alt={token.symbol}
-                            className="w-5 h-5 sm:w-6 sm:h-6 rounded-full"
+                            className="w-6 h-6 rounded-full"
                             onError={(e) => { e.target.style.display = 'none'; }}
                         />
                     ) : (
-                        <span className="text-xs font-bold">?</span>
+                        <span className="text-xs font-bold text-slate-400">?</span>
                     )}
-                    <span className="text-sm sm:text-sm font-bold text-white">{token?.symbol}</span>
-                    <ChevronDown className="w-4 h-4 text-slate-500" />
+                    <span className="text-sm font-bold text-white">{token?.symbol || 'Select'}</span>
+                    <ChevronDown className="w-4 h-4 text-slate-400" />
                 </button>
             </div>
-            {/* Bottom row: borrowed and percent buttons */}
-            <div className="flex items-center justify-between mt-2">
-                <div className="text-xs text-slate-500 pl-3">Borrowed: {formattedDebt || '0'}</div>
-                <div className="text-xs text-slate-400 flex gap-3">
-                    {[25, 50, 75].map((pct) => (
+
+            {/* Single bottom row: $USD left | Balance % MAX right */}
+            <div className="flex items-center justify-between mt-1.5 pl-3">
+                {/* USD value */}
+                <span className="text-xs text-slate-500">{usdValue ?? ''}</span>
+
+                {/* Balance + % popover + MAX */}
+                <div className="flex items-center gap-2 text-xs text-slate-400 relative">
+                    <span className="text-slate-500">Balance {compactNumber(formattedDebt) || '0'}</span>
+
+                    {/* % button + popover */}
+                    <div className="relative">
                         <button
-                            key={pct}
-                            className="bg-transparent p-0 m-0 text-xs text-slate-400 hover:text-white"
-                            style={{ border: 'none' }}
-                            onClick={() => onChange((Number(ethers.formatUnits(maxAmount, decimals)) * pct / 100).toFixed(decimals))}
+                            ref={pctBtnRef}
+                            type="button"
+                            className="text-xs text-slate-400 hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer"
+                            onClick={() => setPctPopoverOpen((v) => !v)}
                         >
-                            {pct}%
+                            %
                         </button>
-                    ))}
+
+                        {pctPopoverOpen && (
+                            <div
+                                ref={pctPopoverRef}
+                                className="absolute top-full mt-2 right-0 bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-1.5 flex gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+                            >
+                                {[25, 50, 75].map((pct) => (
+                                    <button
+                                        key={pct}
+                                        type="button"
+                                        onClick={() => applyPct(pct)}
+                                        className="px-3 py-1.5 text-xs font-bold rounded-md bg-slate-800 text-slate-300 hover:bg-purple-600 hover:text-white transition-colors"
+                                    >
+                                        {pct}%
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
+
                     <button
-                        className="bg-transparent p-0 m-0 text-xs text-slate-400 font-bold hover:text-white"
-                        style={{ border: 'none' }}
-                        onClick={() => onChange(Number(ethers.formatUnits(maxAmount, decimals)).toFixed(decimals))}
+                        type="button"
+                        className="text-xs font-bold text-slate-400 hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer"
+                        onClick={applyMax}
                     >
                         MAX
                     </button>
@@ -280,6 +344,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
         </div>
     );
 };
+
 
 /**
  * DebtSwapModal Component
@@ -321,6 +386,9 @@ export const DebtSwapModal = ({
     const [preferPermit, setPreferPermit] = useState(true);
     const [showMethodMenu, setShowMethodMenu] = useState(false);
     const methodMenuRef = useRef(null);
+    // Track previous token addresses to detect actual token changes (not re-renders)
+    const prevFromTokenAddrRef = useRef('');
+    const prevToTokenAddrRef = useRef('');
     const [freezeQuote, setFreezeQuote] = useState(false);
     const slippageMenuRef = useRef(null);
 
@@ -473,21 +541,54 @@ export const DebtSwapModal = ({
         freezeQuote,
     });
 
-    // When the user changes the source token, clear any previously-entered amount and
-    // reset the computed swap amount/quote to avoid sending stale values that may be
-    // invalid for the newly-selected `fromToken`.
+    // When the user changes the source token: clear the input amount and quote.
+    // The destination token is preserved UNLESS it's the same asset as the new fromToken
+    // (which would be an invalid self-swap) — in that case auto-select the first available
+    // borrowable token instead.
+    // We use a ref to track the previous address so this only runs when the token
+    // *actually* changes — not when function references like clearQuote/fetchDebtData
+    // get new identities on re-render (which would reset toToken spuriously).
     useEffect(() => {
-        if (!isOpen) return; // only clear when modal is open
+        if (!isOpen) return;
+        const newAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
+        if (newAddr === prevFromTokenAddrRef.current) return; // same token, skip
+        prevFromTokenAddrRef.current = newAddr;
+
         setInputValue('');
         setSwapAmount(BigInt(0));
         clearQuote && clearQuote();
 
-        // Immediately refresh on-chain debt data for the newly-selected `fromToken` so
-        // the MAX button uses up-to-date values (prevents inserting old token's max).
+        // Check if the current toToken conflicts with the newly-selected fromToken.
+        // Read toToken directly from the closure (not via functional updater) so that
+        // marketAssets is also fresh and we can do the fallback lookup reliably.
+        const currentToAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+        if (currentToAddr && newAddr && currentToAddr === newAddr) {
+            prevToTokenAddrRef.current = ''; // reset ref so toToken effect fires on next selection
+            // Auto-select the first borrowable token that isn't the new fromToken
+            const fallback = (marketAssets || []).find((t) => {
+                const tAddr = (t.underlyingAsset || t.address || '').toLowerCase();
+                return tAddr && tAddr !== newAddr && t.isActive && !t.isFrozen && !t.isPaused && t.borrowingEnabled;
+            }) || null;
+            setToToken(fallback);
+        }
+
+        // Refresh on-chain debt data for the new fromToken so the MAX button is up-to-date.
         if (typeof fetchDebtData === 'function') {
             fetchDebtData().catch((e) => logger.warn('[DebtSwapModal] fetchDebtData failed on fromToken change', e));
         }
-    }, [fromToken, isOpen, clearQuote, fetchDebtData]);
+    }, [fromToken, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+    // When the destination token changes, clear the stale quote so the UI shows a
+    // loading state while a fresh quote is fetched. Source amount is preserved so
+    // the auto-quote can fire immediately with the existing input value.
+    useEffect(() => {
+        if (!isOpen) return;
+        const newAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+        if (newAddr === prevToTokenAddrRef.current) return; // same token, skip
+        prevToTokenAddrRef.current = newAddr;
+
+        clearQuote && clearQuote();
+    }, [toToken, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Actions hook
     const {
@@ -861,6 +962,18 @@ export const DebtSwapModal = ({
                             disabled={isBusy}
                             formattedDebt={formattedDebt}
                             onTokenSelect={openTokenSelectorForFrom}
+                            usdValue={(() => {
+                                const fromAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
+                                const marketToken = (marketAssets || []).find(m =>
+                                    (m.underlyingAsset || m.address || '').toLowerCase() === fromAddr
+                                );
+                                const price = parseFloat(marketToken?.priceInUSD ?? fromToken?.priceInUSD);
+                                const amount = parseFloat(inputValue);
+                                if (!isNaN(price) && price > 0 && !isNaN(amount) && amount > 0) {
+                                    return formatUSD(amount * price);
+                                }
+                                return null;
+                            })()}
                         />
                     </>
                 )}
@@ -918,6 +1031,22 @@ export const DebtSwapModal = ({
                                         </span>
                                         {/* token symbol removed here; compact selector shows logo+symbol at the end */}
                                     </div>
+                                    {(() => {
+                                        try {
+                                            // priceInUSD may not be on the live toToken object;
+                                            // look it up from marketAssets (same source used on the home page)
+                                            const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                            const marketToken = (marketAssets || []).find(m =>
+                                                (m.underlyingAsset || m.address || '').toLowerCase() === toAddr
+                                            );
+                                            const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
+                                            const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals));
+                                            if (!isNaN(price) && price > 0 && !isNaN(amount) && amount > 0) {
+                                                return <div className="text-xs text-slate-500 mt-0.5">{formatUSD(amount * price)}</div>;
+                                            }
+                                        } catch (e) { /* noop */ }
+                                        return null;
+                                    })()}
                                 </div>
                             ) : (
                                 <div className="text-slate-500 text-sm">
@@ -931,17 +1060,17 @@ export const DebtSwapModal = ({
                             <button
                                 type="button"
                                 onClick={(e) => { openTokenSelectorForTo(); }}
-                                className="bg-slate-900 px-2 sm:px-3 py-1 rounded-full border border-slate-700 flex items-center gap-2 cursor-pointer hover:bg-slate-800"
+                                className="flex items-center gap-1.5 py-1 px-1 hover:opacity-75 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
                                 disabled={isBusy}
                                 aria-haspopup="dialog"
                             >
                                 {toToken?.symbol ? (
                                     <img src={getTokenLogo(toToken.symbol)} alt={toToken.symbol} className="w-6 h-6 rounded-full" onError={(e) => e.target.style.display = 'none'} />
                                 ) : (
-                                    <div className="w-6 h-6 rounded-full bg-slate-800 flex items-center justify-center">?</div>
+                                    <span className="text-xs font-bold text-slate-400">?</span>
                                 )}
                                 <span className="text-sm font-bold text-white">{toToken?.symbol || 'Select'}</span>
-                                <ChevronDown className="w-4 h-4 text-slate-500" />
+                                <ChevronDown className="w-4 h-4 text-slate-400" />
                             </button>
                         </div>
                     </div>
@@ -1072,7 +1201,6 @@ export const DebtSwapModal = ({
                                     <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                                     <input
                                         type="text"
-                                        autoFocus
                                         placeholder="Search token..."
                                         value={tokenModalSearch}
                                         onChange={(e) => setTokenModalSearch(e.target.value)}

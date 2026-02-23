@@ -4,6 +4,7 @@ import { useAllPositions } from '../hooks/useAllPositions';
 import { requestChainSwitch } from '../utils/wallet';
 import { getNetworkByChainId } from '../constants/networks';
 import logger from '../utils/logger';
+import { InfoTooltip } from './InfoTooltip';
 
 // Lazy load DebtSwapModal
 const DebtSwapModal = lazy(() => import('./DebtSwapModal.jsx').then(module => ({ default: module.DebtSwapModal })));
@@ -349,54 +350,53 @@ export const PositionsAccordion = ({ userAddress }) => {
                     {/* Accordion content */}
                     {openChain === chain.chainId && chain.hasPositions && (
                         <div className="border-t border-slate-700 p-4 bg-slate-900/30 flex flex-col md:flex-row gap-4">
-                            {/* Show supplies */}
-                            {chain.supplies.length > 0 && (
-                                <div className="flex-1 min-w-0">
-                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">
-                                        Supplies
-                                    </h4>
-                                    <div className="space-y-2">
-                                        {chain.supplies.map((supply) => (
-                                            <div
-                                                key={supply.underlyingAsset}
-                                                className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700/50"
-                                            >
-                                                <div className="flex items-center gap-3">
-                                                    <img
-                                                        src={getTokenLogo(supply.symbol)}
-                                                        alt={supply.symbol}
-                                                        className="w-8 h-8 rounded-full"
-                                                        onError={(e) => { e.target.style.display = 'none'; }}
-                                                    />
-                                                    <div>
-                                                        <div className="font-mono text-sm font-bold text-emerald-400">
-                                                            {formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || 0))}
-                                                        </div>
-                                                        <div className="text-xs text-slate-500 font-medium whitespace-pre">
-                                                            {formatTokenAmount(parseFloat(supply.formattedAmount), supply.symbol)}
-                                                        </div>
+                            {/* Always show both columns for a balanced layout */}
+                            <div className="flex-1 min-w-0">
+                                <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">
+                                    Supplies
+                                </h4>
+                                <div className="space-y-2">
+                                    {chain.supplies.map((supply) => (
+                                        <div
+                                            key={supply.underlyingAsset}
+                                            className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700/50"
+                                        >
+                                            <div className="flex items-center gap-3">
+                                                <img
+                                                    src={getTokenLogo(supply.symbol)}
+                                                    alt={supply.symbol}
+                                                    className="w-8 h-8 rounded-full"
+                                                    onError={(e) => { e.target.style.display = 'none'; }}
+                                                />
+                                                <div>
+                                                    <div className="font-mono text-sm font-bold text-emerald-400">
+                                                        {formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || 0))}
+                                                    </div>
+                                                    <div className="text-xs text-slate-500 font-medium whitespace-pre">
+                                                        {formatTokenAmount(parseFloat(supply.formattedAmount), supply.symbol)}
                                                     </div>
                                                 </div>
+                                            </div>
+                                            <InfoTooltip message="Collateral swap will be available soon">
                                                 <button
                                                     disabled
                                                     className="px-4 py-2 rounded-lg bg-slate-700/50 text-slate-400 font-medium text-sm flex items-center gap-2 cursor-not-allowed shrink-0"
                                                 >
                                                     Soon
                                                 </button>
-                                            </div>
-                                        ))}
-                                    </div>
+                                            </InfoTooltip>
+                                        </div>
+                                    ))}
                                 </div>
-                            )}
+                            </div>
 
-                            {/* Show borrows */}
-                            {chain.borrows.length > 0 && (
-                                <div className="flex-1 min-w-0">
-                                    <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">
-                                        Borrows
-                                    </h4>
-                                    <div className="space-y-2">
-                                        {chain.borrows.map((borrow) => (
+                            <div className="flex-1 min-w-0">
+                                <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">
+                                    Borrows
+                                </h4>
+                                <div className="space-y-2">
+                                    {chain.borrows.length > 0 ? (
+                                        chain.borrows.map((borrow) => (
                                             <div
                                                 key={borrow.underlyingAsset}
                                                 className="flex items-center justify-between p-3 bg-slate-800 rounded-lg border border-slate-700 hover:border-purple-500/50 transition-colors"
@@ -438,10 +438,20 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                     )}
                                                 </button>
                                             </div>
-                                        ))}
-                                    </div>
+                                        ))
+                                    ) : (
+                                        /* Empty borrow state placeholder */
+                                        <div className="flex items-center gap-3 p-3 bg-slate-800/40 rounded-lg border border-slate-700 select-none h-[62px]">
+                                            <div className="w-8 h-8 rounded-full bg-slate-700/30 flex items-center justify-center shrink-0">
+                                                <ArrowRightLeft className="w-4 h-4 text-slate-500" />
+                                            </div>
+                                            <div className="flex flex-col justify-center">
+                                                <div className="text-sm font-semibold text-slate-400 leading-tight">No borrow positions</div>
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
-                            )}
+                            </div>
                         </div>
                     )}
                 </div>

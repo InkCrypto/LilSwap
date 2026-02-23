@@ -2,6 +2,7 @@ import React, { useState, useCallback, lazy, Suspense, useRef, useEffect } from 
 import { Wallet, LogOut, Terminal, ChevronDown, Copy, Eye, EyeOff } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
 import { getLogLevel } from './utils/logger.js';
+import { InfoTooltip } from './components/InfoTooltip.jsx';
 
 // Lazy load Dashboard
 const Dashboard = lazy(() => import('./components/Dashboard.jsx').then(module => ({ default: module.Dashboard })));
@@ -33,7 +34,11 @@ export default function App() {
   // --- STATES ---
   const [logs, setLogs] = useState([]);
   const [copyButtonState, setCopyButtonState] = useState('idle');
-  const [showAddress, setShowAddress] = useState(false);
+  const [showAddress, setShowAddress] = useState(() => {
+    // Persistent privacy setting: default to hidden (false)
+    const saved = localStorage.getItem('lilswap_show_address');
+    return saved === 'true';
+  });
   const [showAccountMenu, setShowAccountMenu] = useState(false);
   const menuRef = useRef(null);
 
@@ -128,32 +133,36 @@ export default function App() {
               </button>
             ) : (
               <div className="relative" ref={menuRef}>
-                <button
-                  onClick={() => setShowAccountMenu(!showAccountMenu)}
-                  className="bg-slate-800/50 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all border border-slate-700/50 active:scale-95"
-                >
-                  <Wallet className="w-4 h-4 text-purple-400" />
-                  <span className={`hidden sm:inline font-mono transition-all duration-300 ${!showAddress ? 'blur-[2px] select-none opacity-90' : ''}`}>
-                    {account.slice(0, 6)}...{account.slice(-4)}
-                  </span>
-                  <span className="sm:hidden font-bold">Connected</span>
-                  <ChevronDown className="w-3 h-3" />
-                </button>
+                <div className="flex items-center gap-2">
+                  <InfoTooltip message="Protect your privacy by hiding your address from prying eyes">
+                    <button
+                      onClick={() => setShowAddress(prev => {
+                        const newValue = !prev;
+                        localStorage.setItem('lilswap_show_address', newValue.toString());
+                        return newValue;
+                      })}
+                      className="hidden sm:flex p-2 sm:p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-800 transition-all active:scale-90"
+                    >
+                      {showAddress ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    </button>
+                  </InfoTooltip>
+
+                  <button
+                    onClick={() => setShowAccountMenu(!showAccountMenu)}
+                    className="bg-slate-800/50 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all border border-slate-700/50 active:scale-95"
+                  >
+                    <Wallet className="w-4 h-4 text-purple-400" />
+                    <span className={`hidden sm:inline font-mono transition-all duration-300 ${!showAddress ? 'blur-xs select-none opacity-90' : ''}`}>
+                      {account.slice(0, 6)}...{account.slice(-4)}
+                    </span>
+                    <span className="sm:hidden font-bold">Connected</span>
+                    <ChevronDown className="w-3 h-3 text-slate-500" />
+                  </button>
+                </div>
 
                 {showAccountMenu && (
                   <div className="absolute right-0 mt-2 w-44 bg-slate-800 rounded-xl shadow-xl border border-slate-700/50 overflow-hidden z-50">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowAddress(!showAddress);
-                      }}
-                      className="w-full px-4 py-3 text-left text-sm text-slate-300 hover:bg-slate-700/50 flex items-center justify-between transition-colors border-b border-slate-700/50"
-                    >
-                      <div className="flex items-center gap-2">
-                        {showAddress ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                        <span>{showAddress ? 'Hide address' : 'Show address'}</span>
-                      </div>
-                    </button>
+                    {/* Redundant toggle removed from menu */}
                     <button
                       onClick={handleDisconnect}
                       className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-slate-700/50 flex items-center gap-2 transition-colors"
