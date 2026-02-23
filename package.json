@@ -1,16 +1,14 @@
 {
   "name": "lilswap",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "clean:build": "node -e \"const fs=require('fs');fs.rmSync('public/build',{recursive:true,force:true});\"",
-    "build": "npm run clean:build && vite build",
-    "build:public": "npm run build",
+    "build": "vite build",
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
-    "preview": "vite preview --outDir public --host 127.0.0.1 --strictPort"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@bgd-labs/aave-address-book": "^4.44.19",

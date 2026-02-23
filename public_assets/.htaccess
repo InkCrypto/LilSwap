@@ -1,0 +1,16 @@
+# Enable symbolic links and disable multiviews
+Options +FollowSymLinks -MultiViews
+
+<IfModule mod_headers.c>
+    # Disable cache for entry file to ensure immediate updates
+    <FilesMatch "index\.html">
+        Header set Cache-Control "max-age=0, no-cache, no-store, must-revalidate"
+        Header set Pragma "no-cache"
+        Header set Expires "Wed, 11 Jan 1984 05:00:00 GMT"
+    </FilesMatch>
+
+    # Enable long-term cache for hashed assets
+    <FilesMatch "\.(js|css|webp|png|jpg|jpeg|gif|ico|svg)$">
+        Header set Cache-Control "max-age=31536000, public"
+    </FilesMatch>
+</IfModule>

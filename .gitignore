@@ -12,11 +12,10 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Dependencies and Build
 node_modules
 dist
 dist-ssr
-public/build/
-public/index.html
 
 # Editor directories and files
 .vscode/*

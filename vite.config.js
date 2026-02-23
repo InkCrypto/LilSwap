@@ -2,18 +2,17 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// https://vitejs.dev/config/
 export default defineConfig(({ mode }) => ({
   base: '/',
-  publicDir: false,
+  publicDir: 'public_assets',
   build: {
-    outDir: 'public',
-    assetsDir: 'build/assets',
-    emptyOutDir: false,
+    outDir: 'dist',
+    assetsDir: 'assets',
+    emptyOutDir: true,
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: mode === 'production', // Only drop console in production builds
+        drop_console: mode === 'production',
         drop_debugger: true,
       },
     },
@@ -22,7 +21,7 @@ export default defineConfig(({ mode }) => ({
         manualChunks: {
           ethers: ['ethers'],
           aave: ['@bgd-labs/aave-address-book'],
-          vendor: ['axios', 'lucide-react'],
+          vendor: ['axios', 'lucide-react', 'react', 'react-dom'],
         },
       },
     },
