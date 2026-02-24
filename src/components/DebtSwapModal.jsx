@@ -22,10 +22,11 @@ import { useDebtSwitchActions } from '../hooks/useDebtSwitchActions.js';
 import { useDebtPositions } from '../hooks/useDebtPositions.js';
 import { useUserPosition } from '../hooks/useUserPosition.js';
 import { getUserPosition } from '../services/api.js';
+import { useToast } from '../context/ToastContext.jsx';
+import { Copy } from 'lucide-react';
 
 import logger, { getLogLevel } from '../utils/logger.js';
 import { calcApprovalAmount } from '../utils/swapMath.js';
-// Helper to get token logo URL from Aave CDN
 const getTokenLogo = (symbol) => {
     if (!symbol) return null;
 
@@ -37,6 +38,36 @@ const getTokenLogo = (symbol) => {
     const mappedSymbol = iconAliasMap[upperSymbol] || symbol.toLowerCase();
 
     return `https://app.aave.com/icons/tokens/${mappedSymbol}.svg`;
+};
+
+const UserRejectedAlert = ({ onClose }) => {
+    useEffect(() => {
+        const timer = setTimeout(onClose, 8000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+
+    return (
+        <div className="bg-slate-800/90 border border-slate-700/80 shadow-slate-900/50 shadow-xl p-3 rounded-xl flex items-center gap-3 animate-in fade-in duration-300">
+            <style>{`
+                @keyframes drain {
+                    from { stroke-dashoffset: 0; }
+                    to { stroke-dashoffset: 44; }
+                }
+            `}</style>
+            <Info className="w-4 h-4 text-[#2EBDE3] shrink-0" />
+            <div className="flex-1">
+                <p className="text-sm font-medium text-slate-200">User denied the operation.</p>
+            </div>
+            <div className="relative w-4 h-4 shrink-0">
+                <svg className="w-full h-full transform -rotate-90 pointer-events-none" viewBox="0 0 16 16">
+                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-slate-800" />
+                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-slate-500"
+                        style={{ strokeDasharray: 44, animation: 'drain 8s linear forwards' }}
+                    />
+                </svg>
+            </div>
+        </div>
+    );
 };
 
 // Format a numeric USD value to a compact string like "$1.21K" or "$1,234.56"
@@ -252,9 +283,9 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
     };
 
     return (
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-3">
+        <div className="bg-slate-800 border border-slate-700 rounded-xl p-2 px-3">
             {/* Top row: input and token badge */}
-            <div className="flex items-baseline gap-2 sm:gap-3">
+            <div className="flex items-center gap-2 sm:gap-3">
                 <div className="flex-1">
                     <input
                         type="text"
@@ -282,19 +313,19 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                         <img
                             src={getTokenLogo(token.symbol)}
                             alt={token.symbol}
-                            className="w-6 h-6 rounded-full"
+                            className="w-7 h-7 rounded-full"
                             onError={(e) => { e.target.style.display = 'none'; }}
                         />
                     ) : (
                         <span className="text-xs font-bold text-slate-400">?</span>
                     )}
-                    <span className="text-sm font-bold text-white">{token?.symbol || 'Select'}</span>
-                    <ChevronDown className="w-4 h-4 text-slate-400" />
+                    <span className="text-lg font-bold text-white leading-none">{token?.symbol || 'Select'}</span>
+                    <ChevronDown className="w-5 h-5 text-slate-400" />
                 </button>
             </div>
 
             {/* Single bottom row: $USD left | Balance % MAX right */}
-            <div className="flex items-center justify-between mt-1.5 pl-3">
+            <div className="flex items-center justify-between mt-0 pl-3">
                 {/* USD value */}
                 <span className="text-xs text-slate-500">{usdValue ?? ''}</span>
 
@@ -360,6 +391,7 @@ export const DebtSwapModal = ({
     providedBorrows = null,
 }) => {
     const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
+    const { addToast } = useToast();
 
     // Use provided marketAssets as fallback if selectedNetwork isn't synced yet
     // In normal flow, selectedNetwork will be updated by Web3Provider's chainChanged handler
@@ -399,6 +431,12 @@ export const DebtSwapModal = ({
     const addLog = useCallback((message, type = 'info') => {
         logger.debug(`[DebtSwapModal] ${type}: ${message}`);
     }, []);
+
+    const copyToClipboard = useCallback((text) => {
+        navigator.clipboard.writeText(text).then(() => {
+            addToast({ message: 'Copied to clipboard', type: 'success', duration: 3000 });
+        });
+    }, [addToast]);
 
     // Stable token-selector openers
     const openTokenSelectorForFrom = useCallback(() => {
@@ -621,6 +659,22 @@ export const DebtSwapModal = ({
         simulateError: false,
         preferPermit,
         freezeQuote,
+        onTxSent: (hash) => {
+            const explorerUrl = effectiveNetwork?.explorer ? `${effectiveNetwork.explorer}/tx/${hash}` : null;
+            addToast({
+                title: 'Transaction Submitted',
+                message: 'Your swap is being processed on the blockchain.',
+                type: 'info',
+                ...(explorerUrl && {
+                    action: {
+                        label: 'View Explorer',
+                        url: explorerUrl
+                    }
+                }),
+                duration: 10000
+            });
+            onClose();
+        }
     });
 
 
@@ -979,8 +1033,8 @@ export const DebtSwapModal = ({
                 )}
 
                 {/* Auto Refresh Display */}
-                {inputValue && (
-                    <div className="flex justify-center">
+                <div className="flex justify-center min-h-[24px] py-0.5 items-center">
+                    {inputValue ? (
                         <div className="text-xs text-slate-500 flex items-center gap-2">
                             <button
                                 type="button"
@@ -1003,12 +1057,17 @@ export const DebtSwapModal = ({
                                 `Auto refresh in ${nextRefreshIn}s`
                             )}
                         </div>
-                    </div>
-                )}
+                    ) : (
+                        <div className="text-xs text-slate-500/50 flex items-center h-full">
+                            Waiting for amount...
+                        </div>
+                    )}
+                </div>
 
                 {/* To Token Row (Selector + Quote Result) */}
-                <div className="bg-slate-800 border border-slate-700 rounded-xl p-3">
-                    <div className="flex items-center gap-3">
+                <div className="bg-slate-800 border border-slate-700 rounded-xl p-2 px-3">
+                    {/* Top Row: Amount & Token Selector */}
+                    <div className="flex items-center gap-2 sm:gap-3">
                         {/* Quote Result */}
                         <div className="flex-1 min-w-0 pl-3">
                             {isQuoteLoading ? (
@@ -1017,61 +1076,70 @@ export const DebtSwapModal = ({
                                     <span className="text-sm">Loading quote...</span>
                                 </div>
                             ) : swapQuote && toToken && fromToken ? (
-                                <div>
-                                    <div className="flex items-baseline gap-2">
-                                        <span className="text-2xl font-mono font-bold text-white block">
-                                            {(() => {
-                                                try {
-                                                    // Show full precision (no rounding) using ethers.formatUnits
-                                                    return ethers.formatUnits(swapQuote.srcAmount, toToken.decimals);
-                                                } catch (e) {
-                                                    return '...';
-                                                }
-                                            })()}
-                                        </span>
-                                        {/* token symbol removed here; compact selector shows logo+symbol at the end */}
-                                    </div>
-                                    {(() => {
-                                        try {
-                                            // priceInUSD may not be on the live toToken object;
-                                            // look it up from marketAssets (same source used on the home page)
-                                            const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
-                                            const marketToken = (marketAssets || []).find(m =>
-                                                (m.underlyingAsset || m.address || '').toLowerCase() === toAddr
-                                            );
-                                            const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
-                                            const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals));
-                                            if (!isNaN(price) && price > 0 && !isNaN(amount) && amount > 0) {
-                                                return <div className="text-xs text-slate-500 mt-0.5">{formatUSD(amount * price)}</div>;
+                                <div className="flex items-center gap-2">
+                                    <span className="text-2xl font-mono font-bold text-white block py-1 truncate leading-none">
+                                        {(() => {
+                                            try {
+                                                // Show full precision (no rounding) using ethers.formatUnits
+                                                return ethers.formatUnits(swapQuote.srcAmount, toToken.decimals);
+                                            } catch (e) {
+                                                return '...';
                                             }
-                                        } catch (e) { /* noop */ }
-                                        return null;
-                                    })()}
+                                        })()}
+                                    </span>
                                 </div>
                             ) : (
-                                <div className="text-slate-500 text-sm">
+                                <div className="text-slate-500 text-sm py-1 min-h-[32px] flex items-center">
                                     {toToken ? 'Enter amount to get quote' : 'Select a token'}
                                 </div>
                             )}
                         </div>
 
-                        {/* Token Selector Button - Compact (moved to right) */}
-                        <div className="shrink-0 ml-2">
-                            <button
-                                type="button"
-                                onClick={(e) => { openTokenSelectorForTo(); }}
-                                className="flex items-center gap-1.5 py-1 px-1 hover:opacity-75 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                                disabled={isBusy}
-                                aria-haspopup="dialog"
-                            >
-                                {toToken?.symbol ? (
-                                    <img src={getTokenLogo(toToken.symbol)} alt={toToken.symbol} className="w-6 h-6 rounded-full" onError={(e) => e.target.style.display = 'none'} />
-                                ) : (
-                                    <span className="text-xs font-bold text-slate-400">?</span>
-                                )}
-                                <span className="text-sm font-bold text-white">{toToken?.symbol || 'Select'}</span>
-                                <ChevronDown className="w-4 h-4 text-slate-400" />
-                            </button>
+                        {/* Token Selector Button - Compact */}
+                        <button
+                            type="button"
+                            onClick={(e) => { openTokenSelectorForTo(); }}
+                            className="flex items-center gap-1.5 py-1 px-1 hover:opacity-75 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                            disabled={isBusy}
+                            aria-haspopup="dialog"
+                        >
+                            {toToken?.symbol ? (
+                                <img src={getTokenLogo(toToken.symbol)} alt={toToken.symbol} className="w-7 h-7 rounded-full" onError={(e) => e.target.style.display = 'none'} />
+                            ) : (
+                                <span className="text-xs font-bold text-slate-400">?</span>
+                            )}
+                            <span className="text-lg font-bold text-white leading-none">{toToken?.symbol || 'Select'}</span>
+                            <ChevronDown className="w-5 h-5 text-slate-400" />
+                        </button>
+                    </div>
+
+                    {/* Bottom Row: USD Value & Placeholder Info */}
+                    <div className="flex items-center justify-between mt-0 pl-3">
+                        {/* USD Value */}
+                        {isQuoteLoading ? (
+                            <span className="text-xs text-slate-500 min-h-[16px] block"></span>
+                        ) : swapQuote && toToken && fromToken ? (
+                            (() => {
+                                try {
+                                    const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                    const marketToken = (marketAssets || []).find(m =>
+                                        (m.underlyingAsset || m.address || '').toLowerCase() === toAddr
+                                    );
+                                    const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
+                                    const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals));
+                                    if (!isNaN(price) && price > 0 && !isNaN(amount) && amount > 0) {
+                                        return <span className="text-xs text-slate-500 block min-h-[16px]">{formatUSD(amount * price)}</span>;
+                                    }
+                                } catch (e) { /* noop */ }
+                                return <span className="text-xs text-slate-500 block min-h-[16px]"></span>;
+                            })()
+                        ) : (
+                            <span className="text-xs text-slate-500 block min-h-[16px]"></span>
+                        )}
+
+                        {/* Right side placeholder logic placeholder for available borrows */}
+                        <div className="flex items-center gap-2 text-xs text-slate-400">
+                            {/* Future: Available to borrow xxx.xx */}
                         </div>
                     </div>
                 </div>
@@ -1115,13 +1183,23 @@ export const DebtSwapModal = ({
 
                 {/* Error Display */}
                 {txError && (
-                    <div className="bg-red-900/20 border border-red-500/50 p-3 rounded-lg">
-                        <div className="flex items-start gap-2">
-                            <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                            <div className="flex-1">
-                                <p className="text-xs text-red-300">{txError}</p>
+                    <div className="bg-red-950/40 border border-red-500/30 p-3 rounded-xl">
+                        <div className="flex items-start gap-2.5">
+                            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+                            <div className="flex-1 min-w-0">
+                                <p className="text-sm font-bold text-red-200 mb-1">Transaction Failed</p>
+                                <p className="text-xs text-red-300/80 mb-2 leading-relaxed">
+                                    An error occurred while attempting to submit this transaction to the network. Please copy the error details if you wish to report this issue.
+                                </p>
+                                <button
+                                    onClick={() => copyToClipboard(txError)}
+                                    className="flex items-center gap-1.5 text-xs font-bold text-red-400 hover:text-red-300 transition-colors bg-red-950/50 hover:bg-red-900/50 px-3 py-1.5 rounded-lg border border-red-500/20 group w-fit"
+                                >
+                                    <Copy className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
+                                    Copy Error Details
+                                </button>
                             </div>
-                            <button onClick={clearTxError} className="text-red-400 hover:text-red-300">
+                            <button onClick={clearTxError} className="text-red-400 hover:text-red-300 p-1 bg-red-900/20 hover:bg-red-900/40 rounded-lg transition-colors">
                                 <X className="w-4 h-4" />
                             </button>
                         </div>
@@ -1130,9 +1208,7 @@ export const DebtSwapModal = ({
 
                 {/* User Rejected */}
                 {userRejected && (
-                    <div className="bg-yellow-900/20 border border-yellow-500/50 p-3 rounded-lg text-center">
-                        <p className="text-xs text-yellow-300">Transaction was rejected</p>
-                    </div>
+                    <UserRejectedAlert onClose={clearUserRejected} />
                 )}
 
                 {/* Method selector (always shown) */}
