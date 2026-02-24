@@ -261,7 +261,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                     />
                                 )}
                                 <div className="flex items-center gap-1.5 mt-0.5">
-                                    <span className="text-sm font-bold text-white leading-none">{chain.label}</span>
+                                    <span className="text-base font-bold text-white leading-none">{chain.label}</span>
                                     {chain.hasPositions && (
                                         <a
                                             href={`https://app.aave.com/dashboard/?marketName=${{
@@ -288,7 +288,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                             {/* Mobile-Only Chevron / Empty State */}
                             <div className="flex items-center sm:hidden">
                                 {!chain.hasPositions && (
-                                    <span className="text-sm text-slate-500 italic mr-2">No positions</span>
+                                    <span className="text-base text-slate-500 italic mr-2">No positions</span>
                                 )}
                                 {chain.hasPositions && (
                                     <div className="text-slate-400 transition-transform duration-200 flex items-center">
@@ -308,19 +308,19 @@ export const PositionsAccordion = ({ userAddress }) => {
                                 <div className="flex items-center gap-6 w-full">
                                     <div className="flex flex-col">
                                         <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net worth</span>
-                                        <span className="text-sm font-mono font-bold text-white leading-none mt-1">
+                                        <span className="text-base font-mono font-bold text-white leading-none mt-1">
                                             ${chain.netWorthUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </span>
                                     </div>
                                     <div className="flex flex-col">
                                         <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net APY</span>
-                                        <span className="text-sm font-mono font-bold text-white leading-none mt-1">
+                                        <span className="text-base font-mono font-bold text-white leading-none mt-1">
                                             {chain.netAPY.toFixed(2)}%
                                         </span>
                                     </div>
                                     <div className="flex flex-col">
                                         <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Health factor</span>
-                                        <span className={`text-sm font-mono font-bold leading-none mt-1 ${chain.healthFactor === -1 || chain.healthFactor >= 3 ? 'text-green-400' :
+                                        <span className={`text-base font-mono font-bold leading-none mt-1 ${chain.healthFactor === -1 || chain.healthFactor >= 3 ? 'text-green-400' :
                                             chain.healthFactor >= 1.1 ? 'text-orange-400' :
                                                 'text-red-500'
                                             }`}>
@@ -329,7 +329,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                     </div>
                                 </div>
                             ) : (
-                                <span className="text-sm text-slate-500 italic hidden sm:block">No positions</span>
+                                <span className="text-base text-slate-500 italic hidden sm:block">No positions</span>
                             )}
                         </div>
 
@@ -369,7 +369,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                     onError={(e) => { e.target.style.display = 'none'; }}
                                                 />
                                                 <div>
-                                                    <div className="font-mono text-sm font-bold text-emerald-400">
+                                                    <div className="font-mono text-base font-bold text-emerald-400">
                                                         {formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || 0))}
                                                     </div>
                                                     <div className="text-xs text-slate-500 font-medium whitespace-pre">
@@ -380,7 +380,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                             <InfoTooltip message="Collateral swap will be available soon">
                                                 <button
                                                     disabled
-                                                    className="px-4 py-2 rounded-lg bg-slate-700/50 text-slate-400 font-medium text-sm flex items-center gap-2 cursor-not-allowed shrink-0"
+                                                    className="px-4 py-2 rounded-lg bg-slate-700/50 text-slate-400 font-medium text-base flex items-center gap-2 cursor-not-allowed shrink-0"
                                                 >
                                                     Soon
                                                 </button>
@@ -409,7 +409,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                         onError={(e) => { e.target.style.display = 'none'; }}
                                                     />
                                                     <div>
-                                                        <div className="font-mono text-sm font-bold text-white">
+                                                        <div className="font-mono text-base font-bold text-white">
                                                             {formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || 0))}
                                                         </div>
                                                         <div className="text-xs text-slate-400 font-medium whitespace-pre">
@@ -428,12 +428,12 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                     {switchingChain === chain.chainId ? (
                                                         <>
                                                             <RefreshCw className="w-4 h-4 animate-spin" />
-                                                            <span className="text-sm font-semibold inline">Switching...</span>
+                                                            <span className="text-base font-semibold inline">Switching...</span>
                                                         </>
                                                     ) : (
                                                         <>
                                                             <ArrowRightLeft className="w-4 h-4" />
-                                                            <span className="text-sm font-semibold inline">Swap</span>
+                                                            <span className="text-base font-semibold inline">Swap</span>
                                                         </>
                                                     )}
                                                 </button>
@@ -446,7 +446,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                 <ArrowRightLeft className="w-4 h-4 text-slate-500" />
                                             </div>
                                             <div className="flex flex-col justify-center">
-                                                <div className="text-sm font-semibold text-slate-400 leading-tight">No borrow positions</div>
+                                                <div className="text-base font-semibold text-slate-400 leading-tight">No borrow positions</div>
                                             </div>
                                         </div>
                                     )}

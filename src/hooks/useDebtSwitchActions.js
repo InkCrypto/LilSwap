@@ -26,6 +26,7 @@ export const useDebtSwitchActions = ({
     simulateError,
     preferPermit = true, // default: prefer off-chain signature (permit)
     freezeQuote = false,
+    onTxSent,
 }) => {
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [signedPermit, setSignedPermit] = useState(null);
@@ -797,9 +798,10 @@ export const useDebtSwitchActions = ({
 
                 logger.debug('✅ Step 6 Complete: Transaction sent to network!');
                 logger.debug('  - Transaction hash:', tx.hash);
-                logger.debug('  - Block explorer:', `https://basescan.org/tx/${tx.hash}`);
+                logger.debug('  - Block explorer:', `${targetNetwork.explorer}/tx/${tx.hash}`);
 
                 addLog?.('✅ swapDebt sent successfully!', 'success');
+                onTxSent?.(tx.hash);
             } catch (swapError) {
                 if (swapError.code === 'ACTION_REJECTED') {
                     addLog?.('User rejected action.', 'warning');
@@ -838,7 +840,7 @@ export const useDebtSwitchActions = ({
 
             addLog?.('\nWaiting for transaction confirmation...', 'info');
             addLog?.(`Tx hash: ${tx.hash}`, 'warning');
-            addLog?.(`🔍 BaseScan: https://basescan.org/tx/${tx.hash}`, 'info');
+            addLog?.(`🔍 Explorer: ${targetNetwork.explorer}/tx/${tx.hash}`, 'info');
 
             // Record transaction hash on backend for tracking
             if (localTxId) {
@@ -899,7 +901,7 @@ export const useDebtSwitchActions = ({
 
                             if (txData && txData.blockNumber) {
                                 addLog?.(`✅ Transaction CONFIRMED in block ${txData.blockNumber}!`, 'success');
-                                addLog?.(`🔍 Check details: https://basescan.org/tx/${tx.hash}`, 'info');
+                                addLog?.(`🔍 Check details: ${targetNetwork.explorer}/tx/${tx.hash}`, 'info');
                                 // Transaction was mined - consider success
                                 break;
                             } else {
@@ -908,15 +910,15 @@ export const useDebtSwitchActions = ({
                             }
                         } catch (manualCheckError) {
                             addLog?.(`❌ Could not confirm transaction status`, 'error');
-                            addLog?.(`🔍 Check manually: https://basescan.org/tx/${tx.hash}`, 'error');
-                            throw new Error(`Unable to confirm transaction status. Check BaseScan: ${tx.hash}`);
+                            addLog?.(`🔍 Check manually: ${targetNetwork.explorer}/tx/${tx.hash}`, 'error');
+                            throw new Error(`Unable to confirm transaction status. Check Explorer: ${tx.hash}`);
                         }
                     }
 
                     // Transaction was mined but reverted
                     if (waitError.receipt && waitError.receipt.status === 0) {
                         addLog?.('❌ Transaction REVERTED on-chain!', 'error');
-                        addLog?.(`🔍 Check details: https://basescan.org/tx/${tx.hash}`, 'error');
+                        addLog?.(`🔍 Check details: ${targetNetwork.explorer}/tx/${tx.hash}`, 'error');
 
                         // Try to decode revert reason
                         let reason = null;
@@ -933,7 +935,7 @@ export const useDebtSwitchActions = ({
                             try { await failTransaction(currentTransactionId, reason || 'reverted'); } catch (e) { logger.warn('[useDebtSwitchActions] fail notify error', e.message); }
                         }
 
-                        throw new Error(`Transaction reverted: ${reason || 'Check BaseScan for details'}`);
+                        throw new Error(`Transaction reverted: ${reason || 'Check Explorer for details'}`);
                     }
 
                     // If reached here and not a temporary error, throw
@@ -963,7 +965,7 @@ export const useDebtSwitchActions = ({
                         try { await failTransaction(currentTransactionId, reason); } catch (e) { logger.warn('[useDebtSwitchActions] fail notify error', e.message); }
                     }
 
-                    throw new Error(`Transaction reverted. Check BaseScan: https://basescan.org/tx/${tx.hash}`);
+                    throw new Error(`Transaction reverted. Check Explorer: ${targetNetwork.explorer}/tx/${tx.hash}`);
                 }
 
                 const gasUsed = receipt.gasUsed;
@@ -1044,6 +1046,7 @@ export const useDebtSwitchActions = ({
         handleApproveDelegation,
         networkRpcProvider,
         currentTransactionId, // ensure we see the latest tx ID in closures
+        onTxSent,
     ]);
 
     const handleForceSwap = useCallback(async () => {

@@ -1,8 +1,9 @@
 import React, { useState, useCallback, lazy, Suspense, useRef, useEffect } from 'react';
-import { Wallet, LogOut, Terminal, ChevronDown, Copy, Eye, EyeOff } from 'lucide-react';
+import { Wallet, LogOut, ChevronDown, Copy, Eye, EyeOff, Terminal } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
 import { getLogLevel } from './utils/logger.js';
 import { InfoTooltip } from './components/InfoTooltip.jsx';
+import { useToast } from './context/ToastContext.jsx';
 
 // Lazy load Dashboard
 const Dashboard = lazy(() => import('./components/Dashboard.jsx').then(module => ({ default: module.Dashboard })));
@@ -30,6 +31,7 @@ export default function App() {
     connectWallet,
     disconnectWallet,
   } = useWeb3();
+  const { addToast } = useToast();
 
   // --- STATES ---
   const [logs, setLogs] = useState([]);
