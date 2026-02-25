@@ -24,9 +24,7 @@ export const Modal = ({ isOpen, onClose, title, children, maxWidth = '500px', he
 
     useEffect(() => {
         if (isOpen) {
-            // Prevent body scroll when modal is open
             document.body.style.overflow = 'hidden';
-            // Focus modal for accessibility
             modalRef.current?.focus();
         } else {
             document.body.style.overflow = '';
@@ -50,17 +48,17 @@ export const Modal = ({ isOpen, onClose, title, children, maxWidth = '500px', he
             <div
                 ref={modalRef}
                 tabIndex={-1}
-                className="relative bg-slate-900 border border-slate-700 rounded-2xl shadow-2xl animate-in zoom-in-95 fade-in duration-200 overflow-hidden"
+                className="relative bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-2xl shadow-2xl animate-in zoom-in-95 fade-in duration-200 overflow-hidden"
                 style={{ maxWidth, width: '100%', maxHeight: '90vh' }}
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
                 {title && (
-                    <div className={`flex items-center justify-between p-4 ${headerBorder ? 'border-b border-slate-700' : ''}`}>
-                        <h2 className="text-lg font-bold text-white">{title}</h2>
+                    <div className={`flex items-center justify-between p-4 ${headerBorder ? 'border-b border-border-light dark:border-slate-700' : ''}`}>
+                        <h2 className="text-lg font-bold text-slate-900 dark:text-white">{title}</h2>
                         <button
                             onClick={onClose}
-                            className="p-1.5 hover:bg-slate-800 rounded-lg transition-colors text-slate-400 hover:text-white"
+                            className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors text-slate-500 hover:text-slate-700 dark:hover:text-white"
                             aria-label="Close modal"
                         >
                             <X className="w-5 h-5" />

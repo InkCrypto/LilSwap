@@ -180,9 +180,9 @@ export const PositionsAccordion = ({ userAddress }) => {
     // Show loading state
     if (loading && !positionsByChain) {
         return (
-            <div className="w-full bg-slate-800/50 rounded-2xl border border-slate-700 p-6 text-center">
-                <RefreshCw className="w-8 h-8 text-purple-400 animate-spin mx-auto mb-2" />
-                <p className="text-slate-400">Loading positions across networks...</p>
+            <div className="w-full bg-white dark:bg-card-dark rounded-2xl border border-border-light dark:border-border-dark p-6 text-center">
+                <RefreshCw className="w-8 h-8 text-primary animate-spin mx-auto mb-2" />
+                <p className="text-slate-500 dark:text-slate-400">Loading positions across networks...</p>
             </div>
         );
     }
@@ -190,12 +190,12 @@ export const PositionsAccordion = ({ userAddress }) => {
     // Show error state
     if (error && !positionsByChain) {
         return (
-            <div className="w-full bg-red-900/20 rounded-2xl border border-red-700 p-6 text-center">
-                <AlertCircle className="w-8 h-8 text-red-400 mx-auto mb-2" />
-                <p className="text-red-400">Error: {error}</p>
+            <div className="w-full bg-red-50 dark:bg-red-900/20 rounded-2xl border border-red-200 dark:border-red-700 p-6 text-center">
+                <AlertCircle className="w-8 h-8 text-red-500 mx-auto mb-2" />
+                <p className="text-red-600 dark:text-red-400">Error: {error}</p>
                 <button
                     onClick={() => refresh(true)}
-                    className="mt-3 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                    className="mt-3 px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors"
                 >
                     Retry
                 </button>
@@ -212,8 +212,8 @@ export const PositionsAccordion = ({ userAddress }) => {
         <div className="w-full space-y-4">
             {/* Header with refresh button */}
             <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-white flex items-center gap-2">
-                    <Network className="w-5 h-5 text-purple-400" /> Multi-Chain Positions
+                <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Network className="w-5 h-5 text-primary" /> Multi-Chain Positions
                 </h2>
                 <div className="flex items-center gap-3">
                     {lastFetch && (
@@ -236,7 +236,7 @@ export const PositionsAccordion = ({ userAddress }) => {
             {chainEntries.map((chain) => (
                 <div
                     key={chain.chainId}
-                    className={`bg-slate-800/50 rounded-2xl border border-slate-700 overflow-hidden transition-all ${chain.hasPositions ? 'hover:border-slate-600' : 'opacity-50 grayscale select-none'
+                    className={`bg-white dark:bg-card-dark rounded-2xl border border-border-light dark:border-border-dark overflow-hidden transition-all ${chain.hasPositions ? 'hover:border-slate-300 dark:hover:border-slate-600' : 'opacity-50 grayscale select-none'
                         }`}
                 >
                     {/* Accordion header */}
@@ -261,7 +261,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                     />
                                 )}
                                 <div className="flex items-center gap-1.5 mt-0.5">
-                                    <span className="text-base font-bold text-white leading-none">{chain.label}</span>
+                                    <span className="text-base font-bold text-slate-900 dark:text-white leading-none">{chain.label}</span>
                                     {chain.hasPositions && (
                                         <a
                                             href={`https://app.aave.com/dashboard/?marketName=${{
@@ -273,7 +273,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             onClick={(e) => e.stopPropagation()}
-                                            className="text-slate-500 hover:text-purple-400 transition-colors flex items-center"
+                                            className="text-slate-400 hover:text-primary transition-colors flex items-center"
                                             title={`View positions on Aave (${chain.label})`}
                                         >
                                             <ExternalLink className="w-3.5 h-3.5" />
@@ -308,13 +308,13 @@ export const PositionsAccordion = ({ userAddress }) => {
                                 <div className="flex items-center gap-6 w-full">
                                     <div className="flex flex-col">
                                         <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net worth</span>
-                                        <span className="text-base font-mono font-bold text-white leading-none mt-1">
+                                        <span className="text-base font-mono font-bold text-slate-900 dark:text-white leading-none mt-1">
                                             ${chain.netWorthUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                                         </span>
                                     </div>
                                     <div className="flex flex-col">
                                         <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net APY</span>
-                                        <span className="text-base font-mono font-bold text-white leading-none mt-1">
+                                        <span className="text-base font-mono font-bold text-slate-900 dark:text-white leading-none mt-1">
                                             {chain.netAPY.toFixed(2)}%
                                         </span>
                                     </div>
@@ -349,7 +349,7 @@ export const PositionsAccordion = ({ userAddress }) => {
 
                     {/* Accordion content */}
                     {openChain === chain.chainId && chain.hasPositions && (
-                        <div className="border-t border-slate-700 p-4 bg-slate-900/30 flex flex-col md:flex-row gap-4">
+                        <div className="border-t border-border-light dark:border-border-dark p-4 bg-slate-50 dark:bg-slate-900/30 flex flex-col md:flex-row gap-4">
                             {/* Always show both columns for a balanced layout */}
                             <div className="flex-1 min-w-0">
                                 <h4 className="text-xs font-semibold text-slate-400 uppercase mb-2">
@@ -359,7 +359,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                     {chain.supplies.map((supply) => (
                                         <div
                                             key={supply.underlyingAsset}
-                                            className="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg border border-slate-700/50"
+                                            className="flex items-center justify-between p-3 bg-white dark:bg-slate-800/50 rounded-lg border border-border-light dark:border-slate-700/50"
                                         >
                                             <div className="flex items-center gap-3">
                                                 <img
@@ -380,7 +380,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                             <InfoTooltip message="Collateral swap will be available soon">
                                                 <button
                                                     disabled
-                                                    className="px-4 py-2 rounded-lg bg-slate-700/50 text-slate-400 font-medium text-base flex items-center gap-2 cursor-not-allowed shrink-0"
+                                                    className="px-4 py-2 rounded-lg bg-slate-100 dark:bg-slate-700/50 text-slate-400 font-medium text-base flex items-center gap-2 cursor-not-allowed shrink-0"
                                                 >
                                                     Soon
                                                 </button>
@@ -399,7 +399,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                         chain.borrows.map((borrow) => (
                                             <div
                                                 key={borrow.underlyingAsset}
-                                                className="flex items-center justify-between p-3 bg-slate-800 rounded-lg border border-slate-700 hover:border-purple-500/50 transition-colors"
+                                                className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 rounded-lg border border-border-light dark:border-slate-700 hover:border-primary/30 dark:hover:border-primary/50 transition-colors"
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <img
@@ -409,7 +409,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                         onError={(e) => { e.target.style.display = 'none'; }}
                                                     />
                                                     <div>
-                                                        <div className="font-mono text-base font-bold text-white">
+                                                        <div className="font-mono text-base font-bold text-slate-900 dark:text-white">
                                                             {formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || 0))}
                                                         </div>
                                                         <div className="text-xs text-slate-400 font-medium whitespace-pre">
@@ -423,7 +423,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                         handleOpenSwap(chain.chainId, borrow, chain.marketAssets, chain.borrows);
                                                     }}
                                                     disabled={switchingChain === chain.chainId}
-                                                    className="px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-700 text-white flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                                                    className="px-4 py-2 rounded-lg bg-primary hover:bg-primary-hover text-white flex items-center gap-2 transition-colors disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
                                                 >
                                                     {switchingChain === chain.chainId ? (
                                                         <>
@@ -441,9 +441,9 @@ export const PositionsAccordion = ({ userAddress }) => {
                                         ))
                                     ) : (
                                         /* Empty borrow state placeholder */
-                                        <div className="flex items-center gap-3 p-3 bg-slate-800/40 rounded-lg border border-slate-700 select-none h-[62px]">
-                                            <div className="w-8 h-8 rounded-full bg-slate-700/30 flex items-center justify-center shrink-0">
-                                                <ArrowRightLeft className="w-4 h-4 text-slate-500" />
+                                        <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-border-light dark:border-slate-700 select-none h-[62px]">
+                                            <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700/30 flex items-center justify-center shrink-0">
+                                                <ArrowRightLeft className="w-4 h-4 text-slate-400" />
                                             </div>
                                             <div className="flex flex-col justify-center">
                                                 <div className="text-base font-semibold text-slate-400 leading-tight">No borrow positions</div>
