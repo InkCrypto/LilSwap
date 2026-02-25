@@ -1,5 +1,5 @@
 import React, { useState, useCallback, lazy, Suspense, useRef, useEffect } from 'react';
-import { Wallet, LogOut, ChevronDown, Copy, Eye, EyeOff, Terminal } from 'lucide-react';
+import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Terminal, Moon, Sun } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
 import { getLogLevel } from './utils/logger.js';
 import { InfoTooltip } from './components/InfoTooltip.jsx';
@@ -33,11 +33,28 @@ export default function App() {
   } = useWeb3();
   const { addToast } = useToast();
 
+  // --- THEME STATE (Dark by default, persisted) ---
+  const [isDarkMode, setIsDarkMode] = useState(() => {
+    const saved = localStorage.getItem('lilswap_theme');
+    return saved !== null ? saved === 'dark' : true;
+  });
+
+  useEffect(() => {
+    if (isDarkMode) {
+      document.documentElement.classList.add('dark');
+      localStorage.setItem('lilswap_theme', 'dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+      localStorage.setItem('lilswap_theme', 'light');
+    }
+  }, [isDarkMode]);
+
+  const toggleDarkMode = () => setIsDarkMode(prev => !prev);
+
   // --- STATES ---
   const [logs, setLogs] = useState([]);
   const [copyButtonState, setCopyButtonState] = useState('idle');
   const [showAddress, setShowAddress] = useState(() => {
-    // Persistent privacy setting: default to hidden (false)
     const saved = localStorage.getItem('lilswap_show_address');
     return saved === 'true';
   });
@@ -92,157 +109,161 @@ export default function App() {
     }
   };
 
-  const handleCopyAddress = () => {
-    if (account) {
-      navigator.clipboard.writeText(account).then(() => {
-        addLog("Address copied to clipboard", "success");
-        setShowAccountMenu(false);
-      });
-    }
-  };
-
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-100 selection:bg-purple-500/30">
-      <div className="max-w-4xl mx-auto px-4 py-12">
+    <div className="min-h-screen bg-background-light dark:bg-background-dark text-slate-800 dark:text-slate-100 selection:bg-primary/30">
 
-        {/* HEADER */}
-        <header className="flex items-center justify-between gap-4 mb-12">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className="p-3 rounded-2xl shrink-0">
-              <LilLogo className="w-10 h-10 sm:w-12 sm:h-12 text-white" />
+      {/* HEADER */}
+      <header className="max-w-4xl mx-auto px-4 sm:px-6 pt-12 pb-8 flex items-center justify-between gap-4">
+
+        {/* Logo */}
+        <div className="flex items-center gap-2.5 min-w-0">
+          <LilLogo className="w-10 h-10 sm:w-12 sm:h-12 shrink-0" />
+          <div className="min-w-0 flex flex-col justify-center">
+            <div className="flex items-center gap-2 leading-none">
+              <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                LilSwap
+              </h1>
+              <span className="px-1 py-0 rounded text-primary text-[8px] font-bold border-2 border-primary/30 mt-0.5">BETA</span>
             </div>
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
-                  LilSwap
-                </h1>
-                <span className="px-1 py-0 rounded text-purple-400 text-[8px] font-bold border-2 border-purple-500/30">BETA</span>
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <span className="text-[9px] sm:text-[10px] font-bold text-slate-500 uppercase tracking-[0.15em] sm:tracking-[0.2em]">AAVE V3 Position Manager</span>
-              </div>
+            <div className="flex items-center gap-2 mt-1 leading-none">
+              <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] sm:tracking-[0.2em]">AAVE V3 Position Manager</span>
             </div>
           </div>
+        </div>
 
-          <div className="flex items-center gap-4 shrink-0">
-            {!account ? (
-              <button
-                onClick={handleConnect}
-                className="bg-purple-600 hover:bg-purple-500 text-white text-xs sm:text-sm font-bold px-4 sm:px-6 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-purple-900/20 active:scale-95"
-              >
-                <Wallet className="w-4 h-4" />
-                <span className="hidden sm:inline">Connect</span>
-              </button>
-            ) : (
-              <div className="relative" ref={menuRef}>
-                <div className="flex items-center gap-2">
-                  <InfoTooltip message="Protect your privacy by hiding your address from prying eyes">
-                    <button
-                      onClick={() => setShowAddress(prev => {
-                        const newValue = !prev;
-                        localStorage.setItem('lilswap_show_address', newValue.toString());
-                        return newValue;
-                      })}
-                      className="hidden sm:flex p-2 sm:p-2.5 rounded-xl bg-slate-800/50 border border-slate-700/50 text-slate-400 hover:text-white hover:bg-slate-800 transition-all active:scale-90"
-                    >
-                      {showAddress ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                    </button>
-                  </InfoTooltip>
+        {/* Actions */}
+        <div className="flex items-center gap-2 sm:gap-3 shrink-0">
 
-                  <button
-                    onClick={() => setShowAccountMenu(!showAccountMenu)}
-                    className="bg-slate-800/50 hover:bg-slate-800 text-white text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all border border-slate-700/50 active:scale-95"
-                  >
-                    <Wallet className="w-4 h-4 text-purple-400" />
-                    <span className={`hidden sm:inline font-mono transition-all duration-300 ${!showAddress ? 'blur-xs select-none opacity-90' : ''}`}>
-                      {account.slice(0, 6)}...{account.slice(-4)}
-                    </span>
-                    <span className="sm:hidden font-bold">Connected</span>
-                    <ChevronDown className="w-3 h-3 text-slate-500" />
-                  </button>
-                </div>
+          {/* Theme Toggle */}
+          <button
+            onClick={toggleDarkMode}
+            className="p-2 sm:p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-border-light dark:border-border-dark text-slate-500 dark:text-slate-400 hover:text-primary dark:hover:text-primary transition-colors"
+            title={isDarkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+          >
+            {isDarkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
+          </button>
 
-                {showAccountMenu && (
-                  <div className="absolute right-0 mt-2 w-44 bg-slate-800 rounded-xl shadow-xl border border-slate-700/50 overflow-hidden z-50">
-                    {/* Redundant toggle removed from menu */}
-                    <button
-                      onClick={handleDisconnect}
-                      className="w-full px-4 py-3 text-left text-sm text-red-400 hover:bg-slate-700/50 flex items-center gap-2 transition-colors"
-                    >
-                      <LogOut className="w-4 h-4" />
-                      Disconnect
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </header>
-
-        {/* MAIN CONTENT */}
-        {!account ? (
-          <div className="bg-slate-900/50 rounded-3xl p-16 border border-white/5 text-center backdrop-blur-sm">
-            <div className="w-24 h-24 bg-slate-800 rounded-full flex items-center justify-center mx-auto mb-8 border border-white/10 shadow-2xl">
-              <Wallet className="w-10 h-10 text-slate-500" />
-            </div>
-            <h2 className="text-2xl font-bold text-white mb-4">Connect Wallet to Begin</h2>
-            <p className="text-slate-400 max-w-sm mx-auto mb-10 text-sm leading-relaxed">
-              Manage your Aave V3 positions and swap between debt assets with optimal efficiency.
-            </p>
+          {!account ? (
             <button
               onClick={handleConnect}
-              className="px-10 py-4 bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-2xl font-black text-sm uppercase tracking-wider transition-all shadow-xl shadow-purple-900/40 hover:scale-105"
+              className="bg-primary hover:bg-primary-hover text-white text-xs sm:text-sm font-bold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-primary/20 active:scale-95"
             >
-              Get Started
+              <Wallet className="w-4 h-4" />
+              <span className="hidden sm:inline">Connect</span>
             </button>
-          </div>
-        ) : (
-          <Suspense fallback={<div>Loading...</div>}>
-            <Dashboard />
-          </Suspense>
-        )}
+          ) : (
+            <div className="relative" ref={menuRef}>
+              <div className="flex items-center gap-2">
+                <InfoTooltip message="Protect your privacy by hiding your address from prying eyes">
+                  <button
+                    onClick={() => setShowAddress(prev => {
+                      const newValue = !prev;
+                      localStorage.setItem('lilswap_show_address', newValue.toString());
+                      return newValue;
+                    })}
+                    className="hidden sm:flex p-2 sm:p-2.5 rounded-xl bg-slate-100 dark:bg-slate-800/60 border border-border-light dark:border-border-dark text-slate-400 hover:text-primary dark:hover:text-primary transition-all active:scale-90"
+                  >
+                    {showAddress ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </button>
+                </InfoTooltip>
 
-        {/* LOG TERMINAL (only visible in debug mode) */}
-        {getLogLevel() === 'debug' && (
-          <div className="mt-12 bg-black/50 rounded-2xl border border-white/5 overflow-hidden font-mono text-[10px] backdrop-blur-sm">
-            <div className="bg-white/5 px-4 py-2 border-b border-white/5 flex justify-between items-center">
-              <div className="flex items-center gap-2 text-slate-500">
-                <Terminal className="w-3 h-3" />
-                <span className="font-bold uppercase tracking-widest">System Logs</span>
-              </div>
-              <div className="flex gap-2">
                 <button
-                  onClick={handleCopyLogs}
-                  className="text-slate-600 hover:text-slate-400 transition-colors uppercase font-bold"
+                  onClick={() => setShowAccountMenu(!showAccountMenu)}
+                  className="bg-slate-100 dark:bg-slate-800/60 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-white text-xs sm:text-sm font-bold px-3 sm:px-4 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all border border-border-light dark:border-border-dark active:scale-95"
                 >
-                  {copyButtonState === 'copied' ? 'Copied!' : 'Copy'}
-                </button>
-                <button
-                  onClick={() => setLogs([])}
-                  className="text-slate-600 hover:text-slate-400 transition-colors uppercase font-bold"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-            <div className="p-4 h-32 overflow-y-auto space-y-1 custom-scrollbar">
-              {logs.length === 0 && <div className="text-slate-700 italic">No activity logs...</div>}
-              {logs.map((log, i) => (
-                <div key={i} className="flex gap-2">
-                  <span className="text-slate-600 shrink-0">[{log.time}]</span>
-                  <span className={
-                    log.type === 'error' ? 'text-red-400' :
-                      log.type === 'success' ? 'text-green-400' :
-                        log.type === 'warning' ? 'text-yellow-400' : 'text-slate-300'
-                  }>
-                    {log.msg}
+                  <Wallet className="w-4 h-4 text-primary" />
+                  <span className={`hidden sm:inline font-mono transition-all duration-300 ${!showAddress ? 'blur-xs select-none opacity-90' : ''}`}>
+                    {account.slice(0, 6)}...{account.slice(-4)}
                   </span>
+                  <span className="sm:hidden font-bold">Connected</span>
+                  <ChevronDown className="w-3 h-3 text-slate-400" />
+                </button>
+              </div>
+
+              {showAccountMenu && (
+                <div className="absolute right-0 mt-2 w-44 bg-white dark:bg-card-dark rounded-xl shadow-xl border border-border-light dark:border-border-dark overflow-hidden z-50">
+                  <button
+                    onClick={handleDisconnect}
+                    className="w-full px-4 py-3 text-left text-sm text-red-500 hover:bg-slate-50 dark:hover:bg-slate-800/50 flex items-center gap-2 transition-colors"
+                  >
+                    <LogOut className="w-4 h-4" />
+                    Disconnect
+                  </button>
                 </div>
-              ))}
+              )}
             </div>
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      </header>
+
+      {/* MAIN CONTENT */}
+      <main>
+        <div className="max-w-4xl mx-auto px-4 sm:px-6 pb-12">
+
+          {/* WALLETLESS STATE */}
+          {!account ? (
+            <div className="mt-16 bg-white dark:bg-card-dark rounded-3xl p-12 sm:p-16 border border-border-light dark:border-border-dark text-center shadow-xl">
+              <div className="w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mx-auto mb-8 border border-primary/20">
+                <Wallet className="w-9 h-9 text-primary" />
+              </div>
+              <h2 className="text-2xl font-bold font-display text-slate-900 dark:text-white mb-4">Connect Wallet to Begin</h2>
+              <p className="text-slate-500 dark:text-slate-400 max-w-sm mx-auto mb-10 text-sm leading-relaxed">
+                Manage your Aave V3 positions and swap between debt assets with optimal efficiency.
+              </p>
+              <button
+                onClick={handleConnect}
+                className="px-10 py-3.5 bg-primary hover:bg-primary-hover text-white rounded-2xl font-bold text-sm transition-all shadow-xl shadow-primary/30 hover:scale-105 active:scale-95"
+              >
+                Get Started
+              </button>
+            </div>
+          ) : (
+            <Suspense fallback={
+              <div className="flex items-center justify-center py-20">
+                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              </div>
+            }>
+              <Dashboard />
+            </Suspense>
+          )}
+
+          {/* LOG TERMINAL (only visible in debug mode) */}
+          {getLogLevel() === 'debug' && (
+            <div className="mt-12 bg-slate-900 rounded-2xl border border-border-dark overflow-hidden font-mono text-[10px]">
+              <div className="bg-slate-800 px-4 py-2 border-b border-border-dark flex justify-between items-center">
+                <div className="flex items-center gap-2 text-slate-400">
+                  <Terminal className="w-3 h-3" />
+                  <span className="font-bold uppercase tracking-widest">System Logs</span>
+                </div>
+                <div className="flex gap-3">
+                  <button onClick={handleCopyLogs} className="text-slate-500 hover:text-slate-300 transition-colors uppercase font-bold">
+                    {copyButtonState === 'copied' ? 'Copied!' : 'Copy'}
+                  </button>
+                  <button onClick={() => setLogs([])} className="text-slate-500 hover:text-slate-300 transition-colors uppercase font-bold">
+                    Clear
+                  </button>
+                </div>
+              </div>
+              <div className="p-4 h-32 overflow-y-auto space-y-1">
+                {logs.length === 0 && <div className="text-slate-600 italic">No activity logs...</div>}
+                {logs.map((log, i) => (
+                  <div key={i} className="flex gap-2">
+                    <span className="text-slate-600 shrink-0">[{log.time}]</span>
+                    <span className={
+                      log.type === 'error' ? 'text-red-400' :
+                        log.type === 'success' ? 'text-green-400' :
+                          log.type === 'warning' ? 'text-yellow-400' : 'text-slate-300'
+                    }>
+                      {log.msg}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+        </div>
+      </main>
     </div>
   );
 }

@@ -1,5 +1,62 @@
 @import "tailwindcss";
 
+:root {
+    font-family: "Inter", sans-serif;
+}
+
+@custom-variant dark (&:is(.dark *));
+
+:root {
+    --color-primary-base: #643ab6;
+    --color-primary-hover-base: #502d94;
+}
+
+.dark {
+    --color-primary-base: #8b5cf6;
+    /* medium-light purple, balanced with the logo */
+    --color-primary-hover-base: #a78bfa;
+    /* lighter on hover */
+}
+
+@theme {
+    --color-primary: var(--color-primary-base);
+    --color-primary-hover: var(--color-primary-hover-base);
+    --color-accent-cyan: #22d3ee;
+    --color-accent-green: #4ade80;
+    --color-accent-orange: #fb923c;
+    --color-background-light: #e5e9f0;
+    /* slightly darker gray-blue for better card contrast */
+    --color-background-dark: #060d18;
+    --color-card-light: #ffffff;
+    --color-card-dark: #101827;
+    --color-border-light: #d1d9e6;
+    /* darkened border slightly to match new background */
+    --color-border-dark: #1e2d45;
+
+    --font-sans: "Inter", sans-serif;
+    --font-display: "Outfit", sans-serif;
+    --font-mono: "Roboto Mono", monospace;
+}
+
+@utility glass-effect {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+}
+
+.dark .glass-effect {
+    background: rgba(11, 18, 33, 0.85);
+}
+
+/* Smooth theme transitions */
+*,
+*::before,
+*::after {
+    transition-property: background-color, border-color, color;
+    transition-duration: 150ms;
+    transition-timing-function: ease;
+}
+
 /* Custom Scrollbar */
 ::-webkit-scrollbar {
     width: 6px;
@@ -11,12 +68,12 @@
 }
 
 ::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(100, 58, 182, 0.3);
     border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.3);
+    background: rgba(100, 58, 182, 0.5);
 }
 
 ::-webkit-scrollbar-corner {

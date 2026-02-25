@@ -283,7 +283,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
     };
 
     return (
-        <div className="bg-slate-800 border border-slate-700 rounded-xl p-2 px-3">
+        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-2 px-3">
             {/* Top row: input and token badge */}
             <div className="flex items-center gap-2 sm:gap-3">
                 <div className="flex-1">
@@ -298,7 +298,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                         }}
                         placeholder="0.00"
                         disabled={disabled}
-                        className="w-full bg-transparent text-white text-2xl font-mono font-bold text-left pl-3 focus:outline-none disabled:opacity-50 py-1"
+                        className="w-full bg-transparent text-slate-900 dark:text-white text-2xl font-mono font-bold text-left pl-3 focus:outline-none disabled:opacity-50 py-1"
                     />
                 </div>
                 {/* Token badge */}
@@ -319,7 +319,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                     ) : (
                         <span className="text-xs font-bold text-slate-400">?</span>
                     )}
-                    <span className="text-lg font-bold text-white leading-none">{token?.symbol || 'Select'}</span>
+                    <span className="text-lg font-bold text-slate-900 dark:text-white leading-none">{token?.symbol || 'Select'}</span>
                     <ChevronDown className="w-5 h-5 text-slate-400" />
                 </button>
             </div>
@@ -892,12 +892,12 @@ export const DebtSwapModal = ({
                 {/* Header with Tabs and Slippage */}
                 <div className="flex items-center justify-between gap-2 relative">
                     {/* Tabs: Market / Limit */}
-                    <div className="flex gap-2 bg-slate-800 p-1 rounded-lg flex-1">
+                    <div className="flex gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg flex-1">
                         <button
                             onClick={() => setActiveTab('market')}
                             className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'market'
-                                ? 'bg-slate-900 text-white'
-                                : 'text-slate-400 hover:text-white'
+                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
+                                : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'
                                 }`}
                         >
                             Market
@@ -907,8 +907,8 @@ export const DebtSwapModal = ({
                             aria-disabled="true"
                             title="Limit orders coming soon"
                             className={`flex-1 py-2 text-sm font-bold rounded-md transition-all opacity-60 cursor-not-allowed ${activeTab === 'limit'
-                                ? 'bg-slate-900 text-white'
-                                : 'text-slate-400'
+                                ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white'
+                                : 'text-slate-500 dark:text-slate-400'
                                 }`}
                         >
                             <span>Limit</span>
@@ -919,7 +919,7 @@ export const DebtSwapModal = ({
                     {/* Slippage Icon */}
                     <button
                         onClick={() => setShowSlippageSettings(!showSlippageSettings)}
-                        className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors text-slate-400 hover:text-white"
+                        className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white"
                         title={`Slippage: ${(slippage / 100).toFixed(2)}%`}
                     >
                         <Settings className="w-5 h-5" />
@@ -930,11 +930,11 @@ export const DebtSwapModal = ({
                 {showSlippageSettings && (
                     <div
                         ref={slippageMenuRef}
-                        className="absolute top-16 right-4 bg-slate-800 border border-slate-700 p-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-top-2 duration-150 overflow-visible"
+                        className="absolute top-16 right-4 bg-white dark:bg-slate-800 border border-border-light dark:border-slate-700 p-3 rounded-lg shadow-lg z-50 animate-in slide-in-from-top-2 duration-150 overflow-visible"
                     >
                         <div className="flex items-center justify-between mb-2">
-                            <label className="text-xs text-slate-400 uppercase font-bold">Slippage Tolerance</label>
-                            <span className="text-sm font-bold text-white">{(slippage / 100).toFixed(2)}%</span>
+                            <label className="text-xs text-slate-500 dark:text-slate-400 uppercase font-bold">Slippage Tolerance</label>
+                            <span className="text-sm font-bold text-slate-900 dark:text-white">{(slippage / 100).toFixed(2)}%</span>
                         </div>
                         <div className="flex gap-2">
                             {[25, 50, 150, 500].map((val) => (
@@ -945,8 +945,8 @@ export const DebtSwapModal = ({
                                         setShowSlippageSettings(false);
                                     }}
                                     className={`flex-1 px-3 py-2 text-xs font-bold rounded-lg transition-all ${slippage === val
-                                        ? 'bg-purple-600 text-white'
-                                        : 'bg-slate-900 text-slate-400 hover:bg-slate-700'
+                                        ? 'bg-primary text-white'
+                                        : 'bg-slate-100 dark:bg-slate-900 text-slate-500 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700'
                                         }`}
                                 >
                                     {(val / 100).toFixed(2)}%
@@ -1065,7 +1065,7 @@ export const DebtSwapModal = ({
                 </div>
 
                 {/* To Token Row (Selector + Quote Result) */}
-                <div className="bg-slate-800 border border-slate-700 rounded-xl p-2 px-3">
+                <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-2 px-3">
                     {/* Top Row: Amount & Token Selector */}
                     <div className="flex items-center gap-2 sm:gap-3">
                         {/* Quote Result */}
@@ -1077,7 +1077,7 @@ export const DebtSwapModal = ({
                                 </div>
                             ) : swapQuote && toToken && fromToken ? (
                                 <div className="flex items-center gap-2">
-                                    <span className="text-2xl font-mono font-bold text-white block py-1 truncate leading-none">
+                                    <span className="text-2xl font-mono font-bold text-slate-900 dark:text-white block py-1 truncate leading-none">
                                         {(() => {
                                             try {
                                                 // Show full precision (no rounding) using ethers.formatUnits
@@ -1108,7 +1108,7 @@ export const DebtSwapModal = ({
                             ) : (
                                 <span className="text-xs font-bold text-slate-400">?</span>
                             )}
-                            <span className="text-lg font-bold text-white leading-none">{toToken?.symbol || 'Select'}</span>
+                            <span className="text-lg font-bold text-slate-900 dark:text-white leading-none">{toToken?.symbol || 'Select'}</span>
                             <ChevronDown className="w-5 h-5 text-slate-400" />
                         </button>
                     </div>
@@ -1228,24 +1228,24 @@ export const DebtSwapModal = ({
                     </div>
 
                     {showMethodMenu && (
-                        <div className="absolute bottom-full mb-2 right-0 w-60 bg-slate-900 border border-slate-700 rounded-lg shadow-2xl p-2 z-[100]">
+                        <div className="absolute bottom-full mb-2 right-0 w-60 bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-lg shadow-2xl p-2 z-[100]">
                             <button
                                 onClick={() => { setPreferPermit(true); setShowMethodMenu(false); }}
-                                className={`w-full text-left px-2 py-2 rounded-md hover:bg-slate-800 flex items-center justify-between ${preferPermit ? 'bg-slate-800/60' : ''}`}
+                                className={`w-full text-left px-2 py-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between ${preferPermit ? 'bg-slate-50 dark:bg-slate-800/60' : ''}`}
                             >
                                 <div>
-                                    <div className="font-bold text-white text-sm">Signature (free)</div>
-                                    <div className="text-xs text-slate-400">Faster and fee-free</div>
+                                    <div className="font-bold text-slate-900 dark:text-white text-sm">Signature (free)</div>
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">Faster and fee-free</div>
                                 </div>
                                 {preferPermit && <CheckCircle2 className="w-4 h-4 text-emerald-400" />}
                             </button>
                             <button
                                 onClick={() => { setPreferPermit(false); setShowMethodMenu(false); }}
-                                className={`w-full text-left mt-1 px-2 py-2 rounded-md hover:bg-slate-800 flex items-center justify-between ${!preferPermit ? 'bg-slate-800/60' : ''}`}
+                                className={`w-full text-left mt-1 px-2 py-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between ${!preferPermit ? 'bg-slate-50 dark:bg-slate-800/60' : ''}`}
                             >
                                 <div>
-                                    <div className="font-bold text-white text-sm">Transaction</div>
-                                    <div className="text-xs text-slate-400">Send on‑chain approval</div>
+                                    <div className="font-bold text-slate-900 dark:text-white text-sm">Transaction</div>
+                                    <div className="text-xs text-slate-500 dark:text-slate-400">Send on‑chain approval</div>
                                 </div>
                                 {!preferPermit && <CheckCircle2 className="w-4 h-4 text-amber-400" />}
                             </button>
@@ -1257,15 +1257,15 @@ export const DebtSwapModal = ({
                 {tokenSelectorOpen && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center p-8">
                         <div className="fixed inset-0 bg-black/40" onClick={() => { setTokenSelectorOpen(false); setSelectingForFrom(false); }} />
-                        <div className="relative z-10 bg-slate-900 border border-slate-700 rounded-xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
+                        <div className="relative z-10 bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-xl shadow-2xl w-full max-w-md max-h-[80vh] overflow-y-auto">
                             <div className="p-3 flex items-start justify-between gap-3">
                                 <div className="flex-1 min-w-0">
-                                    <div className="font-bold text-white">{selectingForFrom ? 'Swap From' : 'Swap To'}</div>
-                                    <div className="text-xs text-slate-400 mt-1">{selectingForFrom ? 'Choose a token to swap from your debt positions' : 'Choose a token to borrow/swap to'}</div>
+                                    <div className="font-bold text-slate-900 dark:text-white">{selectingForFrom ? 'Swap From' : 'Swap To'}</div>
+                                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">{selectingForFrom ? 'Choose a token to swap from your debt positions' : 'Choose a token to borrow/swap to'}</div>
                                 </div>
 
                                 <div className="ml-2 shrink-0 self-start">
-                                    <button className="text-slate-400 p-1 rounded hover:bg-slate-800" aria-label="Close token selector" onClick={() => { setTokenSelectorOpen(false); setSelectingForFrom(false); setTokenModalSearch(''); }}>
+                                    <button className="text-slate-500 dark:text-slate-400 p-1 rounded hover:bg-slate-100 dark:hover:bg-slate-800" aria-label="Close token selector" onClick={() => { setTokenSelectorOpen(false); setSelectingForFrom(false); setTokenModalSearch(''); }}>
                                         <X className="w-4 h-4" />
                                     </button>
                                 </div>
@@ -1280,7 +1280,7 @@ export const DebtSwapModal = ({
                                         placeholder="Search token..."
                                         value={tokenModalSearch}
                                         onChange={(e) => setTokenModalSearch(e.target.value)}
-                                        className="w-full bg-slate-950 border border-slate-800 rounded-lg py-2 pl-9 pr-4 text-xs text-white focus:outline-none focus:border-purple-500"
+                                        className="w-full bg-slate-50 dark:bg-slate-950 border border-border-light dark:border-slate-800 rounded-lg py-2 pl-9 pr-4 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-primary placeholder:text-slate-400"
                                         onClick={(e) => e.stopPropagation()}
                                     />
                                 </div>
@@ -1335,13 +1335,13 @@ export const DebtSwapModal = ({
                                                     setSelectingForFrom(false);
                                                     setTokenSelectorOpen(false);
                                                 }}
-                                                className={`w-full text-left px-3 py-2 rounded-lg mb-1 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-800'}`}
+                                                className={`w-full text-left px-3 py-2 rounded-lg mb-1 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                                             >
                                                 <div className="flex items-center gap-3">
                                                     <img src={getTokenLogo(token.symbol)} alt={token.symbol} className="w-6 h-6" onError={(e) => e.target.style.display = 'none'} />
                                                     <div className="flex-1">
-                                                        <div className="font-bold text-white text-sm">{token.symbol}</div>
-                                                        <div className="text-xs text-slate-400">{token.name}</div>
+                                                        <div className="font-bold text-slate-900 dark:text-white text-sm">{token.symbol}</div>
+                                                        <div className="text-xs text-slate-500 dark:text-slate-400">{token.name}</div>
                                                     </div>
                                                     {!disabled && <div className="text-xs text-slate-400">{(token.variableBorrowRate ?? token.borrowRate) != null ? `${((token.variableBorrowRate ?? token.borrowRate) * 100).toFixed(2)}%` : '-'}</div>}
                                                 </div>
@@ -1358,7 +1358,7 @@ export const DebtSwapModal = ({
                 <button
                     onClick={handleSwap}
                     disabled={isBusy || !swapQuote || !fromToken || !toToken || swapAmount === BigInt(0)}
-                    className="w-full bg-linear-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-3 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
                 >
                     {isBusy ? (
                         <>
