@@ -38,36 +38,27 @@ jobs:
       - name: Upload via SFTP
         uses: appleboy/scp-action@master
         with:
-          host: ${{ vars.REMOTE_HOST }}
-          username: ${{ vars.REMOTE_USER }}
-          port: ${{ vars.REMOTE_PORT }}
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          port: ${{ secrets.REMOTE_PORT }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           source: "dist/*"
-          target: "${{ vars.REMOTE_APP_ROOT }}/releases/${{ steps.version.outputs.tag }}"
+          target: "${{ secrets.REMOTE_APP_ROOT }}/releases/${{ steps.version.outputs.tag }}"
           strip_components: 1
 
       - name: Atomic Symlink Swap
         uses: appleboy/ssh-action@master
         with:
-          host: ${{ vars.REMOTE_HOST }}
-          username: ${{ vars.REMOTE_USER }}
-          port: ${{ vars.REMOTE_PORT }}
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          port: ${{ secrets.REMOTE_PORT }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
           script: |
-            ROOT="${{ vars.REMOTE_APP_ROOT }}"
+            ROOT="${{ secrets.REMOTE_APP_ROOT }}"
             TAG="${{ steps.version.outputs.tag }}"
-            TIMESTAMP=$(date +%Y%m%d%H%M%S)
-
-            # Safety check: if it's a real directory, back it up instead of deleting
-            if [ -d "$ROOT/public_html" ] && [ ! -L "$ROOT/public_html" ]; then
-              mv "$ROOT/public_html" "$ROOT/public_html_backup_$TIMESTAMP"
-            fi
 
             # Prepare the new symlink
-            ln -sfn $ROOT/releases/$TAG $ROOT/public_html_new
-
-            # Atomic swap to avoid downtime
-            mv -fT $ROOT/public_html_new $ROOT/public_html
+            ln -sfn $ROOT/releases/$TAG $ROOT/current
 
             # Keep only the last 3 releases for storage efficiency
             cd $ROOT/releases && ls -1dt v* | tail -n +4 | xargs rm -rf

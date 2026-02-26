@@ -36,7 +36,7 @@ export const InfoTooltip = ({ message, children }) => {
             </span>
             {visible && createPortal(
                 <div
-                    className="p-2.5 rounded-md bg-slate-900 border border-slate-700 text-[11px] text-slate-300 shadow-xl text-center leading-relaxed backdrop-blur-md z-[11000]"
+                    className="p-2.5 rounded-md bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-[11px] text-slate-800 dark:text-slate-300 shadow-xl text-center leading-relaxed backdrop-blur-md z-[11000]"
                     style={{
                         position: 'fixed',
                         top: coords.top,
