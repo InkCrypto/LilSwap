@@ -21,14 +21,17 @@ export const ToastProvider = ({ children }) => {
     }, []);
 
     const removeToast = useCallback((id) => {
-        setToasts(prev => prev.filter(t => t.id !== id));
+        setToasts(prev => prev.map(t => t.id === id ? { ...t, isLeaving: true } : t));
+        setTimeout(() => {
+            setToasts(prev => prev.filter(t => t.id !== id));
+        }, 300);
     }, []);
 
     return (
         <ToastContext.Provider value={{ addToast, removeToast }}>
             {children}
             {typeof document !== 'undefined' && createPortal(
-                <div className="fixed bottom-4 right-4 z-[99999] flex flex-col gap-2 pointer-events-none">
+                <div className="fixed top-6 right-6 z-[99999] flex flex-col gap-2 pointer-events-none">
                     {toasts.map(toast => (
                         <Toast key={toast.id} toast={toast} onRemove={removeToast} />
                     ))}
@@ -58,23 +61,26 @@ const Toast = ({ toast, onRemove }) => {
     };
 
     const bgColors = {
-        success: 'bg-emerald-950/40 border-emerald-500/30',
-        error: 'bg-red-950/40 border-red-500/30',
-        info: 'bg-slate-800/90 border-slate-700/80 shadow-slate-900/50'
+        success: 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-500/30 shadow-emerald-200/50 dark:shadow-emerald-900/50',
+        error: 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-500/30 shadow-red-200/50 dark:shadow-red-900/50',
+        info: 'bg-white border-slate-200 shadow-slate-200/50 dark:bg-slate-800/90 dark:border-slate-700/80 dark:shadow-slate-900/50'
     };
 
     return (
         <div
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
-            className={`pointer-events-auto flex items-start gap-3 p-4 rounded-xl border shadow-xl backdrop-blur-md animate-in slide-in-from-bottom-5 fade-in duration-300 w-80 ${bgColors[toast.type] || bgColors.info}`}
+            className={`pointer-events-auto flex items-start gap-3 p-4 rounded-xl border shadow-xl backdrop-blur-md transition-all duration-300 w-80
+                ${toast.isLeaving ? 'opacity-0 translate-x-8' : 'animate-in slide-in-from-right-8 fade-in'}
+                ${bgColors[toast.type] || bgColors.info}
+            `}
         >
             <div className="shrink-0 mt-0.5">
                 {icons[toast.type] || icons.info}
             </div>
             <div className="flex-1 min-w-0">
-                {toast.title && <div className="font-bold text-white text-sm">{toast.title}</div>}
-                {toast.message && <div className="text-sm text-slate-300 mt-0.5 break-words">{toast.message}</div>}
+                {toast.title && <div className="font-bold text-slate-900 dark:text-white text-sm">{toast.title}</div>}
+                {toast.message && <div className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 break-words">{toast.message}</div>}
                 {toast.action && (
                     <a
                         href={toast.action.url}

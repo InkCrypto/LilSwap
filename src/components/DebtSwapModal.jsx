@@ -47,21 +47,21 @@ const UserRejectedAlert = ({ onClose }) => {
     }, [onClose]);
 
     return (
-        <div className="bg-slate-800/90 border border-slate-700/80 shadow-slate-900/50 shadow-xl p-3 rounded-xl flex items-center gap-3 animate-in fade-in duration-300">
+        <div className="bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 shadow-slate-200/50 dark:shadow-slate-900/50 shadow-xl p-3 rounded-xl flex items-center gap-3 animate-in fade-in duration-300">
             <style>{`
                 @keyframes drain {
                     from { stroke-dashoffset: 0; }
                     to { stroke-dashoffset: 44; }
                 }
             `}</style>
-            <Info className="w-4 h-4 text-[#2EBDE3] shrink-0" />
+            <Info className="w-4 h-4 text-purple-500 dark:text-[#2EBDE3] shrink-0" />
             <div className="flex-1">
-                <p className="text-sm font-medium text-slate-200">User denied the operation.</p>
+                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">User denied the operation.</p>
             </div>
             <div className="relative w-4 h-4 shrink-0">
                 <svg className="w-full h-full transform -rotate-90 pointer-events-none" viewBox="0 0 16 16">
-                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-slate-800" />
-                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-slate-500"
+                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-slate-200 dark:text-slate-800" />
+                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-slate-400 dark:text-slate-500"
                         style={{ strokeDasharray: 44, animation: 'drain 8s linear forwards' }}
                     />
                 </svg>
@@ -338,7 +338,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                         <button
                             ref={pctBtnRef}
                             type="button"
-                            className="text-xs text-slate-400 hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer"
+                            className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors"
                             onClick={() => setPctPopoverOpen((v) => !v)}
                         >
                             %
@@ -347,14 +347,14 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                         {pctPopoverOpen && (
                             <div
                                 ref={pctPopoverRef}
-                                className="absolute top-full mt-2 right-0 bg-slate-900 border border-slate-700 rounded-lg shadow-xl p-1.5 flex gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+                                className="absolute top-full mt-2 right-0 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg shadow-xl p-1.5 flex gap-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
                             >
                                 {[25, 50, 75].map((pct) => (
                                     <button
                                         key={pct}
                                         type="button"
                                         onClick={() => applyPct(pct)}
-                                        className="px-3 py-1.5 text-xs font-bold rounded-md bg-slate-800 text-slate-300 hover:bg-purple-600 hover:text-white transition-colors"
+                                        className="px-3 py-1.5 text-xs font-bold rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-600 hover:text-purple-600 dark:hover:text-white transition-colors"
                                     >
                                         {pct}%
                                     </button>
@@ -365,7 +365,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
 
                     <button
                         type="button"
-                        className="text-xs font-bold text-slate-400 hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer"
+                        className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors"
                         onClick={applyMax}
                     >
                         MAX
@@ -1042,7 +1042,7 @@ export const DebtSwapModal = ({
                                     fetchQuote();
                                     resetRefreshCountdown();
                                 }}
-                                className="text-slate-500 hover:text-slate-300 transition-colors"
+                                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                                 title="Refresh quote"
                                 aria-label="Refresh quote"
                                 disabled={isQuoteLoading}
@@ -1150,11 +1150,11 @@ export const DebtSwapModal = ({
                         <button
                             type="button"
                             onClick={() => setInvertRate(!invertRate)}
-                            className="flex items-center gap-2 text-xs font-bold text-slate-400 hover:text-slate-300 transition-colors cursor-pointer group"
+                            className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer group"
                             title="Invert rate"
                         >
                             <span>1 {invertRate ? toToken.symbol : fromToken.symbol}</span>
-                            <ArrowRightLeft className="w-3 h-3 text-slate-500 group-hover:text-slate-400" />
+                            <ArrowRightLeft className="w-3 h-3 text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-400" />
                             <span>
                                 {(() => {
                                     if (swapQuote && swapQuote.srcAmount && swapAmount && swapAmount > BigInt(0)) {
@@ -1312,7 +1312,7 @@ export const DebtSwapModal = ({
                                                 {selectingForFrom && !positionsLoading && (
                                                     <div className="flex items-center justify-center mt-2">
                                                         <button
-                                                            className="text-xs px-3 py-1 rounded bg-slate-800 border border-slate-700 hover:bg-slate-750"
+                                                            className="text-xs px-3 py-1 rounded bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 hover:bg-slate-200 dark:hover:bg-slate-750 transition-colors"
                                                             onClick={() => { if (typeof refreshPositions === 'function') { refreshPositions(true); } }}
                                                         >
                                                             Refresh positions
