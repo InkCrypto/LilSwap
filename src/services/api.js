@@ -1,5 +1,6 @@
 import axios from 'axios';
 import logger from '../utils/logger';
+import { notifyApiVersion } from '../context/ApiMetaContext.jsx';
 
 // Axios instance configured for the backend
 // Uses VITE_API_URL from environment files (.env.development or .env.production)
@@ -25,7 +26,12 @@ apiClient.interceptors.request.use(
 
 // Add retry interceptor
 apiClient.interceptors.response.use(
-    (response) => response,
+    (response) => {
+        // Passively capture the API version from any successful response
+        const v = response.headers?.['x-api-version'];
+        if (v) notifyApiVersion(v);
+        return response;
+    },
     async (error) => {
         const config = error.config;
 

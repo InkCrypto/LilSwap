@@ -5,23 +5,13 @@ import { requestChainSwitch } from '../utils/wallet';
 import { getNetworkByChainId } from '../constants/networks';
 import logger from '../utils/logger';
 import { InfoTooltip } from './InfoTooltip';
+import { getTokenLogo, onTokenImgError } from '../utils/getTokenLogo';
+
 
 // Lazy load DebtSwapModal
 const DebtSwapModal = lazy(() => import('./DebtSwapModal.jsx').then(module => ({ default: module.DebtSwapModal })));
 
-// Helper to get token logo URL from Aave CDN
-const getTokenLogo = (symbol) => {
-    if (!symbol) return null;
 
-    const iconAliasMap = {
-        'BTCB': 'btc',
-    };
-
-    const upperSymbol = symbol.toUpperCase();
-    const mappedSymbol = iconAliasMap[upperSymbol] || symbol.toLowerCase();
-
-    return `https://app.aave.com/icons/tokens/${mappedSymbol}.svg`;
-};
 
 // Formatting helpers
 const formatUSD = (value) => {
@@ -264,12 +254,13 @@ export const PositionsAccordion = ({ userAddress }) => {
                                     <span className="text-base font-bold text-slate-900 dark:text-white leading-none">{chain.label}</span>
                                     {chain.hasPositions && (
                                         <a
-                                            href={`https://app.aave.com/dashboard/?marketName=${{
+                                            href={`https://app.aave.com/dashboard/?marketName=${({
                                                 1: 'proto_mainnet_v3',
                                                 8453: 'proto_base_v3',
                                                 56: 'proto_bnb_v3',
-                                                137: 'proto_polygon_v3'
-                                            }[chain.chainId] || 'proto_mainnet_v3'}`}
+                                                137: 'proto_polygon_v3',
+                                                42161: 'proto_arbitrum_v3'
+                                            })[chain.chainId] || 'proto_mainnet_v3'}`}
                                             target="_blank"
                                             rel="noopener noreferrer"
                                             onClick={(e) => e.stopPropagation()}
@@ -281,7 +272,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                     )}
                                 </div>
                                 {chain.hasError && (
-                                    <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" title={chain.error} />
+                                    <AlertCircle className="w-4 h-4 text-yellow-500 shrink-0" title={chain.error} />
                                 )}
                             </div>
 
@@ -362,12 +353,17 @@ export const PositionsAccordion = ({ userAddress }) => {
                                             className="flex items-center justify-between p-3 bg-white dark:bg-slate-800/50 rounded-lg border border-border-light dark:border-slate-700/50"
                                         >
                                             <div className="flex items-center gap-3">
-                                                <img
-                                                    src={getTokenLogo(supply.symbol)}
-                                                    alt={supply.symbol}
-                                                    className="w-8 h-8 rounded-full"
-                                                    onError={(e) => { e.target.style.display = 'none'; }}
-                                                />
+                                                <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-border-light dark:border-slate-600/30">
+                                                    <img
+                                                        src={getTokenLogo(supply.symbol)}
+                                                        alt={supply.symbol}
+                                                        className="w-full h-full object-cover"
+                                                        onError={onTokenImgError(supply.symbol)}
+                                                    />
+                                                    <span className="text-xs font-bold text-slate-500 uppercase" style={{ display: 'none' }}>
+                                                        {supply.symbol?.[0] || '?'}
+                                                    </span>
+                                                </div>
                                                 <div>
                                                     <div className="font-mono text-base font-bold text-emerald-400">
                                                         {formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || 0))}
@@ -402,12 +398,17 @@ export const PositionsAccordion = ({ userAddress }) => {
                                                 className="flex items-center justify-between p-3 bg-white dark:bg-slate-800 rounded-lg border border-border-light dark:border-slate-700 hover:border-primary/30 dark:hover:border-primary/50 transition-colors"
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <img
-                                                        src={getTokenLogo(borrow.symbol)}
-                                                        alt={borrow.symbol}
-                                                        className="w-8 h-8 rounded-full"
-                                                        onError={(e) => { e.target.style.display = 'none'; }}
-                                                    />
+                                                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-border-light dark:border-slate-600/30">
+                                                        <img
+                                                            src={getTokenLogo(borrow.symbol)}
+                                                            alt={borrow.symbol}
+                                                            className="w-full h-full object-cover"
+                                                            onError={onTokenImgError(borrow.symbol)}
+                                                        />
+                                                        <span className="text-xs font-bold text-slate-500 uppercase" style={{ display: 'none' }}>
+                                                            {borrow.symbol?.[0] || '?'}
+                                                        </span>
+                                                    </div>
                                                     <div>
                                                         <div className="font-mono text-base font-bold text-slate-900 dark:text-white">
                                                             {formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || 0))}
@@ -441,7 +442,7 @@ export const PositionsAccordion = ({ userAddress }) => {
                                         ))
                                     ) : (
                                         /* Empty borrow state placeholder */
-                                        <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-border-light dark:border-slate-700 select-none h-[62px]">
+                                        <div className="flex items-center gap-3 p-3 bg-slate-50 dark:bg-slate-800/40 rounded-lg border border-border-light dark:border-slate-700 select-none h-15.5">
                                             <div className="w-8 h-8 rounded-full bg-slate-200 dark:bg-slate-700/30 flex items-center justify-center shrink-0">
                                                 <ArrowRightLeft className="w-4 h-4 text-slate-400" />
                                             </div>
