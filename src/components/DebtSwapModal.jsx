@@ -27,18 +27,8 @@ import { Copy } from 'lucide-react';
 
 import logger, { getLogLevel } from '../utils/logger.js';
 import { calcApprovalAmount } from '../utils/swapMath.js';
-const getTokenLogo = (symbol) => {
-    if (!symbol) return null;
+import { getTokenLogo, onTokenImgError } from '../utils/getTokenLogo.js';
 
-    const iconAliasMap = {
-        'BTCB': 'btc',
-    };
-
-    const upperSymbol = symbol.toUpperCase();
-    const mappedSymbol = iconAliasMap[upperSymbol] || symbol.toLowerCase();
-
-    return `https://app.aave.com/icons/tokens/${mappedSymbol}.svg`;
-};
 
 const UserRejectedAlert = ({ onClose }) => {
     useEffect(() => {
@@ -127,12 +117,17 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                     <>
                         <div className="flex items-center gap-2">
                             {selectedToken?.symbol ? (
-                                <img
-                                    src={getTokenLogo(selectedToken.symbol)}
-                                    alt={selectedToken.symbol}
-                                    className="w-6 h-6 rounded-full"
-                                    onError={(e) => { e.target.style.display = 'none'; }}
-                                />
+                                <div className="w-6 h-6 rounded-full bg-slate-900 flex items-center justify-center border border-slate-700 overflow-hidden">
+                                    <img
+                                        src={getTokenLogo(selectedToken.symbol)}
+                                        alt={selectedToken.symbol}
+                                        className="w-full h-full object-cover"
+                                        onError={onTokenImgError(selectedToken.symbol)}
+                                    />
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase" style={{ display: 'none' }}>
+                                        {selectedToken.symbol?.[0] || '?'}
+                                    </span>
+                                </div>
                             ) : null}
                             <span className="text-sm font-bold text-white">{selectedToken?.symbol || '—'}</span>
                         </div>
@@ -147,10 +142,7 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                                         src={getTokenLogo(selectedToken.symbol)}
                                         alt={selectedToken.symbol} // Fixed alt attribute closing
                                         className="w-6 h-6"
-                                        onError={(e) => {
-                                            e.target.style.display = 'none';
-                                            e.target.nextSibling.style.display = 'block';
-                                        }}
+                                        onError={onTokenImgError(selectedToken.symbol)}
                                     />
                                 ) : null}
                                 <span className="text-xs font-bold" style={{ display: selectedToken?.symbol ? 'none' : 'block' }}>
@@ -213,10 +205,7 @@ const TokenSelector = ({ label, selectedToken, tokens, onSelect, disabled, getBo
                                                         src={getTokenLogo(token.symbol)}
                                                         alt={token.symbol}
                                                         className="w-7 h-7"
-                                                        onError={(e) => {
-                                                            e.target.style.display = 'none';
-                                                            e.target.nextSibling.style.display = 'block';
-                                                        }}
+                                                        onError={onTokenImgError(token.symbol)}
                                                     />
                                                     <span className="text-xs font-bold" style={{ display: 'none' }}>{token.symbol[0]}</span>
                                                 </div>
@@ -310,12 +299,17 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                     className={`flex items-center gap-1.5 py-1 px-1 hover:opacity-75 transition-opacity ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
                 >
                     {token?.symbol ? (
-                        <img
-                            src={getTokenLogo(token.symbol)}
-                            alt={token.symbol}
-                            className="w-7 h-7 rounded-full"
-                            onError={(e) => { e.target.style.display = 'none'; }}
-                        />
+                        <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-border-light dark:border-slate-600/30">
+                            <img
+                                src={getTokenLogo(token.symbol)}
+                                alt={token.symbol}
+                                className="w-full h-full object-cover"
+                                onError={onTokenImgError(token.symbol)}
+                            />
+                            <span className="text-[10px] font-bold text-slate-500 uppercase" style={{ display: 'none' }}>
+                                {token.symbol?.[0] || '?'}
+                            </span>
+                        </div>
                     ) : (
                         <span className="text-xs font-bold text-slate-400">?</span>
                     )}
@@ -1033,7 +1027,7 @@ export const DebtSwapModal = ({
                 )}
 
                 {/* Auto Refresh Display */}
-                <div className="flex justify-center min-h-[24px] py-0.5 items-center">
+                <div className="flex justify-center min-h-6 py-0.5 items-center">
                     {inputValue ? (
                         <div className="text-xs text-slate-500 flex items-center gap-2">
                             <button
@@ -1089,7 +1083,7 @@ export const DebtSwapModal = ({
                                     </span>
                                 </div>
                             ) : (
-                                <div className="text-slate-500 text-sm py-1 min-h-[32px] flex items-center">
+                                <div className="text-slate-500 text-sm py-1 min-h-8 flex items-center">
                                     {toToken ? 'Enter amount to get quote' : 'Select a token'}
                                 </div>
                             )}
@@ -1104,7 +1098,17 @@ export const DebtSwapModal = ({
                             aria-haspopup="dialog"
                         >
                             {toToken?.symbol ? (
-                                <img src={getTokenLogo(toToken.symbol)} alt={toToken.symbol} className="w-7 h-7 rounded-full" onError={(e) => e.target.style.display = 'none'} />
+                                <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-border-light dark:border-slate-600/30">
+                                    <img
+                                        src={getTokenLogo(toToken.symbol)}
+                                        alt={toToken.symbol}
+                                        className="w-full h-full object-cover"
+                                        onError={onTokenImgError(toToken.symbol)}
+                                    />
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase" style={{ display: 'none' }}>
+                                        {toToken.symbol?.[0] || '?'}
+                                    </span>
+                                </div>
                             ) : (
                                 <span className="text-xs font-bold text-slate-400">?</span>
                             )}
@@ -1117,7 +1121,7 @@ export const DebtSwapModal = ({
                     <div className="flex items-center justify-between mt-0 pl-3">
                         {/* USD Value */}
                         {isQuoteLoading ? (
-                            <span className="text-xs text-slate-500 min-h-[16px] block"></span>
+                            <span className="text-xs text-slate-500 min-h-4 block"></span>
                         ) : swapQuote && toToken && fromToken ? (
                             (() => {
                                 try {
@@ -1128,13 +1132,13 @@ export const DebtSwapModal = ({
                                     const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
                                     const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals));
                                     if (!isNaN(price) && price > 0 && !isNaN(amount) && amount > 0) {
-                                        return <span className="text-xs text-slate-500 block min-h-[16px]">{formatUSD(amount * price)}</span>;
+                                        return <span className="text-xs text-slate-500 block min-h-4">{formatUSD(amount * price)}</span>;
                                     }
                                 } catch (e) { /* noop */ }
-                                return <span className="text-xs text-slate-500 block min-h-[16px]"></span>;
+                                return <span className="text-xs text-slate-500 block min-h-4"></span>;
                             })()
                         ) : (
-                            <span className="text-xs text-slate-500 block min-h-[16px]"></span>
+                            <span className="text-xs text-slate-500 block min-h-4"></span>
                         )}
 
                         {/* Right side placeholder logic placeholder for available borrows */}
@@ -1228,7 +1232,7 @@ export const DebtSwapModal = ({
                     </div>
 
                     {showMethodMenu && (
-                        <div className="absolute bottom-full mb-2 right-0 w-60 bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-lg shadow-2xl p-2 z-[100]">
+                        <div className="absolute bottom-full mb-2 right-0 w-60 bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-lg shadow-2xl p-2 z-100">
                             <button
                                 onClick={() => { setPreferPermit(true); setShowMethodMenu(false); }}
                                 className={`w-full text-left px-2 py-2 rounded-md hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between ${preferPermit ? 'bg-slate-50 dark:bg-slate-800/60' : ''}`}
@@ -1338,7 +1342,17 @@ export const DebtSwapModal = ({
                                                 className={`w-full text-left px-3 py-2 rounded-lg mb-1 ${disabled ? 'opacity-50 cursor-not-allowed' : 'hover:bg-slate-100 dark:hover:bg-slate-800'}`}
                                             >
                                                 <div className="flex items-center gap-3">
-                                                    <img src={getTokenLogo(token.symbol)} alt={token.symbol} className="w-6 h-6" onError={(e) => e.target.style.display = 'none'} />
+                                                    <div className="w-8 h-8 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-border-light dark:border-slate-600/30">
+                                                        <img
+                                                            src={getTokenLogo(token.symbol)}
+                                                            alt={token.symbol}
+                                                            className="w-full h-full object-cover"
+                                                            onError={onTokenImgError(token.symbol)}
+                                                        />
+                                                        <span className="text-[10px] font-bold text-slate-500 uppercase" style={{ display: 'none' }}>
+                                                            {token.symbol?.[0] || '?'}
+                                                        </span>
+                                                    </div>
                                                     <div className="flex-1">
                                                         <div className="font-bold text-slate-900 dark:text-white text-sm">{token.symbol}</div>
                                                         <div className="text-xs text-slate-500 dark:text-slate-400">{token.name}</div>
