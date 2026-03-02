@@ -1,4 +1,4 @@
-import { useCallback, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo } from 'react';
 import { ethers } from 'ethers';
 import { ADDRESSES } from '../constants/addresses.js';
 import { DEFAULT_NETWORK } from '../constants/networks.js';
@@ -72,6 +72,13 @@ export const useCollateralSwapActions = ({
     const augustusMap = networkAddresses.AUGUSTUS;
     const chainId = targetNetwork.chainId;
     const targetHexChainId = targetNetwork.hexChainId;
+
+    // Clear stale permit/error state when token changes — prevents reuse of wrong token's permit
+    useEffect(() => {
+        setSignedPermit(null);
+        setTxError(null);
+        setUserRejected(false);
+    }, [fromToken?.symbol, fromToken?.address]);
 
     const ensureWalletNetwork = useCallback(async () => {
         if (!provider) {

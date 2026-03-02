@@ -167,12 +167,19 @@ export const useCollateralPositions = ({ account, provider, networkRpcProvider, 
         };
     }, []);
 
+    // Reset stale state immediately when fromToken changes — avoids using previous token's allowance/balance
+    useEffect(() => {
+        setAllowance(BigInt(0));
+        setSupplyBalance(null);
+        setFormattedSupply('0');
+    }, [fromToken?.symbol, fromToken?.address]);
+
     useEffect(() => {
         if (account && readProvider && fromToken) {
             const timer = setTimeout(() => fetchPositionData(), 500);
             return () => clearTimeout(timer);
         }
-    }, [account, readProvider, fetchPositionData]);
+    }, [account, readProvider, fromToken, fetchPositionData]);
 
     return {
         supplyBalance,
