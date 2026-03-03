@@ -9,6 +9,7 @@ import {
     X,
     Search,
     ChevronDown,
+    ChevronUp,
     Lock,
     Settings,
     Percent,
@@ -67,7 +68,7 @@ const formatUSD = (value) => {
     if (value === 0) return '$0.00';
     if (value < 0.01) return '< $0.01';
     if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
-    if (value >= 10_000) return `$${(value / 1_000).toFixed(2)}K`;
+    if (value >= 1_000) return `$${(value / 1_000).toFixed(2)}K`;
     return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
@@ -402,7 +403,7 @@ export const DebtSwapModal = ({
 
     // Use provided marketAssets as fallback if selectedNetwork isn't synced yet
     // In normal flow, selectedNetwork will be updated by Web3Provider's chainChanged handler
-    const { marketAssets: fetchedMarketAssets, borrows, loading: positionsLoading, refresh: refreshPositions } = useUserPosition();
+    const { marketAssets: fetchedMarketAssets, borrows, summary, loading: positionsLoading, refresh: refreshPositions } = useUserPosition();
     const marketAssets = providedMarketAssets || fetchedMarketAssets;
 
     // Fallback: sometimes the hook instance for this modal doesn't yet have `borrows` cached
@@ -421,6 +422,7 @@ export const DebtSwapModal = ({
     const [showSlippageSettings, setShowSlippageSettings] = useState(false);
     const [activeTab, setActiveTab] = useState('market');
     const [invertRate, setInvertRate] = useState(false);
+    const [showTransactionOverview, setShowTransactionOverview] = useState(false);
     // Preference: use permit (EIP-712 signature) by default — session only
     const [preferPermit, setPreferPermit] = useState(true);
     const [showMethodMenu, setShowMethodMenu] = useState(false);
@@ -737,10 +739,9 @@ export const DebtSwapModal = ({
     const isDev = import.meta.env?.MODE === 'development';
 
     const modalTitle = useMemo(() => {
-        if (fromToken && toToken) return `Swap ${fromToken.symbol} → ${toToken.symbol}`;
-        if (fromToken) return `Swap ${fromToken.symbol} debt`;
-        if (toToken) return `Swap to ${toToken.symbol}`;
-        return 'Swap debt';
+        if (fromToken && toToken) return `Debt Swap: ${fromToken.symbol} → ${toToken.symbol}`;
+        if (fromToken) return `Debt Swap: ${fromToken.symbol}`;
+        return 'Debt Swap';
     }, [fromToken, toToken]);
 
 
@@ -998,7 +999,7 @@ export const DebtSwapModal = ({
 
     return (
         <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} maxWidth="520px" headerBorder={false}>
-            <div className="p-3 space-y-3">
+            <div className="px-3 pb-3 pt-0 space-y-2">
                 {/* Header with Tabs and Slippage */}
                 <div className="flex items-center justify-between gap-2 relative">
                     {/* Tabs: Market / Limit */}
@@ -1349,6 +1350,307 @@ export const DebtSwapModal = ({
                 {/* User Rejected */}
                 {userRejected && (
                     <UserRejectedAlert onClose={clearUserRejected} />
+                )}
+
+                {/* Transaction Overview */}
+                {swapQuote && fromToken && toToken && (
+                    <div className="mt-4 mb-4">
+                        <div className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-2 px-1">Transaction overview</div>
+
+                        <div className="transition-all">
+                            {/* Costs & Fees Header/Button */}
+                            <button
+                                onClick={() => setShowTransactionOverview(!showTransactionOverview)}
+                                className="w-full flex items-center justify-between py-2 px-1 transition-colors"
+                            >
+                                <span className="font-medium text-[13px] text-slate-600 dark:text-slate-300">Costs & Fees</span>
+                                <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
+                                    <span className="font-medium">
+                                        {(() => {
+                                            let totalUsd = 0;
+                                            if (swapQuote?.priceRoute?.gasCostUSD) {
+                                                totalUsd += parseFloat(swapQuote.priceRoute.gasCostUSD);
+                                            }
+                                            const feeBps = swapQuote?.feeBps || 0;
+                                            if (feeBps > 0) {
+                                                try {
+                                                    const feePercentage = feeBps / 10000;
+                                                    // In DebtSwap: we borrow the destination token (toToken)
+                                                    const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount || "0", toToken.decimals || 18));
+                                                    const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                                    const marketToken = (marketAssets || []).find(m =>
+                                                        (m.underlyingAsset || m.address || '').toLowerCase() === toAddr
+                                                    );
+                                                    const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
+                                                    if (!isNaN(price) && price > 0) {
+                                                        totalUsd += (amount * feePercentage * price);
+                                                    }
+                                                } catch (e) { }
+                                            }
+                                            return formatUSD(totalUsd);
+                                        })()}
+                                    </span>
+                                    {showTransactionOverview ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                </div>
+                            </button>
+
+                            {/* Costs & Fees Breakdown (Collapsible) */}
+                            {showTransactionOverview && (
+                                <div className="px-1 pb-3 pt-0 space-y-3 text-xs">
+                                    <div className="flex justify-between items-start text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700/60 pt-3">
+                                        <div className="flex items-center gap-1.5 text-[12px]">
+                                            <span>Network costs</span>
+                                            <InfoTooltip content="Estimated gas cost for the transaction on the network." size={12} />
+                                        </div>
+                                        <div className="text-right">
+                                            {swapQuote?.priceRoute?.gasCostUSD ? (
+                                                <div className="flex flex-col items-end">
+                                                    <div className="flex items-center gap-1.5 font-medium text-[12px] text-slate-600 dark:text-slate-300">
+                                                        <div className="w-3.5 h-3.5 rounded-full overflow-hidden bg-white/10 flex items-center justify-center">
+                                                            <img
+                                                                src={(() => {
+                                                                    const chainId = effectiveNetwork?.chainId;
+                                                                    if (chainId === 137) return getTokenLogo('POL');
+                                                                    if (chainId === 56) return getTokenLogo('BNB');
+                                                                    if (chainId === 43114) return getTokenLogo('AVAX');
+                                                                    return getTokenLogo('ETH');
+                                                                })()}
+                                                                className="w-full h-full object-cover"
+                                                                onError={onTokenImgError('ETH')}
+                                                            />
+                                                        </div>
+                                                        <span>
+                                                            {(() => {
+                                                                const gasNative = swapQuote.priceRoute.gasCost;
+                                                                const gasEth = parseFloat(ethers.formatEther(gasNative || "0"));
+                                                                return gasEth === 0 ? "0" : (gasEth < 0.00001 ? "<0.00001" : gasEth.toLocaleString(undefined, { maximumFractionDigits: 6 }));
+                                                            })()}
+                                                        </span>
+                                                    </div>
+                                                    <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                                        {formatUSD(parseFloat(swapQuote.priceRoute.gasCostUSD))}
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <span className="font-medium text-[12px] text-slate-600 dark:text-slate-300">-</span>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    <div className="flex justify-between items-start text-slate-500 dark:text-slate-400 text-[12px]">
+                                        <div className="flex items-center gap-1.5">
+                                            <span>Fee</span>
+                                            <InfoTooltip content="LilSwap flat fee for the execution of this operation." size={12} />
+                                        </div>
+                                        {(() => {
+                                            const feeBps = swapQuote?.feeBps || 0;
+                                            if (feeBps === 0) {
+                                                return <span className="font-medium text-[12px] text-emerald-600 dark:text-emerald-400">Free</span>;
+                                            }
+
+                                            try {
+                                                const feePercentage = feeBps / 10000;
+                                                const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount || "0", toToken.decimals || 18));
+                                                const feeAmountToken = amount * feePercentage;
+
+                                                const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                                const marketToken = (marketAssets || []).find(m =>
+                                                    (m.underlyingAsset || m.address || '').toLowerCase() === toAddr
+                                                );
+                                                const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
+
+                                                return (
+                                                    <div className="flex flex-col items-end text-right">
+                                                        <div className="flex items-center gap-1.5 font-medium text-[12px] text-slate-600 dark:text-slate-300">
+                                                            <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center border border-slate-200 dark:border-slate-700/60 bg-white/10">
+                                                                <img src={getTokenLogo(toToken.symbol)} className="w-full h-full object-cover" onError={onTokenImgError('ETH')} />
+                                                            </div>
+                                                            <span>{feeAmountToken < 0.00001 ? "<0.00001" : feeAmountToken.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
+                                                        </div>
+                                                        {!isNaN(price) && (
+                                                            <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
+                                                                {formatUSD(feeAmountToken * price)}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            } catch (e) {
+                                                return <span className="font-medium text-[12px] text-slate-600 dark:text-slate-300">{feeBps / 100}%</span>;
+                                            }
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Persistent Rows Below Fees */}
+                            <div className="px-1 pb-2 pt-3 space-y-3 border-t border-slate-200 dark:border-slate-700/60">
+                                {/* Health Factor Row */}
+                                <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
+                                    <div className="flex items-center gap-1.5">
+                                        <span>Health factor</span>
+                                        <InfoTooltip content="Safety of your deposited collateral against the borrowed assets and its underlying value." size={12} />
+                                    </div>
+                                    <div className="text-right font-medium">
+                                        {(() => {
+                                            if (!summary) return <span>-</span>;
+                                            const currentHf = parseFloat(summary.healthFactor);
+                                            if (isNaN(currentHf)) return <span>-</span>;
+
+                                            const currentTotalCollateralUSD = parseFloat(summary.totalCollateralUSD) || 0;
+                                            const currentLiquidationThreshold = parseFloat(summary.currentLiquidationThreshold) || 0;
+                                            const currentTotalBorrowsUSD = parseFloat(summary.totalBorrowsUSD) || 0;
+
+                                            let simulatedHf = currentHf;
+
+                                            if (swapQuote && swapQuote.srcAmount && swapQuote.destAmount) {
+                                                try {
+                                                    // Debt swap logic:
+                                                    // We repay fromToken debt (modal's fromToken) using the quote's destAmount.
+                                                    // We incur new toToken debt (modal's toToken) using the quote's srcAmount.
+                                                    const reducedDebtAmountF = parseFloat(ethers.formatUnits(swapQuote.destAmount, fromToken.decimals || 18));
+                                                    const newDebtAmountF = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
+
+                                                    const fromAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
+                                                    const fromMarketToken = (marketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === fromAddr);
+                                                    const fromPrice = parseFloat(fromMarketToken?.priceInUSD ?? fromToken?.priceInUSD) || 0;
+
+                                                    const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                                    const toMarketToken = (marketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === toAddr);
+                                                    const toPrice = parseFloat(toMarketToken?.priceInUSD ?? toToken?.priceInUSD) || 0;
+
+                                                    if (fromPrice > 0 && toPrice > 0) {
+                                                        const repaidDebtUsd = reducedDebtAmountF * fromPrice;
+                                                        const newDebtUsd = newDebtAmountF * toPrice;
+
+                                                        const newTotalBorrowsUSD = Math.max(0, currentTotalBorrowsUSD - repaidDebtUsd + newDebtUsd);
+
+                                                        if (newTotalBorrowsUSD > 0) {
+                                                            simulatedHf = (currentTotalCollateralUSD * currentLiquidationThreshold) / newTotalBorrowsUSD;
+                                                        } else {
+                                                            simulatedHf = -1;
+                                                        }
+                                                    }
+                                                } catch (e) { }
+                                            }
+
+                                            const getHfColor = (hf) => {
+                                                if (hf === -1 || hf >= 3) return 'text-emerald-400';
+                                                if (hf >= 1.1) return 'text-orange-400';
+                                                return 'text-red-500';
+                                            };
+
+                                            const formatHf = (hf) => hf === -1 ? '∞' : hf.toFixed(2);
+
+                                            return (
+                                                <div className="flex flex-col items-end">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span className={getHfColor(currentHf)}>{formatHf(currentHf)}</span>
+                                                        <span className="text-slate-400 font-normal">→</span>
+                                                        <span className={getHfColor(simulatedHf)}>{formatHf(simulatedHf)}</span>
+                                                    </div>
+                                                    <div className="text-[11px] text-slate-500 font-normal mt-0.5">
+                                                        Liquidation at &lt;1.0
+                                                    </div>
+                                                </div>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
+                                {/* Borrow APY Row */}
+                                <div className="flex justify-between items-center text-[13px] text-slate-600 dark:text-slate-300 font-medium">
+                                    <div className="flex items-center gap-1.5">
+                                        <span>Borrow apy</span>
+                                        <InfoTooltip content="Annual interest rate you will pay on your borrowed assets." size={12} />
+                                    </div>
+                                    <div className="text-right flex items-center gap-1.5">
+                                        {(() => {
+                                            const fromAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
+                                            const fromMarketToken = (marketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === fromAddr);
+                                            const currentApy = (fromMarketToken?.variableBorrowRate ?? 0) * 100;
+
+                                            const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                            const toMarketToken = (marketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === toAddr);
+                                            const newApy = (toMarketToken?.variableBorrowRate ?? 0) * 100;
+
+                                            return (
+                                                <>
+                                                    <span className="text-slate-900 dark:text-slate-100">{currentApy < 0.01 ? '< 0.01' : currentApy.toFixed(2)}%</span>
+                                                    <span className="text-slate-400 font-normal">→</span>
+                                                    <span className="text-slate-900 dark:text-slate-100">
+                                                        {newApy < 0.01 ? '< 0.01' : newApy.toFixed(2)}%
+                                                    </span>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+
+                                {/* Borrow Balance Row */}
+                                <div className="flex justify-between items-center text-[13px] text-slate-600 dark:text-slate-300 font-medium pb-1">
+                                    <div className="flex items-center gap-1.5">
+                                        <span>Borrow balance after switch</span>
+                                        <InfoTooltip content="Your estimated debt balance in the protocol after the swap is completed." size={12} />
+                                    </div>
+                                    <div className="text-right flex items-center gap-1.5">
+                                        {(() => {
+                                            const activeBorrows = borrows || fallbackBorrows || providedBorrows || [];
+
+                                            // Handle From Token (remaining debt)
+                                            let fromRemaining = 0;
+                                            let fromRemainingUsd = 0;
+                                            try {
+                                                const fromAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
+                                                const existingFromBorrow = activeBorrows.find(b => b.underlyingAsset.toLowerCase() === fromAddr);
+                                                const existingFromBalance = existingFromBorrow ? parseFloat(existingFromBorrow.formattedAmount) : 0;
+                                                const repaidAmount = parseFloat(ethers.formatUnits(swapQuote.destAmount || "0", fromToken.decimals || 18));
+
+                                                fromRemaining = Math.max(0, existingFromBalance - repaidAmount);
+
+                                                const fromMarketToken = (marketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === fromAddr);
+                                                const fromPrice = parseFloat(fromMarketToken?.priceInUSD ?? fromToken?.priceInUSD) || 0;
+                                                fromRemainingUsd = fromRemaining * fromPrice;
+                                            } catch (e) { }
+
+                                            // Handle To Token (new debt)
+                                            let toTotal = 0;
+                                            let toTotalUsd = 0;
+                                            try {
+                                                const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                                const existingToBorrow = activeBorrows.find(b => b.underlyingAsset.toLowerCase() === toAddr);
+                                                const existingToBalance = existingToBorrow ? parseFloat(existingToBorrow.formattedAmount) : 0;
+                                                const newBorrowAmount = parseFloat(ethers.formatUnits(swapQuote.srcAmount || "0", toToken.decimals || 18));
+
+                                                toTotal = existingToBalance + newBorrowAmount;
+
+                                                const toMarketToken = (marketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === toAddr);
+                                                const toPrice = parseFloat(toMarketToken?.priceInUSD ?? toToken?.priceInUSD) || 0;
+                                                toTotalUsd = toTotal * toPrice;
+                                            } catch (e) { }
+
+                                            return (
+                                                <>
+                                                    <div className="flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
+                                                        <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center border border-slate-200 dark:border-slate-700">
+                                                            <img src={getTokenLogo(fromToken.symbol)} className="w-full h-full object-cover" />
+                                                        </div>
+                                                        <span>{fromRemaining === 0 ? '0' : (fromRemaining >= 1000 ? (fromRemaining / 1000).toFixed(2) + 'K' : fromRemaining.toLocaleString(undefined, { maximumFractionDigits: 6 }))}</span>
+                                                    </div>
+                                                    <span className="text-slate-400 font-normal">→</span>
+                                                    <div className="flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
+                                                        <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center border border-slate-200 dark:border-slate-700">
+                                                            <img src={getTokenLogo(toToken.symbol)} className="w-full h-full object-cover" />
+                                                        </div>
+                                                        <span>{toTotal === 0 ? '0' : (toTotal >= 1000 ? (toTotal / 1000).toFixed(2) + 'K' : toTotal.toLocaleString(undefined, { maximumFractionDigits: 6 }))}</span>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 )}
 
                 {/* Method selector (always shown) */}
