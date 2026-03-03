@@ -25,9 +25,9 @@ const normalizeAddress = (address) => {
 const getOfficialAddressBook = (chainId) => {
     const bookMap = {
         1: AaveV3Ethereum,
-        8453: AaveV3Base,
-        137: AaveV3Polygon,
         56: AaveV3BNB,
+        137: AaveV3Polygon,
+        8453: AaveV3Base,
         42161: AaveV3Arbitrum,
     };
     return bookMap[chainId] || null;
@@ -77,7 +77,66 @@ export const NETWORKS = {
             },
         };
     })(),
+    BNB: (() => {
+        const book = getOfficialAddressBook(56);
+        return {
+            key: 'BNB',
+            label: 'BNB Chain',
+            shortLabel: 'BNB',
+            chainId: 56,
+            hexChainId: '0x38',
+            icon: '/icons/networks/binance.svg',
 
+            explorer: 'https://bscscan.com',
+            rpcUrls: [
+                'https://bsc.publicnode.com',
+                'https://bsc-dataseed.binance.org',
+                'https://bsc-dataseed1.binance.org'
+            ],
+            addresses: {
+                POOL: normalizeAddress(book?.POOL),
+                DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
+                SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
+                DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                AUGUSTUS: {
+                    V5: AUGUSTUS_ADDRESSES.V5,
+                    V6_2: AUGUSTUS_ADDRESSES.V6_2,
+                },
+
+            },
+        };
+    })(),
+    POLYGON: (() => {
+        const book = getOfficialAddressBook(137);
+        return {
+            key: 'POLYGON',
+            label: 'Polygon',
+            shortLabel: 'Polygon',
+            chainId: 137,
+            hexChainId: '0x89',
+            icon: '/icons/networks/polygon.svg',
+
+            explorer: 'https://polygonscan.com',
+            rpcUrls: [
+                'https://gateway.tenderly.co/public/polygon',
+                'https://polygon-pokt.nodies.app',
+                'https://polygon-bor-rpc.publicnode.com',
+                'https://polygon-rpc.com',
+                'https://polygon-mainnet.public.blastapi.io'
+            ],
+            addresses: {
+                POOL: normalizeAddress(book?.POOL),
+                DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
+                SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
+                DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                AUGUSTUS: {
+                    V5: AUGUSTUS_ADDRESSES.V5,
+                    V6_2: AUGUSTUS_ADDRESSES.V6_2,
+                },
+
+            },
+        };
+    })(),
     BASE: (() => {
         const book = getOfficialAddressBook(8453);
         return {
@@ -110,69 +169,6 @@ export const NETWORKS = {
             },
         };
     })(),
-
-    POLYGON: (() => {
-        const book = getOfficialAddressBook(137);
-        return {
-            key: 'POLYGON',
-            label: 'Polygon',
-            shortLabel: 'Polygon',
-            chainId: 137,
-            hexChainId: '0x89',
-            icon: '/icons/networks/polygon.svg',
-
-            explorer: 'https://polygonscan.com',
-            rpcUrls: [
-                'https://gateway.tenderly.co/public/polygon',
-                'https://polygon-pokt.nodies.app',
-                'https://polygon-bor-rpc.publicnode.com',
-                'https://polygon-rpc.com',
-                'https://polygon-mainnet.public.blastapi.io'
-            ],
-            addresses: {
-                POOL: normalizeAddress(book?.POOL),
-                DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
-                SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
-                DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
-                AUGUSTUS: {
-                    V5: AUGUSTUS_ADDRESSES.V5,
-                    V6_2: AUGUSTUS_ADDRESSES.V6_2,
-                },
-
-            },
-        };
-    })(),
-
-    BNB: (() => {
-        const book = getOfficialAddressBook(56);
-        return {
-            key: 'BNB',
-            label: 'BNB Chain',
-            shortLabel: 'BNB',
-            chainId: 56,
-            hexChainId: '0x38',
-            icon: '/icons/networks/binance.svg',
-
-            explorer: 'https://bscscan.com',
-            rpcUrls: [
-                'https://bsc.publicnode.com',
-                'https://bsc-dataseed.binance.org',
-                'https://bsc-dataseed1.binance.org'
-            ],
-            addresses: {
-                POOL: normalizeAddress(book?.POOL),
-                DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
-                SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
-                DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
-                AUGUSTUS: {
-                    V5: AUGUSTUS_ADDRESSES.V5,
-                    V6_2: AUGUSTUS_ADDRESSES.V6_2,
-                },
-
-            },
-        };
-    })(),
-
     ARBITRUM: (() => {
         const book = getOfficialAddressBook(42161);
         return {
@@ -204,7 +200,6 @@ export const NETWORKS = {
             },
         };
     })(),
-
 };
 
 export const DEFAULT_NETWORK = NETWORKS.ETHEREUM;
