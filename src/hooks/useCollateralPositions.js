@@ -12,6 +12,13 @@ export const useCollateralPositions = ({ account, provider, networkRpcProvider, 
     const [allowance, setAllowance] = useState(BigInt(0));
     const [isPositionLoading, setIsPositionLoading] = useState(false);
 
+    // Guard against EVM precompile addresses (1–0xff) being mistakenly stored as aToken addresses.
+    // These come from stale/cross-chain backend data and are not real contracts.
+    const isValidATokenAddress = (addr) => {
+        if (!addr || addr === ethers.ZeroAddress) return false;
+        try { return BigInt(addr) > BigInt(0xff); } catch (_) { return false; }
+    };
+
     // format BigInt balance to decimal string avoiding exponential notation
     const formatUnitsFixed = (balance, decimals) => {
         const s = ethers.formatUnits(balance, decimals);
@@ -65,11 +72,12 @@ export const useCollateralPositions = ({ account, provider, networkRpcProvider, 
 
                 try {
                     let aTokenAddr = fromToken.aTokenAddress;
-                    if (!aTokenAddr || aTokenAddr === ethers.ZeroAddress) {
-                        const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, readProvider);
+                    if (!isValidATokenAddress(aTokenAddr)) {
+                        // DATA_PROVIDER.getReserveTokensAddresses is immune to Aave v3.1 struct changes
+                        const dataProvider = new ethers.Contract(networkAddresses.DATA_PROVIDER, ABIS.DATA_PROVIDER, readProvider);
                         const underlyingAsset = fromToken.underlyingAsset || fromToken.address;
-                        const reserveData = await poolContract.getReserveData(underlyingAsset);
-                        aTokenAddr = reserveData.aTokenAddress;
+                        const tokenAddresses = await dataProvider.getReserveTokensAddresses(underlyingAsset);
+                        aTokenAddr = tokenAddresses.aTokenAddress;
                     }
                     const aTokenContract = new ethers.Contract(aTokenAddr, ABIS.ERC20, readProvider);
                     const currentAllowance = await aTokenContract.allowance(account, adapterAddress);
@@ -96,14 +104,15 @@ export const useCollateralPositions = ({ account, provider, networkRpcProvider, 
 
             // Get aToken address
             let aTokenAddr = fromToken.aTokenAddress;
-            const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, readProvider);
-            if (!aTokenAddr || aTokenAddr === ethers.ZeroAddress) {
+            // DATA_PROVIDER.getReserveTokensAddresses is immune to Aave v3.1 struct changes
+            const dataProvider = new ethers.Contract(networkAddresses.DATA_PROVIDER, ABIS.DATA_PROVIDER, readProvider);
+            if (!isValidATokenAddress(aTokenAddr)) {
                 const underlyingAsset = fromToken.underlyingAsset || fromToken.address;
-                const reserveData = await poolContract.getReserveData(underlyingAsset);
-                aTokenAddr = reserveData.aTokenAddress;
+                const tokenAddresses = await dataProvider.getReserveTokensAddresses(underlyingAsset);
+                aTokenAddr = tokenAddresses.aTokenAddress;
             }
 
-            if (!aTokenAddr || aTokenAddr === ethers.ZeroAddress) {
+            if (!isValidATokenAddress(aTokenAddr)) {
                 throw new Error(`No aToken address found for ${fromToken.symbol}`);
             }
 
@@ -158,12 +167,19 @@ export const useCollateralPositions = ({ account, provider, networkRpcProvider, 
         };
     }, []);
 
+    // Reset stale state immediately when fromToken changes — avoids using previous token's allowance/balance
+    useEffect(() => {
+        setAllowance(BigInt(0));
+        setSupplyBalance(null);
+        setFormattedSupply('0');
+    }, [fromToken?.symbol, fromToken?.address]);
+
     useEffect(() => {
         if (account && readProvider && fromToken) {
             const timer = setTimeout(() => fetchPositionData(), 500);
             return () => clearTimeout(timer);
         }
-    }, [account, readProvider, fetchPositionData]);
+    }, [account, readProvider, fromToken, fetchPositionData]);
 
     return {
         supplyBalance,

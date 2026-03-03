@@ -275,7 +275,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
         <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-2 px-3">
             {/* Top row: input and token badge */}
             <div className="flex items-center gap-2 sm:gap-3">
-                <div className="flex-1">
+                <div className="flex-1 relative">
                     <input
                         type="text"
                         value={value}
@@ -287,8 +287,20 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                         }}
                         placeholder="0.00"
                         disabled={disabled}
-                        className="w-full bg-transparent text-slate-900 dark:text-white text-2xl font-mono font-bold text-left pl-3 focus:outline-none disabled:opacity-50 py-1"
+                        className="w-full bg-transparent text-slate-900 dark:text-white text-2xl font-mono font-bold text-left pl-3 focus:outline-none disabled:opacity-50 py-1 pr-6"
                     />
+                    {/* Clear button (X) - shows when there's a value */}
+                    {value && value !== '0' && value !== '0.' && (
+                        <button
+                            type="button"
+                            onClick={() => onChange('')}
+                            disabled={disabled}
+                            className="absolute right-0.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Clear"
+                        >
+                            <X className="w-2.5 h-2.5" />
+                        </button>
+                    )}
                 </div>
                 {/* Token badge */}
                 <button
@@ -538,12 +550,12 @@ export const CollateralSwapModal = ({
 
 
 
-    // Debt positions hook
+    // Collateral positions hook
     const {
         supplyBalance,
         formattedSupply,
         allowance,
-        isPositionLoading: isDebtLoading,
+        isPositionLoading: isCollateralLoading,
         fetchPositionData: fetchDebtData,
     } = useCollateralPositions({
         account,
@@ -598,6 +610,7 @@ export const CollateralSwapModal = ({
         setInputValue('');
         setSwapAmount(BigInt(0));
         clearQuote && clearQuote();
+        setFreezeQuote(false);
 
         // Check if the current toToken conflicts with the newly-selected fromToken.
         // Read toToken directly from the closure (not via functional updater) so that
@@ -619,16 +632,15 @@ export const CollateralSwapModal = ({
         }
     }, [fromToken, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
-    // When the destination token changes, clear the stale quote so the UI shows a
-    // loading state while a fresh quote is fetched. Source amount is preserved so
-    // the auto-quote can fire immediately with the existing input value.
+    // When the destination token changes, unfreeze to allow auto-fetch hook to trigger
     useEffect(() => {
         if (!isOpen) return;
         const newAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
         if (newAddr === prevToTokenAddrRef.current) return; // same token, skip
         prevToTokenAddrRef.current = newAddr;
 
-        clearQuote && clearQuote();
+        // Unfreeze to allow auto-fetch in useParaswapQuote to trigger immediately
+        setFreezeQuote(false);
     }, [toToken, isOpen]); // eslint-disable-line react-hooks/exhaustive-deps
 
     // Actions hook
@@ -713,7 +725,7 @@ export const CollateralSwapModal = ({
             return false;
         }
     }, [allowance, toToken, swapQuote]);
-    const isBusy = isActionLoading;
+    const isBusy = isActionLoading || isCollateralLoading;
     const displayBufferBps = swapQuote?.bufferBps ?? 13;
     const displayBufferPct = (displayBufferBps / 100).toFixed(2);
     const isDev = import.meta.env?.MODE === 'development';
@@ -1354,7 +1366,24 @@ export const CollateralSwapModal = ({
                                                 key={token.underlyingAsset || token.address}
                                                 disabled={disabled}
                                                 onClick={() => {
-                                                    if (selectingForFrom) setFromToken(token); else setToToken(token);
+                                                    if (selectingForFrom) {
+                                                        setFromToken(token);
+                                                        setInputValue('');
+                                                        setSwapAmount(BigInt(0));
+                                                        // Batch: if current toToken matches new fromToken, pick a fallback immediately
+                                                        const newAddr = (token.underlyingAsset || token.address || '').toLowerCase();
+                                                        const curToAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                                        if (curToAddr && newAddr && curToAddr === newAddr) {
+                                                            const fallback = (marketAssets || []).find((t) => {
+                                                                const tAddr = (t.underlyingAsset || t.address || '').toLowerCase();
+                                                                return tAddr && tAddr !== newAddr && t.isActive && !t.isFrozen && !t.isPaused && t.borrowingEnabled;
+                                                            }) || null;
+                                                            setToToken(fallback);
+                                                        }
+                                                    } else {
+                                                        // Changing destination token: keep input value and trigger new quote
+                                                        setToToken(token);
+                                                    }
                                                     setSelectingForFrom(false);
                                                     setTokenSelectorOpen(false);
                                                 }}

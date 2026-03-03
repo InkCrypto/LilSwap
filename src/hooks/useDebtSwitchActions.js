@@ -6,7 +6,7 @@ import { ABIS } from '../constants/abis.js';
 import { buildDebtSwapTx } from '../services/api.js';
 import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction, failTransaction } from '../services/transactionsApi.js';
 
-import logger from '../utils/logger.js';
+import logger, { isUserRejectedError } from '../utils/logger.js';
 import { calcApprovalAmount } from '../utils/swapMath.js';
 export const useDebtSwitchActions = ({
     account,
@@ -85,6 +85,15 @@ export const useDebtSwitchActions = ({
     const augustusMap = networkAddresses.AUGUSTUS;
     const chainId = targetNetwork.chainId;
     const targetHexChainId = targetNetwork.hexChainId;
+
+    // Clear ALL stale action state when EITHER token changes (from or to)
+    useEffect(() => {
+        setSignedPermit(null);
+        setTxError(null);
+        setUserRejected(false);
+        setIsActionLoading(false);
+        setIsSigning(false);
+    }, [fromToken?.symbol, fromToken?.address, toToken?.symbol, toToken?.address]);
 
     const ensureWalletNetwork = useCallback(async () => {
         if (!provider) {
@@ -170,7 +179,12 @@ export const useDebtSwitchActions = ({
             addLog?.('Signature received and cached', 'success');
             return permitParams;
         } catch (err) {
-            addLog?.('Signature failed: ' + (err?.message || err), 'error');
+            if (isUserRejectedError(err)) {
+                addLog?.('Signature request cancelled by user.', 'warning');
+                logger.info('[generateAndCachePermit] Signature cancelled by user');
+            } else {
+                addLog?.('Signature failed: ' + (err?.message || err), 'error');
+            }
             throw err;
         }
     }, [account, adapterAddress, addLog, chainId]);
@@ -222,7 +236,12 @@ export const useDebtSwitchActions = ({
             fetchDebtData();
             return { type: 'tx', tx };
         } catch (error) {
-            addLog?.('Approval error: ' + (error?.message || error), 'error');
+            if (isUserRejectedError(error)) {
+                addLog?.('Approval cancelled by user.', 'warning');
+                logger.info('[handleApproveDelegation] Approval cancelled by user');
+            } else {
+                addLog?.('Approval error: ' + (error?.message || error), 'error');
+            }
             throw error;
         } finally {
             setIsSigning(false);
@@ -808,7 +827,7 @@ export const useDebtSwitchActions = ({
                 addLog?.('✅ swapDebt sent successfully!', 'success');
                 onTxSent?.(tx.hash);
             } catch (swapError) {
-                if (swapError.code === 'ACTION_REJECTED') {
+                if (isUserRejectedError(swapError)) {
                     addLog?.('User rejected action.', 'warning');
                     setUserRejected(true);
                     resetRefreshCountdown();
@@ -831,7 +850,7 @@ export const useDebtSwitchActions = ({
                             logger.warn('[useDebtSwitchActions] failed to notify reject:', e.message);
                         }
                     }
-                    throw swapError;
+                    return;
                 }
                 addLog?.(`\n❌ swapDebt failed: ${swapError.message.substring(0, 150)}`, 'error');
                 if (swapError.reason) {
@@ -1005,14 +1024,20 @@ export const useDebtSwitchActions = ({
             updateCurrentTransactionId(null);  // Clear transaction ID
             fetchDebtData();
         } catch (error) {
-            logger.error('❌ [handleSwap] Caught error in main try-catch:', error);
-            logger.error('  - Error code:', error.code);
-            logger.error('  - Error message:', error.message);
-            logger.error('  - Full error:', error);
-
-            if (error.code === 'ACTION_REJECTED') {
+            if (isUserRejectedError(error)) {
+                logger.info('[handleSwap] User cancelled action', {
+                    code: error?.code,
+                    name: error?.name,
+                });
                 setUserRejected(true);
+                addLog?.('Operation cancelled by user.', 'warning');
             } else {
+                logger.error('❌ [handleSwap] Caught error in main try-catch', {
+                    code: error?.code,
+                    message: error?.message,
+                    name: error?.name,
+                });
+
                 // Enhanced error message with troubleshooting hints
                 let errorMsg = error.message;
 

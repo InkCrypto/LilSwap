@@ -67,6 +67,36 @@ const currentLevel = getCurrentLogLevel();
 const currentPriority = LOG_PRIORITY[currentLevel];
 
 /**
+ * Detects if an error is a user-driven cancellation/rejection.
+ * This is expected behavior and should not be treated as a critical error.
+ * @param {any} error
+ * @returns {boolean}
+ */
+export const isUserRejectedError = (error) => {
+    if (!error) return false;
+
+    const code = error?.code ?? error?.error?.code;
+    const name = String(error?.name || '').toLowerCase();
+    const message = String(error?.message || '').toLowerCase();
+    const reason = String(error?.reason || '').toLowerCase();
+
+    return (
+        code === 4001 ||
+        code === '4001' ||
+        code === 'ACTION_REJECTED' ||
+        code === 'USER_REJECTED' ||
+        code === 'ERR_CANCELED' ||
+        name === 'cancelederror' ||
+        name === 'aborterror' ||
+        message.includes('user rejected') ||
+        message.includes('user denied') ||
+        message.includes('rejected the request') ||
+        message === 'canceled' ||
+        reason.includes('rejected')
+    );
+};
+
+/**
  * Check if a log level should be displayed
  * @param {string} level - Log level to check
  * @returns {boolean}
@@ -104,6 +134,7 @@ const getTimestamp = () => {
 export const error = (message, data = null) => {
     if (!shouldLog(LOG_LEVELS.ERROR)) return;
 
+    const isDebugEnabled = shouldLog(LOG_LEVELS.DEBUG);
     const timestamp = getTimestamp();
     console.group(
         `%c[${timestamp}] %c[ERROR]%c ${message}`,
@@ -111,8 +142,35 @@ export const error = (message, data = null) => {
         STYLES.error,
         STYLES.message
     );
-    if (data) console.error(data);
-    console.trace();
+
+    if (data) {
+        if (isDebugEnabled) {
+            console.error(data);
+        } else if (data instanceof Error) {
+            console.error({
+                name: data.name,
+                code: data.code,
+                message: data.message,
+            });
+        } else if (typeof data === 'object' && data !== null) {
+            const minimal = {
+                code: data.code,
+                message: data.message,
+            };
+            if (minimal.code || minimal.message) {
+                console.error(minimal);
+            } else {
+                console.error(data);
+            }
+        } else {
+            console.error(data);
+        }
+    }
+
+    if (isDebugEnabled) {
+        console.trace();
+    }
+
     console.groupEnd();
 };
 
@@ -222,6 +280,7 @@ export default {
     warn,
     info,
     debug,
+    isUserRejectedError,
     api,
     getConfig,
     LOG_LEVELS

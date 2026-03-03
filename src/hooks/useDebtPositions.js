@@ -318,6 +318,13 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
         };
     }, []);
 
+    // Clear stale state immediately when fromToken changes
+    useEffect(() => {
+        setDebtBalance(null);
+        setFormattedDebt(null);
+        setAllowance(BigInt(0));
+    }, [fromToken?.symbol, fromToken?.address]);
+
     useEffect(() => {
         if (account && readProvider && fromToken && toToken) {
             const timer = setTimeout(() => {
@@ -325,7 +332,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             }, 500);
             return () => clearTimeout(timer);
         }
-    }, [account, readProvider, fetchDebtData]);
+    }, [account, readProvider, fromToken?.symbol, fromToken?.address, toToken?.symbol, toToken?.address, fetchDebtData]);
 
     const needsApproval = useMemo(() =>
         Boolean(debtBalance && debtBalance > BigInt(0) && allowance < (debtBalance * BigInt(2))),

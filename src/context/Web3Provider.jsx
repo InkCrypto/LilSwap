@@ -103,6 +103,11 @@ export const Web3Provider = ({ children }) => {
             if (accounts.length > 0) {
                 // Accounts available - wallet unlocked or user connected
                 setAccount(accounts[0]);
+                // Recreate provider for the new account (signer may be stale)
+                const freshProvider = initializeProvider();
+                if (freshProvider) {
+                    setProvider(freshProvider);
+                }
                 // If user reconnected via wallet, clear manual disconnect flag
                 if (manuallyDisconnected) {
                     setManuallyDisconnected(false);
@@ -121,10 +126,13 @@ export const Web3Provider = ({ children }) => {
         const handleChainChanged = async (chainIdHex) => {
             logger.debug('[Web3Provider] Chain changed event:', chainIdHex);
 
-            // Do NOT re-initialize the entire Ethers provider here.
-            // Destroying the provider reference forces all React Context consumers to unmount/remount,
-            // which destroys the `prevAddressRef` in our hooks and causes UI flickering.
-            // Ethers v6 and the new selectedNetworkKey will handle the data change naturally.
+            // Ethers v6 BrowserProvider caches the chainId internally.
+            // When the wallet switches chains, the old provider throws NETWORK_ERROR.
+            // We MUST recreate it so subsequent calls use the correct chain.
+            const freshProvider = initializeProvider();
+            if (freshProvider) {
+                setProvider(freshProvider);
+            }
 
             // Update selectedNetwork based on new chain
             const chainId = parseInt(chainIdHex, 16);

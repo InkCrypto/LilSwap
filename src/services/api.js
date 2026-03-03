@@ -62,6 +62,11 @@ apiClient.interceptors.response.use(
             return apiClient(config);
         }
 
+        // Ignore canceled/aborted requests (expected when switching tokens)
+        if (error.code === 'ERR_CANCELED' || error.name === 'CanceledError' || error.name === 'AbortError' || error.message === 'canceled') {
+            return Promise.reject(error);
+        }
+
         logger.error('API Request Failed', {
             url: config?.url,
             method: config?.method,
@@ -89,12 +94,16 @@ apiClient.interceptors.response.use(
  * @param {number} params.chainId - Chain ID
  * @returns {Promise<Object>} Quote data (priceRoute, srcAmount, version, augustus)
  */
-export const getDebtQuote = async (params) => {
+export const getDebtQuote = async (params, signal = null) => {
     try {
-        const response = await apiClient.post('/quote/debt', params);
+        const response = await apiClient.post('/quote/debt', params, { signal });
         logger.debug('Debt quote received', { srcAmount: response.data.srcAmount });
         return response.data;
     } catch (error) {
+        if (axios.isCancel(error)) {
+            logger.debug('Debt quote request cancelled');
+            throw error; // Let the caller handle or ignore
+        }
         const errorMessage = error.response?.data?.error || error.message || 'Error fetching quote';
         logger.error('Failed to get debt quote', { error: errorMessage });
         throw new Error(errorMessage);
@@ -166,12 +175,16 @@ export const getUserPosition = async (walletAddress, chainId) => {
  * @param {number} params.chainId - Chain ID
  * @returns {Promise<Object>} Quote data (priceRoute, destAmount, version, augustus)
  */
-export const getCollateralQuote = async (params) => {
+export const getCollateralQuote = async (params, signal = null) => {
     try {
-        const response = await apiClient.post('/quote/collateral', params);
+        const response = await apiClient.post('/quote/collateral', params, { signal });
         logger.debug('Collateral quote received', { destAmount: response.data.destAmount });
         return response.data;
     } catch (error) {
+        if (axios.isCancel(error)) {
+            logger.debug('Collateral quote request cancelled');
+            throw error; // Let the caller handle or ignore
+        }
         const errorMessage = error.response?.data?.error || error.message || 'Error fetching collateral quote';
         logger.error('Failed to get collateral quote', { error: errorMessage });
         throw new Error(errorMessage);
