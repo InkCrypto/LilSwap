@@ -20,6 +20,18 @@ const formatUSD = (value) => {
     return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
+const formatCompactUSD = (value) => {
+    if (value === 0) return '$0';
+    if (value < 1000) return formatUSD(value);
+
+    return new Intl.NumberFormat('en-US', {
+        style: 'currency',
+        currency: 'USD',
+        notation: 'compact',
+        maximumFractionDigits: 2
+    }).format(value);
+};
+
 const formatTokenAmount = (amount, symbol) => {
     if (amount === 0) return `0 ${symbol}`;
     if (amount < 0.0000001) return `< 0.0000001 ${symbol}`;
@@ -150,22 +162,30 @@ export const PositionsAccordion = ({ walletAddress }) => {
                 healthFactor,
                 netWorthUSD,
                 netAPY,
-                supplies: info?.supplies || [],
-                borrows: info?.borrows || [],
+                supplies: (info?.supplies || []).slice().sort((a, b) => {
+                    const valA = parseFloat(a.formattedAmount || 0) * parseFloat(a.priceInUSD || 0);
+                    const valB = parseFloat(b.formattedAmount || 0) * parseFloat(b.priceInUSD || 0);
+                    return valB - valA;
+                }),
+                borrows: (info?.borrows || []).slice().sort((a, b) => {
+                    const valA = parseFloat(a.formattedAmount || 0) * parseFloat(a.priceInUSD || 0);
+                    const valB = parseFloat(b.formattedAmount || 0) * parseFloat(b.priceInUSD || 0);
+                    return valB - valA;
+                }),
                 marketAssets: info?.marketAssets || [],
                 error: info?.error
             };
         });
 
-        // Sort: networks with positions first, then by total positions (descending)
+        // Sort: networks with positions first, then by net worth (descending)
         return entries.sort((a, b) => {
             // First, compare hasPositions (true comes before false)
             if (a.hasPositions !== b.hasPositions) {
                 return a.hasPositions ? -1 : 1;
             }
 
-            // If both have positions (or both don't), sort by total positions
-            return b.totalPositions - a.totalPositions;
+            // If both have positions (or both don't), sort by net worth
+            return b.netWorthUSD - a.netWorthUSD;
         });
     }, [positionsByChain]);
 
@@ -241,7 +261,7 @@ export const PositionsAccordion = ({ walletAddress }) => {
                         }}
                     >
                         {/* Mobile Top Row / Desktop Logo Column */}
-                        <div className="flex justify-between items-center w-full sm:w-auto">
+                        <div className="flex justify-between items-center w-full sm:w-36 shrink-0">
                             {/* Logo & Name */}
                             <div className="flex items-center gap-2">
                                 {chain.icon && (
@@ -296,22 +316,22 @@ export const PositionsAccordion = ({ walletAddress }) => {
                         </div>
 
                         {/* Metrics Grid (Wraps below on mobile, inline on desktop) */}
-                        <div className="mt-4 sm:mt-0 sm:ml-10 flex-1 flex justify-start items-center">
+                        <div className="mt-4 sm:mt-0 flex-1 flex justify-start items-center">
                             {chain.hasPositions ? (
-                                <div className="flex items-center gap-6 w-full">
-                                    <div className="flex flex-col">
+                                <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-6 w-full">
+                                    <div className="flex flex-col items-start">
                                         <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net worth</span>
                                         <span className="text-base font-mono font-bold text-slate-900 dark:text-white leading-none mt-1">
-                                            ${chain.netWorthUSD.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                                            {formatCompactUSD(chain.netWorthUSD)}
                                         </span>
                                     </div>
-                                    <div className="flex flex-col">
+                                    <div className="flex flex-col items-start">
                                         <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net APY</span>
                                         <span className="text-base font-mono font-bold text-slate-900 dark:text-white leading-none mt-1">
                                             {chain.netAPY.toFixed(2)}%
                                         </span>
                                     </div>
-                                    <div className="flex flex-col">
+                                    <div className="flex flex-col items-start">
                                         <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Health factor</span>
                                         <span className={`text-base font-mono font-bold leading-none mt-1 ${chain.healthFactor === -1 || chain.healthFactor >= 3 ? 'text-green-400' :
                                             chain.healthFactor >= 1.1 ? 'text-orange-400' :

@@ -31,7 +31,7 @@ export const ToastProvider = ({ children }) => {
         <ToastContext.Provider value={{ addToast, removeToast }}>
             {children}
             {typeof document !== 'undefined' && createPortal(
-                <div className="fixed top-6 right-6 z-[99999] flex flex-col gap-2 pointer-events-none">
+                <div className="fixed top-6 right-6 z-99999 flex flex-col gap-2 pointer-events-none">
                     {toasts.map(toast => (
                         <Toast key={toast.id} toast={toast} onRemove={removeToast} />
                     ))}
@@ -80,7 +80,7 @@ const Toast = ({ toast, onRemove }) => {
             </div>
             <div className="flex-1 min-w-0">
                 {toast.title && <div className="font-bold text-slate-900 dark:text-white text-sm">{toast.title}</div>}
-                {toast.message && <div className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 break-words">{toast.message}</div>}
+                {toast.message && <div className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 wrap-break-word">{toast.message}</div>}
                 {toast.action && (
                     <a
                         href={toast.action.url}
