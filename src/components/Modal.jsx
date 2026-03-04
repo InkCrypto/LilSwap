@@ -49,7 +49,7 @@ export const Modal = ({ isOpen, onClose, title, children, maxWidth = '500px', he
                 ref={modalRef}
                 tabIndex={-1}
                 className="relative bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-2xl shadow-2xl animate-in zoom-in-95 fade-in duration-200 overflow-hidden"
-                style={{ maxWidth, width: '100%', maxHeight: '90vh' }}
+                style={{ maxWidth, width: '100%', maxHeight: '95vh' }}
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}
@@ -67,7 +67,7 @@ export const Modal = ({ isOpen, onClose, title, children, maxWidth = '500px', he
                 )}
 
                 {/* Content */}
-                <div className="overflow-y-auto max-h-[calc(90vh-80px)] custom-scrollbar">
+                <div className="overflow-y-auto max-h-[calc(95vh-80px)] custom-scrollbar">
                     {children}
                 </div>
             </div>

@@ -1396,8 +1396,8 @@ export const DebtSwapModal = ({
 
                             {/* Costs & Fees Breakdown (Collapsible) */}
                             {showTransactionOverview && (
-                                <div className="px-1 pb-3 pt-0 space-y-3 text-xs">
-                                    <div className="flex justify-between items-start text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-700/60 pt-3">
+                                <div className="px-1 pb-1 pt-2 space-y-1 text-xs">
+                                    <div className="flex justify-between items-start text-slate-500 dark:text-slate-400">
                                         <div className="flex items-center gap-1.5 text-[12px]">
                                             <span>Network costs</span>
                                             <InfoTooltip content="Estimated gas cost for the transaction on the network." size={12} />
@@ -1483,7 +1483,7 @@ export const DebtSwapModal = ({
                             )}
 
                             {/* Persistent Rows Below Fees */}
-                            <div className="px-1 pb-2 pt-3 space-y-3 border-t border-slate-200 dark:border-slate-700/60">
+                            <div className="px-1 pb-2 pt-1 space-y-3">
                                 {/* Health Factor Row */}
                                 <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
                                     <div className="flex items-center gap-1.5">

@@ -367,7 +367,7 @@ export const PositionsAccordion = ({ walletAddress }) => {
                                                     </span>
                                                 </div>
                                                 <div>
-                                                    <div className="font-mono text-base font-bold text-emerald-400">
+                                                    <div className="font-mono text-base font-bold text-slate-900 dark:text-white">
                                                         {formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || 0))}
                                                     </div>
                                                     <div className="text-xs text-slate-500 font-medium whitespace-pre">
