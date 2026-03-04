@@ -1,7 +1,5 @@
-import React, { useState, useCallback, lazy, Suspense, useRef, useEffect } from 'react';
-import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Terminal, Moon, Sun } from 'lucide-react';
+import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Moon, Sun } from 'lucide-react';
 import { useWeb3 } from './context/web3Context.js';
-import { getLogLevel } from './utils/logger.js';
 import { InfoTooltip } from './components/InfoTooltip.jsx';
 import { useToast } from './context/ToastContext.jsx';
 import { ApiMetaProvider } from './context/ApiMetaContext.jsx';
@@ -54,8 +52,6 @@ export default function App() {
   const toggleDarkMode = () => setIsDarkMode(prev => !prev);
 
   // --- STATES ---
-  const [logs, setLogs] = useState([]);
-  const [copyButtonState, setCopyButtonState] = useState('idle');
   const [showAddress, setShowAddress] = useState(() => {
     const saved = localStorage.getItem('lilswap_show_address');
     return saved === 'true';
@@ -74,30 +70,16 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // --- LOG HELPER ---
-  const addLog = useCallback((msg, type = 'info') => {
-    const timestamp = new Date().toLocaleTimeString();
-    setLogs(prev => [{ time: timestamp, msg, type }, ...prev]);
-  }, []);
 
-  const handleCopyLogs = () => {
-    const logText = logs.map(l => `[${l.time}] ${l.msg}`).join('\n');
-    navigator.clipboard.writeText(logText).then(() => {
-      setCopyButtonState('copied');
-      setTimeout(() => setCopyButtonState('idle'), 2000);
-    });
-  };
 
   const handleConnect = async () => {
     try {
       if (typeof window === 'undefined' || !window.ethereum) {
-        addLog("No wallet detected! Please install MetaMask.", "error");
         return;
       }
       await connectWallet();
-      addLog("Wallet connected successfully", "success");
     } catch (err) {
-      addLog("Connection failed: " + err.message, "error");
+      console.error("Connection failed:", err);
     }
   };
 
@@ -105,9 +87,8 @@ export default function App() {
     try {
       disconnectWallet();
       setShowAccountMenu(false);
-      addLog("Wallet disconnected", "info");
     } catch (err) {
-      addLog("Disconnect failed: " + err.message, "error");
+      console.error("Disconnect failed:", err);
     }
   };
 
@@ -229,40 +210,7 @@ export default function App() {
               </Suspense>
             )}
 
-            {/* LOG TERMINAL (only visible in debug mode) */}
-            {getLogLevel() === 'debug' && (
-              <div className="mt-12 bg-slate-900 rounded-2xl border border-border-dark overflow-hidden font-mono text-[10px]">
-                <div className="bg-slate-800 px-4 py-2 border-b border-border-dark flex justify-between items-center">
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <Terminal className="w-3 h-3" />
-                    <span className="font-bold uppercase tracking-widest">System Logs</span>
-                  </div>
-                  <div className="flex gap-3">
-                    <button onClick={handleCopyLogs} className="text-slate-500 hover:text-slate-300 transition-colors uppercase font-bold">
-                      {copyButtonState === 'copied' ? 'Copied!' : 'Copy'}
-                    </button>
-                    <button onClick={() => setLogs([])} className="text-slate-500 hover:text-slate-300 transition-colors uppercase font-bold">
-                      Clear
-                    </button>
-                  </div>
-                </div>
-                <div className="p-4 h-32 overflow-y-auto space-y-1">
-                  {logs.length === 0 && <div className="text-slate-600 italic">No activity logs...</div>}
-                  {logs.map((log, i) => (
-                    <div key={i} className="flex gap-2">
-                      <span className="text-slate-600 shrink-0">[{log.time}]</span>
-                      <span className={
-                        log.type === 'error' ? 'text-red-400' :
-                          log.type === 'success' ? 'text-green-400' :
-                            log.type === 'warning' ? 'text-yellow-400' : 'text-slate-300'
-                      }>
-                        {log.msg}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+
 
           </div>
         </main>
