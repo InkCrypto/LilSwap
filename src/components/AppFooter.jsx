@@ -1,14 +1,17 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApiMeta } from '../context/ApiMetaContext.jsx';
+import { Coffee } from 'lucide-react';
+import { DonateModal } from './DonateModal.jsx';
 
 const APP_VERSION = __APP_VERSION__;
 
 const AppFooter = () => {
     const { apiVersion, isApiUp } = useApiMeta();
+    const [isDonateOpen, setIsDonateOpen] = useState(false);
 
     return (
         <footer className="sticky bottom-0 z-40 border-t border-border-light dark:border-border-dark bg-background-light/95 dark:bg-background-dark/95 backdrop-blur-sm">
-            <div className="max-w-4xl mx-auto px-4 sm:px-6 py-2.5 flex flex-col items-center gap-1 text-[11px] text-slate-500 dark:text-slate-500">
+            <div className="max-w-4xl mx-auto px-4 sm:px-6 py-2.5 flex flex-col items-center gap-2 text-[11px] text-slate-500 dark:text-slate-500">
 
                 {/* Row 1: version · API · Docs · GitHub */}
                 <div className="flex items-center gap-3 flex-wrap justify-center">
@@ -51,8 +54,22 @@ const AppFooter = () => {
                     </a>
                 </div>
 
-                {/* Row 2: copyright centered */}
-                <span className="text-slate-400">© {new Date().getFullYear()} InkCrypto Finance</span>
+                {/* Row 2: copyright and donate centered */}
+                <div className="flex items-center gap-3">
+                    <span className="text-slate-400">© {new Date().getFullYear()} InkCrypto Finance</span>
+
+                    <span className="text-slate-300 dark:text-slate-700">·</span>
+
+                    <button
+                        onClick={() => setIsDonateOpen(true)}
+                        className="flex items-center gap-1.5 text-slate-400 hover:text-primary-hover dark:hover:text-primary-hover transition-colors font-medium group"
+                    >
+                        <Coffee className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
+                        Donate
+                    </button>
+                </div>
+
+                <DonateModal isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} />
             </div>
         </footer>
     );
