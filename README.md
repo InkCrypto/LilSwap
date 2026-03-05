@@ -1,30 +1,40 @@
-# LilSwap
+# LilSwap App (Frontend)
 
-LilSwap is a high-performance interface built for managing Aave V3 positions. It enables users to optimize their debt and collateral through seamless swaps, gasless signatures, and multi-chain liquidity aggregation.
+**LilSwap App** is the official frontend interface for [LilSwap](https://lilswap.xyz). It is a high-performance, non-custodial cockpit built for managing Aave V3 positions. It enables users to optimize their debt and collateral through seamless swaps, gasless signatures, and multi-chain liquidity aggregation.
+
+**Live version:** [app.lilswap.xyz](https://app.lilswap.xyz)
+
 
 ## Key Features
 
 - **Advanced Debt Shifting:** Convert debt positions between different assets within Aave V3 using ParaSwap's repay adapters.
+- **Collateral Swapping:** Seamlessly migrate between different collateral assets to optimize yield or risk.
 - **Gasless Permissions:** Native support for EIP-712 Credit Delegation and Permit signatures.
-- **Multi-Chain Readiness:** Designed to support Base, Ethereum Mainnet, Polygon, and BNB Chain.
+- **Multi-Chain Support:** Native support for **Ethereum Mainnet, Base, BNB Chain, Polygon, and Arbitrum One.**
 - **Optimized Execution:** Real-time quote engine and smart routing to ensure minimal slippage and efficient health factor management.
+- **0% Execution Fees:** No additional fees for debt swaps, paying only the network gas.
+
+
 
 ## Project Roadmap
 
-- **Phase 1: Protocol Foundations & Multi-Chain Expansion**
+- **Phase 1: Foundations (Complete)**
   - Infrastructure setup for core debt-shifting logic.
   - Multi-chain integration (Base, Ethereum, Polygon, and BNB).
   - Dynamic token discovery via Aave Address Book.
 
-- **Phase 2: Enhanced Asset Management**
-  - Implementation of on-chain Collateral Swapping.
-  - Integration with liquidity adapters for seamless collateral migration.
-  - UI refinement for position tracking and health factor simulation.
+- **Phase 2: Collateral & Full Aave V3 Support (In Progress)**
+  - Implementation of on-chain Collateral Swapping (Live).
+  - Reach full parity with Aave V3 supported networks (Ethereum Core/Prime/EtherFi, Arbitrum, Avalanche, Base, BNB, Optimism, Polygon, Gnosis, Sonic).
+  - UI refinement for position tracking and health factor simulation (Complete).
 
-- **Phase 3: High-Efficiency Trading**
+
+- **Phase 3: High-Efficiency Trading (Ongoing)**
   - Support for off-chain/gasless trade execution.
   - Integration with CoW Protocol for MEV protection.
   - Advanced risk management features and automated safety buffers.
+
+
 
 ## Tech Stack
 
