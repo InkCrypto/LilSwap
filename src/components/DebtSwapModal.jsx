@@ -274,10 +274,10 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
     };
 
     return (
-        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-2 px-3">
+        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-1.5 px-2.5">
             {/* Top row: input and token badge */}
             <div className="flex items-center gap-2 sm:gap-3">
-                <div className="flex-1 relative">
+                <div className="flex-1 relative overflow-hidden">
                     <input
                         type="text"
                         value={value}
@@ -289,7 +289,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
                         }}
                         placeholder="0.00"
                         disabled={disabled}
-                        className="w-full bg-transparent text-slate-900 dark:text-white text-2xl font-mono font-bold text-left pl-3 focus:outline-none disabled:opacity-50 py-1 pr-6"
+                        className="w-full bg-transparent text-slate-900 dark:text-white text-2xl font-mono font-bold text-left pl-1.5 focus:outline-none disabled:opacity-50 py-0.5 pr-6 text-ellipsis overflow-hidden"
                     />
                     {/* Clear button (X) - shows when there's a value */}
                     {value && value !== '0' && value !== '0.' && (
@@ -333,7 +333,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
             </div>
 
             {/* Single bottom row: $USD left | Balance % MAX right */}
-            <div className="flex items-center justify-between mt-0 pl-3">
+            <div className="flex items-center justify-between mt-0 pl-1.5">
                 {/* USD value */}
                 <span className="text-xs text-slate-500">{usdValue ?? ''}</span>
 
@@ -998,7 +998,7 @@ export const DebtSwapModal = ({
     }, [providedBorrows, borrows, marketAssets, fallbackBorrows]);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} maxWidth="520px" headerBorder={false}>
+        <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} maxWidth="480px" headerBorder={false}>
             <div className="px-3 pb-3 pt-0 space-y-2">
                 {/* Header with Tabs and Slippage */}
                 <div className="flex items-center justify-between gap-2 relative">
@@ -1144,7 +1144,7 @@ export const DebtSwapModal = ({
                 )}
 
                 {/* Auto Refresh Display */}
-                <div className="flex justify-center min-h-6 py-0.5 items-center">
+                <div className="flex justify-center min-h-5 py-0 items-center">
                     {inputValue ? (
                         <div className="text-xs text-slate-500 flex items-center gap-2">
                             <button
@@ -1176,19 +1176,19 @@ export const DebtSwapModal = ({
                 </div>
 
                 {/* To Token Row (Selector + Quote Result) */}
-                <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-2 px-3">
+                <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-1.5 px-2.5">
                     {/* Top Row: Amount & Token Selector */}
                     <div className="flex items-center gap-2 sm:gap-3">
                         {/* Quote Result */}
-                        <div className="flex-1 min-w-0 pl-3">
+                        <div className="flex-1 min-w-0 pl-1.5">
                             {isQuoteLoading ? (
                                 <div className="flex items-center gap-2 text-purple-400">
                                     <RefreshCw className="w-4 h-4 animate-spin" />
                                     <span className="text-sm">Loading quote...</span>
                                 </div>
                             ) : swapQuote && toToken && fromToken ? (
-                                <div className="flex items-center gap-2">
-                                    <span className="text-2xl font-mono font-bold text-slate-900 dark:text-white block py-1 truncate leading-none">
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                    <span className="text-2xl font-mono font-bold text-slate-900 dark:text-white block py-0.5 truncate leading-none overflow-hidden text-ellipsis whitespace-nowrap">
                                         {(() => {
                                             try {
                                                 // Show full precision (no rounding) using ethers.formatUnits
@@ -1200,7 +1200,7 @@ export const DebtSwapModal = ({
                                     </span>
                                 </div>
                             ) : (
-                                <div className="text-slate-500 text-sm py-1 min-h-8 flex items-center">
+                                <div className="text-slate-500 text-sm py-0.5 min-h-7 flex items-center">
                                     {toToken ? 'Enter amount to get quote' : 'Select a token'}
                                 </div>
                             )}
@@ -1235,7 +1235,7 @@ export const DebtSwapModal = ({
                     </div>
 
                     {/* Bottom Row: USD Value & Placeholder Info */}
-                    <div className="flex items-center justify-between mt-0 pl-3">
+                    <div className="flex items-center justify-between mt-0 pl-1.5">
                         {/* USD Value */}
                         {isQuoteLoading ? (
                             <span className="text-xs text-slate-500 min-h-4 block"></span>
@@ -1267,7 +1267,7 @@ export const DebtSwapModal = ({
 
                 {/* Exchange Rate Indicator */}
                 {fromToken && toToken && fromToken.priceInUSD && toToken.priceInUSD && (
-                    <div className="flex justify-center mt-2 px-1">
+                    <div className="flex justify-center mt-1 px-1">
                         <button
                             type="button"
                             onClick={() => setInvertRate(!invertRate)}
@@ -1396,29 +1396,38 @@ export const DebtSwapModal = ({
 
                             {/* Costs & Fees Breakdown (Collapsible) */}
                             {showTransactionOverview && (
-                                <div className="px-1 pb-1 pt-2 space-y-1 text-xs">
-                                    <div className="flex justify-between items-start text-slate-500 dark:text-slate-400">
-                                        <div className="flex items-center gap-1.5 text-[12px]">
+                                <div className="relative ml-4 pl-4 pb-1 pt-2 space-y-3.5 text-xs">
+                                    {/* Vertical dashed line */}
+                                    <div className="absolute left-0 top-0 bottom-0 w-px border-l border-dashed border-slate-300 dark:border-slate-700/50" />
+
+                                    {/* Network Costs Row */}
+                                    <div className="relative flex justify-between items-center group">
+                                        {/* Horizontal branch line */}
+                                        <div className="absolute -left-4 top-1/2 w-4 border-t border-dashed border-slate-300 dark:border-slate-700/50" />
+                                        {/* Tree Node Dot */}
+                                        <div className="absolute -left-px top-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-600" />
+
+                                        <div className="flex items-center gap-1.5 text-[12px] text-slate-500 dark:text-slate-400 ml-1.5">
                                             <span>Network costs</span>
-                                            <InfoTooltip content="Estimated gas cost for the transaction on the network." size={12} />
+                                            <InfoTooltip content="Estimated network gas cost." size={12} />
                                         </div>
                                         <div className="text-right">
                                             {swapQuote?.priceRoute?.gasCostUSD ? (
-                                                <div className="flex flex-col items-end">
-                                                    <div className="flex items-center gap-1.5 font-medium text-[12px] text-slate-600 dark:text-slate-300">
-                                                        <div className="w-3.5 h-3.5 rounded-full overflow-hidden bg-white/10 flex items-center justify-center">
-                                                            <img
-                                                                src={(() => {
-                                                                    const chainId = effectiveNetwork?.chainId;
-                                                                    if (chainId === 137) return getTokenLogo('POL');
-                                                                    if (chainId === 56) return getTokenLogo('BNB');
-                                                                    if (chainId === 43114) return getTokenLogo('AVAX');
-                                                                    return getTokenLogo('ETH');
-                                                                })()}
-                                                                className="w-full h-full object-cover"
-                                                                onError={onTokenImgError('ETH')}
-                                                            />
-                                                        </div>
+                                                <div className="flex items-center gap-1.5 font-medium text-[12px] text-slate-600 dark:text-slate-300">
+                                                    <div className="w-3.5 h-3.5 rounded-full overflow-hidden bg-white/10 flex items-center justify-center">
+                                                        <img
+                                                            src={(() => {
+                                                                const chainId = effectiveNetwork?.chainId;
+                                                                if (chainId === 137) return getTokenLogo('POL');
+                                                                if (chainId === 56) return getTokenLogo('BNB');
+                                                                if (chainId === 43114) return getTokenLogo('AVAX');
+                                                                return getTokenLogo('ETH');
+                                                            })()}
+                                                            className="w-full h-full object-cover"
+                                                            onError={onTokenImgError('ETH')}
+                                                        />
+                                                    </div>
+                                                    <div className="flex items-baseline gap-1">
                                                         <span>
                                                             {(() => {
                                                                 const gasNative = swapQuote.priceRoute.gasCost;
@@ -1426,9 +1435,9 @@ export const DebtSwapModal = ({
                                                                 return gasEth === 0 ? "0" : (gasEth < 0.00001 ? "<0.00001" : gasEth.toLocaleString(undefined, { maximumFractionDigits: 6 }));
                                                             })()}
                                                         </span>
-                                                    </div>
-                                                    <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                                                        {formatUSD(parseFloat(swapQuote.priceRoute.gasCostUSD))}
+                                                        <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal whitespace-nowrap">
+                                                            ({formatUSD(parseFloat(swapQuote.priceRoute.gasCostUSD))})
+                                                        </span>
                                                     </div>
                                                 </div>
                                             ) : (
@@ -1437,10 +1446,15 @@ export const DebtSwapModal = ({
                                         </div>
                                     </div>
 
-                                    <div className="flex justify-between items-start text-slate-500 dark:text-slate-400 text-[12px]">
-                                        <div className="flex items-center gap-1.5">
-                                            <span>Fee</span>
-                                            <InfoTooltip content="LilSwap flat fee for the execution of this operation." size={12} />
+                                    {/* Fee Row */}
+                                    <div className="relative flex justify-between items-center group">
+                                        {/* Horizontal branch line */}
+                                        <div className="absolute -left-4 top-1/2 w-4 border-t border-dashed border-slate-300 dark:border-slate-700/50" />
+                                        {/* Tree Node Dot */}
+                                        <div className="absolute -left-px top-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-600" />
+
+                                        <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-[12px] ml-1.5">
+                                            <span>Fee ({(swapQuote?.feeBps || 0) / 100}%)</span>
                                         </div>
                                         {(() => {
                                             const feeBps = swapQuote?.feeBps || 0;
@@ -1460,22 +1474,22 @@ export const DebtSwapModal = ({
                                                 const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
 
                                                 return (
-                                                    <div className="flex flex-col items-end text-right">
-                                                        <div className="flex items-center gap-1.5 font-medium text-[12px] text-slate-600 dark:text-slate-300">
-                                                            <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center border border-slate-200 dark:border-slate-700/60 bg-white/10">
-                                                                <img src={getTokenLogo(toToken.symbol)} className="w-full h-full object-cover" onError={onTokenImgError('ETH')} />
-                                                            </div>
-                                                            <span>{feeAmountToken < 0.00001 ? "<0.00001" : feeAmountToken.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
+                                                    <div className="flex items-center gap-1.5 font-medium text-[12px] text-slate-600 dark:text-slate-300">
+                                                        <div className="w-3.5 h-3.5 rounded-full overflow-hidden flex items-center justify-center border border-slate-200 dark:border-slate-700/60 bg-white/10">
+                                                            <img src={getTokenLogo(toToken.symbol)} className="w-full h-full object-cover" onError={onTokenImgError('ETH')} />
                                                         </div>
-                                                        {!isNaN(price) && (
-                                                            <div className="text-[10px] text-slate-400 dark:text-slate-500 mt-0.5">
-                                                                {formatUSD(feeAmountToken * price)}
-                                                            </div>
-                                                        )}
+                                                        <div className="flex items-baseline gap-1">
+                                                            <span>{feeAmountToken < 0.00001 ? "<0.00001" : feeAmountToken.toLocaleString(undefined, { maximumFractionDigits: 6 })}</span>
+                                                            {!isNaN(price) && (
+                                                                <span className="text-[10px] text-slate-400 dark:text-slate-500 font-normal whitespace-nowrap">
+                                                                    ({formatUSD(feeAmountToken * price)})
+                                                                </span>
+                                                            )}
+                                                        </div>
                                                     </div>
                                                 );
                                             } catch (e) {
-                                                return <span className="font-medium text-[12px] text-slate-600 dark:text-slate-300">{feeBps / 100}%</span>;
+                                                return <span className="font-medium text-[12px] text-slate-600 dark:text-slate-300">{(swapQuote?.feeBps || 0) / 100}%</span>;
                                             }
                                         })()}
                                     </div>
@@ -1488,7 +1502,7 @@ export const DebtSwapModal = ({
                                 <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
                                     <div className="flex items-center gap-1.5">
                                         <span>Health factor</span>
-                                        <InfoTooltip content="Safety of your deposited collateral against the borrowed assets and its underlying value." size={12} />
+                                        <InfoTooltip content="Liquidation <1.0. Safety of your collateral against borrowed assets." size={12} />
                                     </div>
                                     <div className="text-right font-medium">
                                         {(() => {
@@ -1548,9 +1562,6 @@ export const DebtSwapModal = ({
                                                         <span className="text-slate-400 font-normal">→</span>
                                                         <span className={getHfColor(simulatedHf)}>{formatHf(simulatedHf)}</span>
                                                     </div>
-                                                    <div className="text-[11px] text-slate-500 font-normal mt-0.5">
-                                                        Liquidation at &lt;1.0
-                                                    </div>
                                                 </div>
                                             );
                                         })()}
@@ -1561,7 +1572,7 @@ export const DebtSwapModal = ({
                                 <div className="flex justify-between items-center text-[13px] text-slate-600 dark:text-slate-300 font-medium">
                                     <div className="flex items-center gap-1.5">
                                         <span>Borrow apy</span>
-                                        <InfoTooltip content="Annual interest rate you will pay on your borrowed assets." size={12} />
+                                        <InfoTooltip content="Annual interest on borrowed assets." size={12} />
                                     </div>
                                     <div className="text-right flex items-center gap-1.5">
                                         {(() => {
@@ -1590,7 +1601,7 @@ export const DebtSwapModal = ({
                                 <div className="flex justify-between items-center text-[13px] text-slate-600 dark:text-slate-300 font-medium pb-1">
                                     <div className="flex items-center gap-1.5">
                                         <span>Borrow balance after switch</span>
-                                        <InfoTooltip content="Your estimated debt balance in the protocol after the swap is completed." size={12} />
+                                        <InfoTooltip content="Estimated debt balance after swap." size={12} />
                                     </div>
                                     <div className="text-right flex items-center gap-1.5">
                                         {(() => {

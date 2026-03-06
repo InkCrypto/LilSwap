@@ -1,38 +1,56 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { createPortal } from 'react-dom';
+import { Info } from 'lucide-react';
 
 // A tiny tooltip that renders its box in a portal so it can't be clipped by parent overflow.
-// Usage: <InfoTooltip message="some text"><button>i</button></InfoTooltip>
-export const InfoTooltip = ({ message, children }) => {
+// Usage: <InfoTooltip message="some text"><button>i</button></InfoTooltip> or <InfoTooltip content="some text" size={12} />
+export const InfoTooltip = ({ message, content, size = 14, children }) => {
+    const tooltipText = message || content;
     const [visible, setVisible] = useState(false);
     const anchorRef = useRef(null);
     const [coords, setCoords] = useState({ top: 0, left: 0 });
 
-    const handleMouseEnter = () => {
-        if (anchorRef.current) {
-            const rect = anchorRef.current.getBoundingClientRect();
-            // Position centered below the anchor
-            setCoords({
-                top: rect.bottom + 8,
-                left: rect.left + (rect.width / 2)
-            });
-        }
-        setVisible(true);
-    };
+    useEffect(() => {
+        const handleClickOutside = (event) => {
+            if (anchorRef.current && !anchorRef.current.contains(event.target)) {
+                setVisible(false);
+            }
+        };
 
-    const handleMouseLeave = () => {
-        setVisible(false);
+        if (visible) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [visible]);
+
+    const handleClick = (e) => {
+        // Prevent event propagation so clicking the tooltip button doesn't trigger parent handlers
+        e.stopPropagation();
+
+        if (!visible) {
+            if (anchorRef.current) {
+                const rect = anchorRef.current.getBoundingClientRect();
+                setCoords({
+                    top: rect.bottom + 8,
+                    left: rect.left + (rect.width / 2)
+                });
+            }
+            setVisible(true);
+        } else {
+            setVisible(false);
+        }
     };
 
     return (
         <>
             <span
                 ref={anchorRef}
-                onMouseEnter={handleMouseEnter}
-                onMouseLeave={handleMouseLeave}
-                className="relative inline-flex"
+                onClick={handleClick}
+                className="relative inline-flex cursor-pointer"
             >
-                {children}
+                {children || <Info size={size} className="text-slate-400 hover:text-slate-500 dark:text-slate-500 dark:hover:text-slate-400 transition-colors" />}
             </span>
             {visible && createPortal(
                 <div
@@ -45,7 +63,7 @@ export const InfoTooltip = ({ message, children }) => {
                         maxWidth: '140px', // Force two-line design for short phrases
                     }}
                 >
-                    {message}
+                    {tooltipText}
                 </div>,
                 document.body
             )}
