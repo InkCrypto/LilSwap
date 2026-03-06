@@ -274,7 +274,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
     };
 
     return (
-        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-1.5 px-2.5">
+        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-1 px-2.5">
             {/* Top row: input and token badge */}
             <div className="flex items-center gap-2 sm:gap-3">
                 <div className="flex-1 relative overflow-hidden">
@@ -335,7 +335,7 @@ const CompactAmountInputRow = ({ token, value, onChange, maxAmount, decimals, di
             {/* Single bottom row: $USD left | Balance % MAX right */}
             <div className="flex items-center justify-between mt-0 pl-1.5">
                 {/* USD value */}
-                <span className="text-xs text-slate-500">{usdValue ?? ''}</span>
+                <span className="text-xs text-slate-500">{usdValue ? `~ ${usdValue}` : ''}</span>
 
                 {/* Balance + % popover + MAX */}
                 <div className="flex items-center gap-2 text-xs text-slate-400 relative">
@@ -998,15 +998,15 @@ export const DebtSwapModal = ({
     }, [providedBorrows, borrows, marketAssets, fallbackBorrows]);
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} maxWidth="480px" headerBorder={false}>
-            <div className="px-3 pb-3 pt-0 space-y-2">
+        <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} maxWidth="460px" headerBorder={false}>
+            <div className="px-3 pb-3 pt-0 space-y-1.5">
                 {/* Header with Tabs and Slippage */}
                 <div className="flex items-center justify-between gap-2 relative">
                     {/* Tabs: Market / Limit */}
-                    <div className="flex gap-2 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg flex-1">
+                    <div className="flex gap-1.5 bg-slate-100 dark:bg-slate-800 p-1 rounded-lg flex-1">
                         <button
                             onClick={() => setActiveTab('market')}
-                            className={`flex-1 py-2 text-sm font-bold rounded-md transition-all ${activeTab === 'market'
+                            className={`flex-1 py-1 text-sm font-bold rounded-md transition-all ${activeTab === 'market'
                                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white shadow-sm'
                                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white'
                                 }`}
@@ -1017,7 +1017,7 @@ export const DebtSwapModal = ({
                             disabled
                             aria-disabled="true"
                             title="Limit orders coming soon"
-                            className={`flex-1 py-2 text-sm font-bold rounded-md transition-all opacity-60 cursor-not-allowed ${activeTab === 'limit'
+                            className={`flex-1 py-1 text-sm font-bold rounded-md transition-all opacity-60 cursor-not-allowed ${activeTab === 'limit'
                                 ? 'bg-white dark:bg-slate-900 text-slate-900 dark:text-white'
                                 : 'text-slate-500 dark:text-slate-400'
                                 }`}
@@ -1030,10 +1030,10 @@ export const DebtSwapModal = ({
                     {/* Slippage Icon */}
                     <button
                         onClick={() => setShowSlippageSettings(!showSlippageSettings)}
-                        className="p-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white"
+                        className="p-1.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-white"
                         title={`Slippage: ${(slippage / 100).toFixed(2)}%`}
                     >
-                        <Settings className="w-5 h-5" />
+                        <Settings className="w-4 h-4" />
                     </button>
                 </div>
 
@@ -1176,7 +1176,7 @@ export const DebtSwapModal = ({
                 </div>
 
                 {/* To Token Row (Selector + Quote Result) */}
-                <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-1.5 px-2.5">
+                <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-1 px-2.5">
                     {/* Top Row: Amount & Token Selector */}
                     <div className="flex items-center gap-2 sm:gap-3">
                         {/* Quote Result */}
@@ -1247,9 +1247,9 @@ export const DebtSwapModal = ({
                                         (m.underlyingAsset || m.address || '').toLowerCase() === toAddr
                                     );
                                     const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
-                                    const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals));
+                                    const amount = parseFloat(ethers.formatUnits(swapQuote.destAmount, toToken.decimals));
                                     if (!isNaN(price) && price > 0 && !isNaN(amount) && amount > 0) {
-                                        return <span className="text-xs text-slate-500 block min-h-4">{formatUSD(amount * price)}</span>;
+                                        return <span className="text-xs text-slate-500 block min-h-4">~ {formatUSD(amount * price)}</span>;
                                     }
                                 } catch (e) { /* noop */ }
                                 return <span className="text-xs text-slate-500 block min-h-4"></span>;
@@ -1354,8 +1354,8 @@ export const DebtSwapModal = ({
 
                 {/* Transaction Overview */}
                 {swapQuote && fromToken && toToken && (
-                    <div className="mt-4 mb-4">
-                        <div className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-2 px-1">Transaction overview</div>
+                    <div className="mt-2 mb-2">
+                        <div className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-1 px-1">Transaction overview</div>
 
                         <div className="transition-all">
                             {/* Costs & Fees Header/Button */}
@@ -1665,7 +1665,7 @@ export const DebtSwapModal = ({
                 )}
 
                 {/* Method selector (always shown) */}
-                <div ref={methodMenuRef} className="relative flex justify-end mb-4">
+                <div ref={methodMenuRef} className="relative flex justify-end mb-2">
                     <div className="flex items-center gap-1.5 text-xs">
                         <span className="text-slate-400 font-medium">Approve with</span>
                         <button
@@ -1864,7 +1864,7 @@ export const DebtSwapModal = ({
                 <button
                     onClick={handleSwap}
                     disabled={isBusy || !swapQuote || !fromToken || !toToken || swapAmount === BigInt(0)}
-                    className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-3 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
+                    className="w-full bg-primary hover:bg-primary-hover text-white font-bold py-2.5 px-4 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 shadow-lg shadow-primary/20"
                 >
                     {isActionLoading ? (
                         <>
