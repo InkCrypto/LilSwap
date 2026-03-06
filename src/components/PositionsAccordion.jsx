@@ -50,7 +50,7 @@ const formatTokenAmount = (amount, symbol) => {
  * @param {string} walletAddress - User wallet address
  */
 export const PositionsAccordion = ({ walletAddress }) => {
-    const { positionsByChain, loading, error, lastFetch, refresh } = useAllPositions(walletAddress);
+    const { positionsByChain, donator, loading, error, lastFetch, refresh } = useAllPositions(walletAddress);
     const [openChain, setOpenChain] = useState(null);
     const [openEmptyChains, setOpenEmptyChains] = useState(false);
     const [modalState, setModalState] = useState({
@@ -227,24 +227,80 @@ export const PositionsAccordion = ({ walletAddress }) => {
     return (
         <div className="w-full space-y-4">
             {/* Header with refresh button */}
-            <div className="flex justify-between items-center">
-                <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                    <Network className="w-5 h-5 text-primary" /> Multi-Chain Positions
-                </h2>
-                <div className="flex items-center gap-3">
-                    {lastFetch && (
-                        <span className="text-xs text-slate-500">
-                            Updated {getLastFetchText()}
-                        </span>
-                    )}
-                    <button
-                        onClick={() => refresh(true)}
-                        disabled={loading}
-                        className="p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed"
-                        title="Refresh positions"
-                    >
-                        <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                    </button>
+            <div className="flex flex-col w-full gap-1">
+                {/* Mobile Badge Container */}
+                {donator.isDonator && (
+                    <div className="flex sm:hidden justify-center w-full -mt-1.5 mb-2 sm:mt-0 sm:mb-0">
+                        <InfoTooltip
+                            content={
+                                <div className="flex flex-col gap-1">
+                                    <span>You are enjoying a {donator.discountPercent}% discount on any fee in the app.</span>
+                                    {donator.type === 'Donator' && (
+                                        <span className="font-bold text-primary">Thank you for supporting LilSwap! 💜</span>
+                                    )}
+                                </div>
+                            }
+                        >
+                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-linear-to-r from-primary/20 to-fuchsia-500/20 text-primary border border-primary/30 shadow-[0_0_10px_rgba(168,85,247,0.2)] cursor-help hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all">
+                                <span className="relative flex h-1.5 w-1.5">
+                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                    <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-primary"></span>
+                                </span>
+                                {donator.type === 'Donator' ? 'DONATOR Detected!' : 'PARTNER Detected!'}
+                            </span>
+                        </InfoTooltip>
+                    </div>
+                )}
+
+                {/* Main Row */}
+                <div className="flex justify-between items-center w-full">
+                    <div className="flex items-center gap-2">
+                        <h2 className="text-[17px] sm:text-xl font-bold text-slate-900 dark:text-white flex items-center gap-1.5 sm:gap-2">
+                            <Network className="w-4.5 h-4.5 sm:w-5 sm:h-5 text-primary shrink-0" />
+                            <span className="whitespace-nowrap">Multi-Chain Positions</span>
+                        </h2>
+
+                        {/* Desktop Badge Container */}
+                        {donator.isDonator && (
+                            <div className="hidden sm:flex items-center">
+                                <InfoTooltip
+                                    content={
+                                        <div className="flex flex-col gap-1">
+                                            <span>You are enjoying a {donator.discountPercent}% discount on any fee in the app.</span>
+                                            {donator.type === 'Donator' && (
+                                                <span className="font-bold text-primary">Thank you for supporting LilSwap! 💜</span>
+                                            )}
+                                        </div>
+                                    }
+                                >
+                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-linear-to-r from-primary/20 to-fuchsia-500/20 text-primary border border-primary/30 shadow-[0_0_10px_rgba(168,85,247,0.2)] cursor-help hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all">
+                                        <span className="relative flex h-2 w-2">
+                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
+                                        </span>
+                                        {donator.type === 'Donator' ? 'DONATOR Detected!' : 'PARTNER Detected!'}
+                                    </span>
+                                </InfoTooltip>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Right Side: Updated + Refresh */}
+                    <div className="flex items-center gap-1.5 sm:gap-3 shrink-0">
+                        {lastFetch && (
+                            <span className="text-[10px] sm:text-xs text-slate-500 text-right whitespace-nowrap">
+                                Updated {getLastFetchText()}
+                            </span>
+                        )}
+                        <button
+                            onClick={() => refresh(true)}
+                            disabled={loading}
+                            className="p-1 sm:p-2 hover:bg-slate-800 rounded-full transition-colors text-slate-400 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+                            title="Refresh positions"
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${loading ? 'animate-spin' : ''}`} />
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -533,6 +589,7 @@ export const PositionsAccordion = ({ walletAddress }) => {
                         chainId={modalState.chainId}
                         marketAssets={modalState.marketAssets}
                         providedSupplies={modalState.supplies}
+                        donator={donator}
                     />
                 ) : (
                     <DebtSwapModal
@@ -542,6 +599,7 @@ export const PositionsAccordion = ({ walletAddress }) => {
                         chainId={modalState.chainId}
                         marketAssets={modalState.marketAssets}
                         providedBorrows={modalState.borrows}
+                        donator={donator}
                     />
                 )}
             </Suspense>

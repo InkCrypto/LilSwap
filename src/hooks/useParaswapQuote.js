@@ -156,7 +156,7 @@ export const useParaswapQuote = ({
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
                 }, signal);
 
-                const { priceRoute, destAmount, version, augustus, bufferBps, feeBps } = routeResult;
+                const { priceRoute, destAmount, version, augustus, bufferBps, feeBps, discountPercent } = routeResult;
                 const quoteTimestamp = Math.floor(Date.now() / 1000);
 
                 const srcAmountBigInt = BigInt(srcAmount);
@@ -175,6 +175,7 @@ export const useParaswapQuote = ({
                     augustus,
                     bufferBps,
                     feeBps,
+                    discountPercent,
                     apyPercent: null,
                 };
 
@@ -233,7 +234,7 @@ export const useParaswapQuote = ({
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
                 }, signal);
 
-                const { priceRoute, srcAmount, version, augustus, bufferBps, feeBps, apyPercent } = routeResult;
+                const { priceRoute, srcAmount, version, augustus, bufferBps, feeBps, apyPercent, discountPercent } = routeResult;
                 const quoteTimestamp = Math.floor(Date.now() / 1000);
 
                 const srcAmountBigInt = BigInt(srcAmount);
@@ -252,6 +253,7 @@ export const useParaswapQuote = ({
                     augustus,
                     bufferBps,
                     feeBps,
+                    discountPercent,
                     apyPercent: typeof apyPercent === 'number' ? apyPercent : null,
                 };
 

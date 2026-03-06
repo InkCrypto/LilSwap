@@ -32,41 +32,11 @@ import { getTokenLogo, onTokenImgError } from '../utils/getTokenLogo.js';
 import { getPairStatus, checkPairSwappable } from '../services/tokenPairCache.js';
 
 
-const UserRejectedAlert = ({ onClose }) => {
-    useEffect(() => {
-        const timer = setTimeout(onClose, 8000);
-        return () => clearTimeout(timer);
-    }, [onClose]);
-
-    return (
-        <div className="bg-white dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700/80 shadow-slate-200/50 dark:shadow-slate-900/50 shadow-xl p-3 rounded-xl flex items-center gap-3 animate-in fade-in duration-300">
-            <style>{`
-                @keyframes drain {
-                    from { stroke-dashoffset: 0; }
-                    to { stroke-dashoffset: 44; }
-                }
-            `}</style>
-            <Info className="w-4 h-4 text-purple-500 dark:text-[#2EBDE3] shrink-0" />
-            <div className="flex-1">
-                <p className="text-sm font-medium text-slate-800 dark:text-slate-200">User denied the operation.</p>
-            </div>
-            <div className="relative w-4 h-4 shrink-0">
-                <svg className="w-full h-full transform -rotate-90 pointer-events-none" viewBox="0 0 16 16">
-                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-slate-200 dark:text-slate-800" />
-                    <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" fill="none" className="text-slate-400 dark:text-slate-500"
-                        style={{ strokeDasharray: 44, animation: 'drain 8s linear forwards' }}
-                    />
-                </svg>
-            </div>
-        </div>
-    );
-};
-
 // Format a numeric USD value to a compact string like "$1.21K" or "$1,234.56"
 const formatUSD = (value) => {
-    if (value == null || isNaN(value)) return null;
+    if (value == null || isNaN(value)) return '$0.00';
     if (value === 0) return '$0.00';
-    if (value < 0.01) return '< $0.01';
+    if (value > 0 && value < 0.01) return '< $0.01';
     if (value >= 1_000_000) return `$${(value / 1_000_000).toFixed(2)}M`;
     if (value >= 1_000) return `$${(value / 1_000).toFixed(2)}K`;
     return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -397,6 +367,7 @@ export const CollateralSwapModal = ({
     chainId = null,
     marketAssets: providedMarketAssets = null,
     providedSupplies = null,
+    donator = null,
 }) => {
     const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
     const { addToast } = useToast();
@@ -1333,35 +1304,7 @@ export const CollateralSwapModal = ({
                     </div>
                 )}
 
-                {/* Error Display */}
-                {txError && (
-                    <div className="bg-red-950/40 border border-red-500/30 p-3 rounded-xl">
-                        <div className="flex items-start gap-2.5">
-                            <AlertTriangle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
-                            <div className="flex-1 min-w-0">
-                                <p className="text-sm font-bold text-red-200 mb-1">Transaction Failed</p>
-                                <p className="text-xs text-red-300/80 mb-2 leading-relaxed">
-                                    An error occurred while attempting to submit this transaction to the network. Please copy the error details if you wish to report this issue.
-                                </p>
-                                <button
-                                    onClick={() => copyToClipboard(txError)}
-                                    className="flex items-center gap-1.5 text-xs font-bold text-red-400 hover:text-red-300 transition-colors bg-red-950/50 hover:bg-red-900/50 px-3 py-1.5 rounded-lg border border-red-500/20 group w-fit"
-                                >
-                                    <Copy className="w-3.5 h-3.5 group-hover:scale-110 transition-transform" />
-                                    Copy Error Details
-                                </button>
-                            </div>
-                            <button onClick={clearTxError} className="text-red-400 hover:text-red-300 p-1 bg-red-900/20 hover:bg-red-900/40 rounded-lg transition-colors">
-                                <X className="w-4 h-4" />
-                            </button>
-                        </div>
-                    </div>
-                )}
 
-                {/* User Rejected */}
-                {userRejected && (
-                    <UserRejectedAlert onClose={clearUserRejected} />
-                )}
 
                 {/* Transaction Overview */}
                 {swapQuote && fromToken && toToken && (
@@ -1374,7 +1317,14 @@ export const CollateralSwapModal = ({
                                 onClick={() => setShowTransactionOverview(!showTransactionOverview)}
                                 className="w-full flex items-center justify-between px-1 py-2 transition-colors"
                             >
-                                <span className="font-medium text-[13px] text-slate-600 dark:text-slate-300">Costs & Fees</span>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-medium text-[13px] text-slate-600 dark:text-slate-300">Costs & Fees</span>
+                                    {swapQuote?.discountPercent > 0 && (
+                                        <span className="text-[10px] bg-emerald-500/10 text-emerald-500 px-1.5 py-0.5 rounded font-bold border border-emerald-500/20">
+                                            {swapQuote.discountPercent}% off for {donator?.type === 'Donator' ? 'Donators' : 'Partners'}
+                                        </span>
+                                    )}
+                                </div>
                                 <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
                                     <span className="font-medium">
                                         {(() => {
@@ -1465,7 +1415,12 @@ export const CollateralSwapModal = ({
                                         <div className="absolute -left-px top-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-600" />
 
                                         <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-[12px] ml-1.5">
-                                            <span>Fee ({(swapQuote?.feeBps || 0) / 100}%)</span>
+                                            <span>Fee ({((swapQuote?.feeBps || 0) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%)</span>
+                                            {swapQuote?.discountPercent > 0 && (
+                                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider animate-pulse whitespace-nowrap">
+                                                    {swapQuote.discountPercent}% OFF
+                                                </span>
+                                            )}
                                         </div>
                                         {(() => {
                                             const feeBps = swapQuote?.feeBps || 0;
@@ -1504,6 +1459,44 @@ export const CollateralSwapModal = ({
                                             }
                                         })()}
                                     </div>
+
+                                    {/* Fee Row: Donator Discount Indicator */}
+                                    {swapQuote?.discountPercent > 0 && (
+                                        <div className="relative flex justify-between items-center group">
+                                            {/* Horizontal branch line */}
+                                            <div className="absolute -left-4 top-1/2 w-4 border-t border-dashed border-slate-300 dark:border-slate-700/50" />
+                                            {/* Tree Node Dot */}
+                                            <div className="absolute -left-px top-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-emerald-500" />
+
+                                            <div className="flex items-center gap-1.5 text-emerald-500 text-[12px] ml-1.5">
+                                                <span>{donator?.type === 'Donator' ? 'Donator Discount' : 'Partner Discount'}</span>
+                                            </div>
+                                            <div className="text-right font-medium text-[12px] text-emerald-500">
+                                                {(() => {
+                                                    const feeBps = swapQuote?.feeBps || 0;
+                                                    const discountPct = swapQuote.discountPercent;
+                                                    const originalFeeBps = feeBps / (1 - discountPct / 100);
+                                                    const savingsBps = originalFeeBps - feeBps;
+
+                                                    try {
+                                                        const savingsPercentage = savingsBps / 10000;
+                                                        const amount = parseFloat(ethers.formatUnits(swapQuote.destAmount || "0", toToken.decimals || 18));
+                                                        const savingsAmountToken = amount * savingsPercentage;
+
+                                                        const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+                                                        const marketToken = (marketAssets || []).find(m =>
+                                                            (m.underlyingAsset || m.address || '').toLowerCase() === toAddr
+                                                        );
+                                                        const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
+
+                                                        return `-${formatUSD(savingsAmountToken * price)}`;
+                                                    } catch (e) {
+                                                        return `-${discountPct}%`;
+                                                    }
+                                                })()}
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                             )}
 
@@ -1703,6 +1696,30 @@ export const CollateralSwapModal = ({
                     </div>
                 )}
 
+                {/* Errors */}
+                {(txError || userRejected) && (
+                    <div className="flex justify-center -mt-1 mb-2">
+                        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 py-1.5 px-3 rounded-lg flex items-center gap-2 max-w-[90%]">
+                            <AlertTriangle className="w-3.5 h-3.5 text-red-500 dark:text-red-400 shrink-0" />
+                            <p className="text-[11px] md:text-xs font-medium text-red-800 dark:text-red-300 truncate">
+                                {userRejected ? 'Transaction rejected in wallet' : 'Transaction failed'}
+                            </p>
+                            {txError && !userRejected && (
+                                <button
+                                    onClick={() => copyToClipboard(txError)}
+                                    className="flex items-center gap-1 text-[10px] font-bold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/30 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-500/30 shrink-0 ml-1"
+                                >
+                                    <Copy className="w-3 h-3" />
+                                    Copy
+                                </button>
+                            )}
+                            <button onClick={userRejected ? clearUserRejected : clearTxError} className="p-0.5 rounded text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors shrink-0 ml-1">
+                                <X className="w-3 h-3" />
+                            </button>
+                        </div>
+                    </div>
+                )}
+
                 {/* Method selector (always shown) */}
                 <div ref={methodMenuRef} className="relative flex justify-end mb-2">
                     <div className="flex items-center gap-1.5 text-xs">
@@ -1898,6 +1915,7 @@ export const CollateralSwapModal = ({
                         </div>
                     </div>
                 )}
+
 
                 {/* Action Button */}
                 <button

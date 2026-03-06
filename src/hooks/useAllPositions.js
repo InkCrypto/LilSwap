@@ -10,6 +10,7 @@ import logger from '../utils/logger';
  */
 export const useAllPositions = (walletAddress, opts = {}) => {
     const [data, setData] = useState(null); // object keyed by chainId
+    const [donator, setDonator] = useState({ isDonator: false, discountPercent: 0 });
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [lastFetch, setLastFetch] = useState(null);
@@ -31,7 +32,11 @@ export const useAllPositions = (walletAddress, opts = {}) => {
                 timeout: 30000 // 30s timeout for multi-chain request
             });
 
-            setData(response.data);
+            const { _meta, ...positionsByChain } = response.data;
+            setData(positionsByChain);
+            if (_meta?.donator) {
+                setDonator(_meta.donator);
+            }
             setLastFetch(Date.now());
 
             logger.debug('All positions fetched successfully', {
@@ -76,6 +81,7 @@ export const useAllPositions = (walletAddress, opts = {}) => {
 
     return {
         positionsByChain: data,
+        donator,
         loading,
         error,
         lastFetch,

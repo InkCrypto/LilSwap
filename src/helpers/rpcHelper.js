@@ -17,7 +17,7 @@ export async function createRpcProviderWithFallback(rpcUrls, timeout = 5000) {
 
     for (const rpcUrl of rpcUrls) {
         try {
-            const provider = new ethers.JsonRpcProvider(rpcUrl);
+            const provider = new ethers.JsonRpcProvider(rpcUrl, undefined, { staticNetwork: true });
 
             // Test the connection with a timeout
             const blockNumberPromise = provider.getBlockNumber();
@@ -38,7 +38,7 @@ export async function createRpcProviderWithFallback(rpcUrls, timeout = 5000) {
     // All RPCs failed - return the first one as fallback
     logger.error('All RPCs failed. Using first URL as fallback:', rpcUrls[0]);
     logger.error('Errors:', errors);
-    return new ethers.JsonRpcProvider(rpcUrls[0]);
+    return new ethers.JsonRpcProvider(rpcUrls[0], undefined, { staticNetwork: true });
 }
 
 /**
@@ -55,12 +55,12 @@ export function createRpcProvider(rpcUrls) {
 
     for (const rpcUrl of rpcUrls) {
         try {
-            return new ethers.JsonRpcProvider(rpcUrl);
+            return new ethers.JsonRpcProvider(rpcUrl, undefined, { staticNetwork: true });
         } catch (error) {
             logger.warn(`Failed to create provider for ${rpcUrl}:`, error.message);
         }
     }
 
     // Fallback to first URL
-    return new ethers.JsonRpcProvider(rpcUrls[0]);
+    return new ethers.JsonRpcProvider(rpcUrls[0], undefined, { staticNetwork: true });
 }

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Modal } from './Modal.jsx';
-import { Copy, CheckCircle2, Coffee, Wallet } from 'lucide-react';
+import { Copy, CheckCircle2, Coffee, Wallet, Percent } from 'lucide-react';
 import { useToast } from '../context/ToastContext.jsx';
 
 export const DonateModal = ({ isOpen, onClose }) => {
@@ -24,6 +24,21 @@ export const DonateModal = ({ isOpen, onClose }) => {
             </div>
         } maxWidth="400px">
             <div className="p-4 sm:p-5 flex flex-col gap-6">
+
+                {/* Rewards Info */}
+                <div className="bg-linear-to-br from-primary/10 via-fuchsia-500/10 to-transparent border border-primary/20 rounded-xl p-4 flex flex-col gap-2">
+                    <div className="flex items-center gap-2 text-primary">
+                        <span className="text-xl">🏆</span>
+                        <span className="text-sm font-extrabold uppercase tracking-wider">Donator Rewards</span>
+                    </div>
+                    <p className="text-xs text-slate-700 dark:text-slate-300 leading-relaxed">
+                        Donate <strong className="text-primary font-bold">$1 or more</strong> in bluechip ERC-20 tokens to unlock a <strong className="text-primary font-bold">10% discount</strong> on any fee in the app for a limited time! 💜
+                    </p>
+                    <div className="flex items-start gap-2 mt-2 text-[10px] text-slate-500 dark:text-slate-400 bg-white/50 dark:bg-black/20 p-2 rounded-lg shadow-sm">
+                        <span className="text-xs">⚡</span>
+                        <p className="font-medium">Donator detection happens automatically every ~5 minutes after your transaction confirms.</p>
+                    </div>
+                </div>
 
                 {/* QR Code */}
                 <div className="flex flex-col items-center gap-4">
