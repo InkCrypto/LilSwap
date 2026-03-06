@@ -1247,7 +1247,7 @@ export const DebtSwapModal = ({
                                         (m.underlyingAsset || m.address || '').toLowerCase() === toAddr
                                     );
                                     const price = parseFloat(marketToken?.priceInUSD ?? toToken?.priceInUSD);
-                                    const amount = parseFloat(ethers.formatUnits(swapQuote.destAmount, toToken.decimals));
+                                    const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals));
                                     if (!isNaN(price) && price > 0 && !isNaN(amount) && amount > 0) {
                                         return <span className="text-xs text-slate-500 block min-h-4">~ {formatUSD(amount * price)}</span>;
                                     }
