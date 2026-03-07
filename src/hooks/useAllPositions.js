@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { apiClient } from '../services/api';
+import { useUserActivity } from '../context/UserActivityContext';
 import logger from '../utils/logger';
 
 /**
@@ -14,6 +15,7 @@ export const useAllPositions = (walletAddress, opts = {}) => {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
     const [lastFetch, setLastFetch] = useState(null);
+    const { isTabVisible, isUserActive } = useUserActivity();
     const prevAddressRef = useRef(walletAddress);
 
     const fetchPositions = useCallback(async (force = false) => {
@@ -73,11 +75,26 @@ export const useAllPositions = (walletAddress, opts = {}) => {
         // Auto refresh every 90s (configurable)
         const refreshInterval = opts.refreshIntervalMs || 90000;
         const interval = setInterval(() => {
-            fetchPositions();
+            if (isTabVisible && isUserActive) {
+                fetchPositions();
+            } else {
+                logger.debug('Skipping auto-refresh: User inactive or tab hidden');
+            }
         }, refreshInterval);
 
         return () => clearInterval(interval);
-    }, [fetchPositions, walletAddress, opts.refreshIntervalMs]);
+    }, [fetchPositions, walletAddress, opts.refreshIntervalMs, isTabVisible, isUserActive]);
+
+    // Trigger refresh when user becomes active/tab visible if data is stale (> refreshInterval)
+    useEffect(() => {
+        if (isTabVisible && isUserActive && lastFetch) {
+            const refreshInterval = opts.refreshIntervalMs || 90000;
+            if (Date.now() - lastFetch > refreshInterval) {
+                logger.debug('User returned and data is stale, refreshing...');
+                fetchPositions();
+            }
+        }
+    }, [isTabVisible, isUserActive, lastFetch, fetchPositions, opts.refreshIntervalMs]);
 
     return {
         positionsByChain: data,
