@@ -24,11 +24,10 @@ const appKitConfig = {
         email: false,
         socials: []
     },
-    // Redundancy cleanup: Disable traditional injected/EIP6963 connectors in the modal
-    // because WalletConnect already provides access to browser extensions and other apps.
-    // This prevents the common "hijacking" conflict where Rabby intercepts WalletConnect sessions.
-    enableInjected: false,
-    enableEIP6963: false,
+    // Re-enable injected wallets (MetaMask, Rabby, etc.) natively in the modal.
+    // Provider routing is now isolated via the context so hijacking won't occur.
+    enableInjected: true,
+    enableEIP6963: true,
     enableCoinbase: false,
     themeMode: 'dark'
 };
