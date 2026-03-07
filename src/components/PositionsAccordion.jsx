@@ -1,12 +1,12 @@
-import React, { useState, useMemo, lazy, Suspense } from 'react';
+import React, { useState, useContext, useMemo, lazy, Suspense } from 'react';
 import { ArrowRightLeft, ChevronDown, ChevronUp, RefreshCw, AlertCircle, Network, ExternalLink } from 'lucide-react';
 import { useAllPositions } from '../hooks/useAllPositions';
-import { requestChainSwitch } from '../utils/wallet';
+import { toHexChainId } from '../utils/wallet';
 import { getNetworkByChainId } from '../constants/networks';
+import { Web3Context } from '../context/web3Context.js';
 import logger from '../utils/logger';
 import { InfoTooltip } from './InfoTooltip';
 import { getTokenLogo, onTokenImgError } from '../utils/getTokenLogo';
-
 
 // Lazy load Swap Modals
 const DebtSwapModal = lazy(() => import('./DebtSwapModal.jsx').then(module => ({ default: module.DebtSwapModal })));
@@ -51,6 +51,8 @@ const formatTokenAmount = (amount, symbol) => {
  */
 export const PositionsAccordion = ({ walletAddress }) => {
     const { positionsByChain, donator, loading, error, lastFetch, refresh } = useAllPositions(walletAddress);
+    // Get provider and setSelectedNetwork from context to use the correct wallet for chain switching
+    const { provider, setSelectedNetwork } = useContext(Web3Context);
     const [openChain, setOpenChain] = useState(null);
     const [openEmptyChains, setOpenEmptyChains] = useState(false);
     const [modalState, setModalState] = useState({
@@ -68,8 +70,19 @@ export const PositionsAccordion = ({ walletAddress }) => {
         logger.debug('Opening swap modal', { chainId, asset: asset.symbol, isCollateral });
 
         try {
-            // Request wallet to switch to the correct chain
-            await requestChainSwitch(chainId);
+            // Use the active provider from context (WalletConnect or injected) to switch chains.
+            // This avoids hardcoding window.ethereum which can be hijacked by browser extensions.
+            if (provider) {
+                const chainHex = toHexChainId(chainId);
+                logger.debug('Requesting chain switch', { chainId, chainHex });
+                await provider.send('wallet_switchEthereumChain', [{ chainId: chainHex }]);
+            } else {
+                logger.warn('No provider available for chain switch, skipping.');
+            }
+
+            // Also update app-level network state
+            const network = getNetworkByChainId(chainId);
+            if (network) setSelectedNetwork?.(network.key);
 
             logger.info('Chain switched successfully', { chainId });
 

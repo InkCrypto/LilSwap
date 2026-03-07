@@ -1,225 +1,119 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ethers } from 'ethers';
+import { createAppKit, useAppKitProvider, useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
+import { EthersAdapter } from '@reown/appkit-adapter-ethers';
+import { mainnet, bsc, polygon, base, arbitrum } from '@reown/appkit/networks';
 import { Web3Context } from './web3Context.js';
-import { DEFAULT_NETWORK, NETWORKS } from '../constants/networks.js';
+import { DEFAULT_NETWORK, NETWORKS, getNetworkByChainId } from '../constants/networks.js';
 import { createRpcProvider } from '../helpers/rpcHelper.js';
-
 import logger from '../utils/logger.js';
+
+// Get Project ID from env, or use a default one for development/testing if not set
+const projectId = import.meta.env.VITE_REOWN_PROJECT_ID || 'b8480dbf6f1c429fb1e3fcbefa80c920';
+
+// Define networks for AppKit
+const appKitNetworks = [mainnet, arbitrum, polygon, base, bsc];
+
+// Initialize AppKit configuration
+const appKitConfig = {
+    adapters: [new EthersAdapter()],
+    networks: appKitNetworks,
+    projectId,
+    features: {
+        analytics: true,
+        email: false,
+        socials: []
+    },
+    // Redundancy cleanup: Disable traditional injected/EIP6963 connectors in the modal
+    // because WalletConnect already provides access to browser extensions and other apps.
+    // This prevents the common "hijacking" conflict where Rabby intercepts WalletConnect sessions.
+    enableInjected: false,
+    enableEIP6963: false,
+    enableCoinbase: false,
+    themeMode: 'dark'
+};
+
+// Create modal instance outside component to prevent re-renders
+const modal = createAppKit(appKitConfig);
+
 export const Web3Provider = ({ children }) => {
-    const [provider, setProvider] = useState(() => {
-        if (typeof window === 'undefined' || !window.ethereum) {
-            return null;
-        }
-        return new ethers.BrowserProvider(window.ethereum);
-    });
+    // Official AppKit React hooks
+    const { address, isConnected } = useAppKitAccount();
+    const { walletProvider } = useAppKitProvider('eip155');
+    const { chainId } = useAppKitNetwork();
+
+    const [provider, setProvider] = useState(null);
     const [account, setAccount] = useState(null);
     const [selectedNetworkKey, setSelectedNetworkKey] = useState(DEFAULT_NETWORK.key);
-    // Initialize from localStorage - ONLY for manual disconnect by user
-    const [manuallyDisconnected, setManuallyDisconnected] = useState(() => {
-        if (typeof window === 'undefined') return false;
-        return localStorage.getItem('walletManuallyDisconnected') === 'true';
-    });
+    const [isConnecting, setIsConnecting] = useState(false);
 
     const selectedNetwork = useMemo(() => NETWORKS[selectedNetworkKey] || DEFAULT_NETWORK, [selectedNetworkKey]);
     const allowedNetworks = useMemo(() => [NETWORKS.ETHEREUM, NETWORKS.BASE, NETWORKS.POLYGON, NETWORKS.BNB], []);
 
     const networkRpcProvider = useMemo(() => {
         const rpcUrls = selectedNetwork?.rpcUrls;
-        if (!rpcUrls || rpcUrls.length === 0) {
-            return null;
-        }
-
-        logger.debug('[Web3Provider] Creating RPC provider for:', selectedNetwork.label);
-        logger.debug('[Web3Provider] Available RPCs:', rpcUrls);
-        logger.debug('[Web3Provider] Using primary RPC:', rpcUrls[0]);
-
+        if (!rpcUrls || rpcUrls.length === 0) return null;
         return createRpcProvider(rpcUrls);
     }, [selectedNetwork]);
 
-    const initializeProvider = useCallback(() => {
-        if (typeof window === 'undefined' || !window.ethereum) {
-            return null;
-        }
-        return new ethers.BrowserProvider(window.ethereum);
-    }, []);
-
+    // Update internal state when AppKit account or provider changes
     useEffect(() => {
-        if (!provider) {
-            return undefined;
+        if (isConnected && address && walletProvider) {
+            setAccount(address);
+            // Since we disabled direct injected wallets in AppKit, walletProvider
+            // here will reliably be the one the user explicitly chose in the modal.
+            setProvider(new ethers.BrowserProvider(walletProvider));
+        } else {
+            setAccount(null);
+            setProvider(null);
         }
+    }, [isConnected, address, walletProvider]);
 
-        let mounted = true;
-
-        const autoConnect = async () => {
-            try {
-                // Skip auto-connect if user manually disconnected
-                if (manuallyDisconnected) {
-                    return;
-                }
-                const accounts = await provider.listAccounts();
-                if (!mounted || accounts.length === 0) {
-                    return;
-                }
-                const address = await accounts[0].getAddress();
-                if (mounted) {
-                    setAccount(address);
-                }
-            } catch (error) {
-                logger.error('Auto-connect failed:', error);
+    // Update network when AppKit chain changes
+    useEffect(() => {
+        if (chainId) {
+            const newNetwork = getNetworkByChainId(chainId);
+            if (newNetwork) {
+                setSelectedNetworkKey(newNetwork.key);
             }
-        };
-
-        // Detect and sync current chain from wallet
-        const syncChainFromWallet = async () => {
-            try {
-                if (!window.ethereum) return;
-
-                const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
-                const chainId = parseInt(chainIdHex, 16);
-
-                logger.debug('[Web3Provider] Detected wallet chain:', chainId);
-
-                // Find matching network by chainId
-                const matchingNetwork = Object.entries(NETWORKS).find(
-                    ([_, network]) => network.chainId === chainId
-                );
-
-                if (matchingNetwork) {
-                    const [networkKey] = matchingNetwork;
-                    logger.debug('[Web3Provider] Syncing to network:', networkKey);
-                    setSelectedNetworkKey(networkKey);
-                } else {
-                    logger.warn('[Web3Provider] Unknown chainId:', chainId);
-                }
-            } catch (error) {
-                logger.error('[Web3Provider] Failed to sync chain:', error);
-            }
-        };
-
-        autoConnect();
-        syncChainFromWallet(); // Sync chain on mount and provider change
-
-        const handleAccountsChanged = (accounts) => {
-            if (accounts.length > 0) {
-                // Accounts available - wallet unlocked or user connected
-                setAccount(accounts[0]);
-                // Recreate provider for the new account (signer may be stale)
-                const freshProvider = initializeProvider();
-                if (freshProvider) {
-                    setProvider(freshProvider);
-                }
-                // If user reconnected via wallet, clear manual disconnect flag
-                if (manuallyDisconnected) {
-                    setManuallyDisconnected(false);
-                    if (typeof window !== 'undefined') {
-                        localStorage.removeItem('walletManuallyDisconnected');
-                    }
-                }
-            } else {
-                // Accounts unavailable - could be wallet lock OR manual disconnect
-                // DON'T set localStorage here - we can't distinguish the two scenarios
-                // Just clear the account state
-                setAccount(null);
-            }
-        };
-
-        const handleChainChanged = async (chainIdHex) => {
-            logger.debug('[Web3Provider] Chain changed event:', chainIdHex);
-
-            // Ethers v6 BrowserProvider caches the chainId internally.
-            // When the wallet switches chains, the old provider throws NETWORK_ERROR.
-            // We MUST recreate it so subsequent calls use the correct chain.
-            const freshProvider = initializeProvider();
-            if (freshProvider) {
-                setProvider(freshProvider);
-            }
-
-            // Update selectedNetwork based on new chain
-            const chainId = parseInt(chainIdHex, 16);
-            const matchingNetwork = Object.entries(NETWORKS).find(
-                ([_, network]) => network.chainId === chainId
-            );
-
-            if (matchingNetwork) {
-                const [networkKey] = matchingNetwork;
-                logger.debug('[Web3Provider] Network changed to:', networkKey);
-                setSelectedNetworkKey(networkKey);
-            }
-        };
-
-        if (window.ethereum) {
-            window.ethereum.on('accountsChanged', handleAccountsChanged);
-            window.ethereum.on('chainChanged', handleChainChanged);
         }
-
-        return () => {
-            mounted = false;
-            if (window.ethereum) {
-                window.ethereum.removeListener('accountsChanged', handleAccountsChanged);
-                window.ethereum.removeListener('chainChanged', handleChainChanged);
-            }
-        };
-    }, [provider, initializeProvider, manuallyDisconnected]);
+    }, [chainId]);
 
     const connectWallet = useCallback(async () => {
-        // Clear manual disconnect flag when user explicitly connects
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem('walletManuallyDisconnected');
-        }
-        setManuallyDisconnected(false);
-
-        let activeProvider = provider;
-        if (!activeProvider) {
-            activeProvider = initializeProvider();
-            if (!activeProvider) {
-                throw new Error('No wallet detected! Please install MetaMask or another Web3 wallet.');
-            }
-            setProvider(activeProvider);
-        }
-
-        // Try request() first (EIP-1193 standard), fallback to send()
-        let accounts;
         try {
-            if (window.ethereum?.request) {
-                accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
-            } else {
-                accounts = await activeProvider.send('eth_requestAccounts', []);
+            setIsConnecting(true);
+            await modal.open();
+        } catch (error) {
+            logger.error('[Web3Provider] Connection failed:', error);
+            throw error;
+        } finally {
+            setIsConnecting(false);
+        }
+    }, []);
+
+    const disconnectWallet = useCallback(async () => {
+        try {
+            await modal.disconnect();
+            setAccount(null);
+            setProvider(null);
+            logger.debug('[Web3Provider] Wallet disconnected');
+        } catch (error) {
+            logger.error('[Web3Provider] Disconnect failed:', error);
+        }
+    }, []);
+
+    const changeNetwork = useCallback(async (networkKey) => {
+        const targetNetwork = NETWORKS[networkKey];
+        if (!targetNetwork) return;
+
+        try {
+            const appKitNetwork = appKitNetworks.find(n => n.id === targetNetwork.chainId);
+            if (appKitNetwork) {
+                await modal.switchNetwork(appKitNetwork);
             }
         } catch (error) {
-            // User rejected or error occurred
-            throw new Error(error.message || 'Failed to connect wallet');
+            logger.error('[Web3Provider] Network switch failed:', error);
         }
-
-        if (!accounts?.length) {
-            throw new Error('No account returned by the wallet.');
-        }
-
-        const address = accounts[0];
-        setAccount(address);
-        return address;
-    }, [provider, initializeProvider]);
-
-    const disconnectWallet = useCallback(() => {
-        setAccount(null);
-        setManuallyDisconnected(true);
-
-        // Persist MANUAL disconnect to localStorage - distinguishes from wallet lock
-        if (typeof window !== 'undefined') {
-            localStorage.setItem('walletManuallyDisconnected', 'true');
-        }
-
-        // Try experimental wallet_revokePermissions (MetaMask 10.17.0+)
-        if (window.ethereum?.request) {
-            window.ethereum.request({
-                method: 'wallet_revokePermissions',
-                params: [{ eth_accounts: {} }],
-            }).catch(() => {
-                // Silently fail - not all wallets support this method
-                logger.debug('[Web3Provider] wallet_revokePermissions not supported');
-            });
-        }
-
-        logger.debug('[Web3Provider] Wallet manually disconnected by user (auto-reconnect disabled)');
     }, []);
 
     return (
@@ -230,9 +124,11 @@ export const Web3Provider = ({ children }) => {
                 connectWallet,
                 disconnectWallet,
                 selectedNetwork,
-                setSelectedNetwork: setSelectedNetworkKey,
+                setSelectedNetwork: changeNetwork,
                 availableNetworks: allowedNetworks,
                 networkRpcProvider,
+                isConnecting,
+                modal
             }}
         >
             {children}

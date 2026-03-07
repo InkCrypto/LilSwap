@@ -95,17 +95,14 @@ export const useCollateralSwapActions = ({
             addLog?.('Error reading current network: ' + error.message, 'error');
             return null;
         }
-        if (typeof window === 'undefined' || !window.ethereum || !targetHexChainId) {
-            addLog?.(`Automatic switch to ${targetNetwork.label} not supported in this wallet.`, 'error');
+        if (!targetHexChainId) {
+            addLog?.(`Target network chain ID not properly configured.`, 'error');
             return null;
         }
         try {
-            await window.ethereum.request({
-                method: 'wallet_switchEthereumChain',
-                params: [{ chainId: targetHexChainId }],
-            });
+            await provider.send('wallet_switchEthereumChain', [{ chainId: targetHexChainId }]);
             addLog?.(`Network updated to ${targetNetwork.label}.`, 'success');
-            return new ethers.BrowserProvider(window.ethereum);
+            return provider;
         } catch (error) {
             addLog?.(`Error switching to ${targetNetwork.label}: ${error?.message || error}`, 'error');
             return null;
@@ -525,11 +522,12 @@ export const useCollateralSwapActions = ({
 
         // Ask wallet (if available) to forget site permissions / cached approvals.
         // This is best-effort: some wallets (MetaMask, Rabby) expose wallet_getPermissions / wallet_revokePermissions.
-        if (typeof window !== 'undefined' && window.ethereum && window.ethereum.request) {
+        const eipProvider = provider?.provider;
+        if (eipProvider && eipProvider.request) {
             try {
                 let perms = null;
                 try {
-                    perms = await window.ethereum.request({ method: 'wallet_getPermissions' });
+                    perms = await eipProvider.request({ method: 'wallet_getPermissions' });
                     logger.debug('[clearCachedPermit] wallet_getPermissions:', perms);
                 } catch (gErr) {
                     logger.debug('[clearCachedPermit] wallet_getPermissions not available or failed:', gErr?.message || gErr);
@@ -537,18 +535,18 @@ export const useCollateralSwapActions = ({
 
                 // Try to revoke account permissions (best-effort). This may disconnect the wallet/ui.
                 try {
-                    await window.ethereum.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] });
+                    await eipProvider.request({ method: 'wallet_revokePermissions', params: [{ eth_accounts: {} }] });
                     addLog?.('Requested wallet to forget site permissions — reconnect to continue', 'info');
                     logger.info('[clearCachedPermit] wallet_revokePermissions called');
                 } catch (revErr) {
                     logger.debug('[clearCachedPermit] wallet_revokePermissions failed:', revErr?.message || revErr);
-                    addLog?.('Wallet did not accept permission-revoke request. Please remove site trust in your wallet settings (Rabby/MetaMask).', 'warning');
+                    addLog?.('Wallet did not accept permission-revoke request. Please remove site trust in your wallet settings.', 'warning');
                 }
             } catch (err) {
                 logger.debug('[clearCachedPermit] wallet forget attempt failed:', err?.message || err);
             }
         } else {
-            addLog?.('No injected wallet detected; clear cached permit in your wallet extension if present.', 'info');
+            addLog?.('Wallet provider does not support permission revocation; clear cached permit in your wallet settings if needed.', 'info');
         }
     }, [setForceRequirePermit, addLog]);
 

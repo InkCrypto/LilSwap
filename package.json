@@ -1,7 +1,7 @@
 {
   "name": "lilswap",
   "private": true,
-  "version": "0.4.11",
+  "version": "0.5.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@bgd-labs/aave-address-book": "^4.44.19",
+    "@reown/appkit": "^1.8.19",
+    "@reown/appkit-adapter-ethers": "^1.8.19",
     "@tailwindcss/vite": "^4.1.18",
     "axios": "^1.13.5",
     "ethers": "^6.16.0",

@@ -32,6 +32,7 @@ export default function App() {
     account,
     connectWallet,
     disconnectWallet,
+    isConnecting,
   } = useWeb3();
   const { addToast } = useToast();
 
@@ -76,12 +77,10 @@ export default function App() {
 
   const handleConnect = async () => {
     try {
-      if (typeof window === 'undefined' || !window.ethereum) {
-        return;
-      }
       await connectWallet();
     } catch (err) {
       console.error("Connection failed:", err);
+      // AppKit usually handles displaying its own errors, or user closed modal
     }
   };
 
@@ -133,10 +132,17 @@ export default function App() {
               {!account ? (
                 <button
                   onClick={handleConnect}
-                  className="bg-primary hover:bg-primary-hover text-white text-xs sm:text-sm font-bold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-primary/20 active:scale-95"
+                  disabled={isConnecting}
+                  className="bg-primary hover:bg-primary-hover text-white text-xs sm:text-sm font-bold px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl flex items-center gap-2 transition-all shadow-lg shadow-primary/20 active:scale-95 disabled:opacity-75 disabled:cursor-not-allowed"
                 >
-                  <Wallet className="w-4 h-4" />
-                  <span className="hidden sm:inline">Connect</span>
+                  {isConnecting ? (
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                  ) : (
+                    <Wallet className="w-4 h-4" />
+                  )}
+                  <span className="hidden sm:inline">
+                    {isConnecting ? 'Connecting...' : 'Connect'}
+                  </span>
                 </button>
               ) : (
                 <div className="relative" ref={menuRef}>
@@ -198,9 +204,17 @@ export default function App() {
                   </p>
                   <button
                     onClick={handleConnect}
-                    className="px-10 py-3.5 bg-primary hover:bg-primary-hover text-white rounded-2xl font-bold text-sm transition-all shadow-xl shadow-primary/30 hover:scale-105 active:scale-95"
+                    disabled={isConnecting}
+                    className="px-10 py-3.5 bg-primary hover:bg-primary-hover disabled:bg-primary/70 text-white rounded-2xl font-bold text-sm transition-all shadow-xl shadow-primary/30 hover:scale-105 active:scale-95 flex items-center justify-center gap-2 mx-auto"
                   >
-                    Get Started
+                    {isConnecting ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        <span>Connecting...</span>
+                      </>
+                    ) : (
+                      'Get Started'
+                    )}
                   </button>
                 </div>
               ) : (

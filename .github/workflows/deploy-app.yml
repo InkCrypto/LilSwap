@@ -27,8 +27,11 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build
+        env:
+          VITE_REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
         run: |
           cp .env.example .env
+          sed -i "s/REOWN_PROJECT_ID_HERE/${VITE_REOWN_PROJECT_ID}/g" .env
           pnpm build
 
       - name: Set Release Version
