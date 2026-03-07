@@ -12,12 +12,16 @@ export const toHexChainId = (chainId) => {
 /**
  * Requests the user's wallet to switch to a specific chain
  * @param {number|string} chainId - Chain ID (numeric or hex string)
+ * @param {object} [provider] - Optional Ethers provider or EIP-1193 provider
  * @returns {Promise<boolean>} True if switch was successful
  * @throws {Error} If wallet not found or user rejects the request
  */
-export const requestChainSwitch = async (chainId) => {
-    if (!window.ethereum) {
-        throw new Error('No injected wallet found. Please install MetaMask or another Web3 wallet.');
+export const requestChainSwitch = async (chainId, provider = null) => {
+    // Determine the underlying EIP-1193 provider
+    const eipProvider = provider?.provider || provider || (typeof window !== 'undefined' ? window.ethereum : null);
+
+    if (!eipProvider || !eipProvider.request) {
+        throw new Error('No wallet provider found. Please connect your wallet.');
     }
 
     const chainHex = typeof chainId === 'string' && chainId.startsWith('0x')
@@ -27,7 +31,7 @@ export const requestChainSwitch = async (chainId) => {
     logger.debug('Requesting chain switch', { chainId, chainHex });
 
     try {
-        await window.ethereum.request({
+        await eipProvider.request({
             method: 'wallet_switchEthereumChain',
             params: [{ chainId: chainHex }]
         });
@@ -61,13 +65,16 @@ export const requestChainSwitch = async (chainId) => {
 
 /**
  * Get the current chain ID from the wallet
+ * @param {object} [provider] - Optional EIP-1193 provider
  * @returns {Promise<number>} Current chain ID
  */
-export const getCurrentChainId = async () => {
-    if (!window.ethereum) {
-        throw new Error('No injected wallet found');
+export const getCurrentChainId = async (provider = null) => {
+    const eipProvider = provider?.provider || provider || (typeof window !== 'undefined' ? window.ethereum : null);
+
+    if (!eipProvider || !eipProvider.request) {
+        throw new Error('No wallet provider found');
     }
 
-    const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+    const chainIdHex = await eipProvider.request({ method: 'eth_chainId' });
     return parseInt(chainIdHex, 16);
 };
