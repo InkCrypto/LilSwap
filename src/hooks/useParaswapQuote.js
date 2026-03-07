@@ -4,6 +4,7 @@ import { ADDRESSES } from '../constants/addresses.js';
 import { DEFAULT_NETWORK } from '../constants/networks.js';
 import { getDebtQuote, getCollateralQuote } from '../services/api.js';
 import { useDebounce } from './useDebounce.js';
+import { useUserActivity } from '../context/UserActivityContext.jsx';
 
 import logger from '../utils/logger.js';
 const AUTO_REFRESH_SECONDS = 30;
@@ -30,6 +31,7 @@ export const useParaswapQuote = ({
     const [isQuoteLoading, setIsQuoteLoading] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [quoteError, setQuoteError] = useState(null);
+    const { isTabVisible, isUserActive } = useUserActivity();
 
     // Track the current quote request to prevent stale responses from overriding cleared state
     const quoteRequestIdRef = useRef(0);
@@ -407,6 +409,8 @@ export const useParaswapQuote = ({
         if (!autoRefreshEnabled || !enabled || freezeQuote) return;
 
         const interval = setInterval(() => {
+            if (!isTabVisible || !isUserActive) return;
+
             setNextRefreshIn((prev) => {
                 if (prev <= 1) {
                     fetchQuote();
@@ -417,7 +421,7 @@ export const useParaswapQuote = ({
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote]);
+    }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote, isTabVisible, isUserActive]);
 
     return {
         swapQuote,
