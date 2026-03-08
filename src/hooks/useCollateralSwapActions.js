@@ -442,7 +442,34 @@ export const useCollateralSwapActions = ({
                 await recordTransactionHash(localTxId, tx.hash);
             }
 
-            const receipt = await tx.wait();
+            let receipt;
+            try {
+                receipt = await tx.wait();
+            } catch (waitErr) {
+                const waitMessage = String(waitErr?.message || '');
+                const isTransientReceiptIssue =
+                    waitErr?.code === 'BAD_DATA' ||
+                    waitMessage.includes('invalid value for value.index') ||
+                    waitMessage.includes('"result": null');
+
+                if (!isTransientReceiptIssue) {
+                    throw waitErr;
+                }
+
+                logger.warn('[handleSwap] Receipt fetch transient issue after tx sent:', {
+                    code: waitErr?.code,
+                    message: waitErr?.message,
+                    txHash: tx.hash,
+                });
+
+                addLog?.('Tx enviada com sucesso, mas o RPC falhou ao retornar o recibo agora. A confirmação seguirá em background.', 'warning');
+
+                // Do not mark as failure when hash is already sent and recorded.
+                clearQuote();
+                updateCurrentTransactionId(null);
+                fetchPositionData();
+                return;
+            }
 
             if (receipt.status === 0) {
                 throw new Error('Transaction reverted on-chain.');
