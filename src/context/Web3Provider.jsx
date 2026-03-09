@@ -29,7 +29,13 @@ const appKitConfig = {
     enableInjected: true,
     enableEIP6963: true,
     enableCoinbase: false,
-    themeMode: 'dark'
+    themeMode: 'dark',
+    featuredWalletIds: [
+        '1aedbcfc1f31aade56ca34c38b0a1607b41cccfa3de93c946ef3b4ba2dfab11c', // OneKey
+        '18388be9ac2d02726dbac9777c96efaac06d744b2f6d580fccdd4127a6d01fd1', // Rabby
+        'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96',  // MetaMask
+        '163d2cf19babf05eb8962e9748f9ebe613ed52ebf9c8107c9a0f104bfcf161b3',  // Brave
+    ]
 };
 
 // Create modal instance outside component to prevent re-renders
