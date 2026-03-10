@@ -1,0 +1,96 @@
+name: Rollback App (Frontend)
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_tag:
+        description: 'Tag to rollback/restore to (e.g., v0.6.0)'
+        required: true
+        type: string
+
+jobs:
+  check-and-restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if version exists on server
+        id: check_version
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          port: ${{ secrets.REMOTE_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            if [ -d "${{ secrets.REMOTE_APP_ROOT }}/releases/${{ github.event.inputs.target_tag }}" ]; then
+              echo "EXISTS=true"
+            else
+              echo "EXISTS=false"
+              exit 1
+            fi
+        continue-on-error: true
+
+      - name: Checkout Code
+        if: steps.check_version.outcome == 'failure'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.target_tag }}
+
+      - name: Install pnpm
+        if: steps.check_version.outcome == 'failure'
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
+      - name: Setup Node.js
+        if: steps.check_version.outcome == 'failure'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install Dependencies
+        if: steps.check_version.outcome == 'failure'
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        if: steps.check_version.outcome == 'failure'
+        env:
+          VITE_REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
+        run: |
+          cp .env.example .env
+          sed -i "s/REOWN_PROJECT_ID_HERE/${VITE_REOWN_PROJECT_ID}/g" .env
+          pnpm build
+
+      - name: Upload via SFTP (Restore Deploy)
+        if: steps.check_version.outcome == 'failure'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          port: ${{ secrets.REMOTE_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          source: "dist/*"
+          target: "${{ secrets.REMOTE_APP_ROOT }}/releases/${{ github.event.inputs.target_tag }}"
+          strip_components: 1
+          timeout: 60s
+          command_timeout: 10m
+
+      - name: Atomic Symlink Swap
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.REMOTE_HOST }}
+          username: ${{ secrets.REMOTE_USER }}
+          port: ${{ secrets.REMOTE_PORT }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            ROOT="${{ secrets.REMOTE_APP_ROOT }}"
+            TAG="${{ github.event.inputs.target_tag }}"
+
+            if [ ! -d "$ROOT/releases/$TAG" ]; then
+              echo "Error: Release $TAG not found even after attempt to deploy."
+              exit 1
+            fi
+
+            # Update the symlink
+            ln -sfn $ROOT/releases/$TAG $ROOT/current
+            echo "Successfully rolled back to $TAG"
