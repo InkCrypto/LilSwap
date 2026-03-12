@@ -237,6 +237,7 @@ export const useParaswapQuote = ({
                     },
                     destAmount: destAmount,
                     adapterAddress: account,
+                    walletAddress: account, // Pass for partner discount lookup
                     apyPercent: apyPercentToSend,
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
                 }, signal);

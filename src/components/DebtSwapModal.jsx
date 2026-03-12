@@ -1875,7 +1875,7 @@ export const DebtSwapModal = ({
 
                                     return list.map((token) => {
                                         const status = getBorrowStatus ? getBorrowStatus(token) : { borrowable: true };
-                                        let disabled = !status.borrowable;
+                                        let disabled = selectingForFrom ? false : !status.borrowable;
                                         let reasons = status.reasons || [];
 
                                         // For destination token, also check swappability

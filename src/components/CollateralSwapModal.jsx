@@ -1958,7 +1958,7 @@ export const CollateralSwapModal = ({
 
                                     return list.map((token) => {
                                         const status = getBorrowStatus ? getBorrowStatus(token) : { swappable: true };
-                                        let disabled = !status.swappable;
+                                        let disabled = selectingForFrom ? false : !status.swappable;
                                         let reasons = status.reasons || [];
 
                                         // For destination token, also check swappability
