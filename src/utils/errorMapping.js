@@ -6,19 +6,65 @@
  */
 
 const ERROR_MAP = {
+    // Specific Selectors (checked first)
+    '0x2075cc10': {
+        en: 'Calculation error (Invalid Burn Amount). For small trades, try a larger amount.'
+    },
+    '0xad65e69e': {
+        en: 'Insufficient liquidity for flash loan. Try a smaller amount or a different token.'
+    },
+    '0x38cfb688': {
+        en: 'Insufficient flash loan balance. Try a smaller amount.'
+    },
+    '0x81ceff30': {
+        en: 'Swap execution failed. Try increasing slippage in Settings.'
+    },
+    '0x850c6f76': {
+        en: 'Slippage too high. Try a smaller amount or adjust settings.'
+    },
+    'OVERFLOW': {
+        en: 'Calculation error (Overflow). Try a different amount.'
+    },
+    'UNDERFLOW': {
+        en: 'Calculation error (Underflow). Try a different amount.'
+    },
+
     // ParaSwap Errors
     'ESTIMATED_LOSS_GREATER_THAN_MAX_IMPACT': {
-        en: 'Swap price impact is too high. You would lose too much value due to low liquidity.'
+        en: 'Price impact too high. Try a smaller amount or check liquidity.'
     },
     'NO_ROUTE': {
-        en: 'No profitable route found for this pair. Try a different token or a smaller amount.'
+        en: 'No swap route found. Try a different token or a smaller amount.'
     },
     'INSUFFICIENT_LIQUIDITY': {
-        en: 'Insufficient liquidity for this trade. Try a smaller amount.'
+        en: 'Insufficient liquidity. Try a smaller amount.'
     },
-    // Generic Errors
-    'QUOTE_FAILED': {
-        en: 'Failed to fetch quote. Please try again later.'
+    'liquidity': {
+        en: 'Insufficient liquidity for this swap. Try a different amount or token pair.'
+    },
+    'No routes found': {
+        en: 'No profitable swap route found. This can happen with very small amounts or low liquidity pairs.'
+    },
+    'must be an integer': {
+        en: 'Invalid fee configuration (must be an integer). Please reload and try again.'
+    },
+    'slippage': {
+        en: 'Execution failed due to price change. Try increasing slippage in Settings.'
+    },
+    'reverted': {
+        en: 'Transaction reverted on-chain. This usually happens due to low slippage or high price impact.'
+    },
+    'insufficient balance': {
+        en: 'Insufficient balance to cover the transaction and gas fees.'
+    },
+    'CALL_EXCEPTION': {
+        en: 'Transaction simulation failed. The trade might revert on-chain.'
+    },
+    'missing revert data': {
+        en: 'The transaction reverted without a specific reason. Try increasing slippage.'
+    },
+    'UNPREDICTABLE_GAS_LIMIT': {
+        en: 'Unable to estimate gas. The transaction is likely to fail.'
     }
 };
 
@@ -45,6 +91,11 @@ export const mapErrorToUserFriendly = (technicalMessage, locale = 'en') => {
 
     if (technicalMessage.toLowerCase().includes('insufficient funds')) {
         return 'Insufficient funds for gas.';
+    }
+
+    // If message is too long and no mapping found, return a generic one
+    if (technicalMessage.length > 200) {
+        return 'An unexpected technical error occurred. Please check your connection or try again.';
     }
 
     return technicalMessage; // Fallback to original if no mapping found

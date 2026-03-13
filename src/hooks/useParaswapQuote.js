@@ -32,11 +32,14 @@ export const useParaswapQuote = ({
     const [isQuoteLoading, setIsQuoteLoading] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
     const [quoteError, setQuoteError] = useState(null);
+    const [errorCountdown, setErrorCountdown] = useState(0);
     const { isTabVisible, isUserActive } = useUserActivity();
-
+ 
     // Track the current quote request to prevent stale responses from overriding cleared state
     const quoteRequestIdRef = useRef(0);
     const abortControllerRef = useRef(null);
+    const errorTimerRef = useRef(null);
+    const errorIntervalRef = useRef(null);
 
     // Debounce debtAmount to avoid spamming API while user types
     const currentAmount = isCollateral ? sellAmount : debtAmount;
@@ -46,6 +49,33 @@ export const useParaswapQuote = ({
         setNextRefreshIn(AUTO_REFRESH_SECONDS);
     }, []);
 
+    const clearQuoteError = useCallback(() => {
+        setQuoteError(null);
+        setErrorCountdown(0);
+        if (errorTimerRef.current) {
+            clearTimeout(errorTimerRef.current);
+            errorTimerRef.current = null;
+        }
+        if (errorIntervalRef.current) {
+            clearInterval(errorIntervalRef.current);
+            errorIntervalRef.current = null;
+        }
+    }, []);
+
+    const setQuoteErrorWithTimer = useCallback((errorData, seconds = 15) => {
+        clearQuoteError(); // Reset existing timer/state
+        setQuoteError(errorData);
+        setErrorCountdown(seconds);
+
+        errorIntervalRef.current = setInterval(() => {
+            setErrorCountdown((prev) => Math.max(0, prev - 1));
+        }, 1000);
+
+        errorTimerRef.current = setTimeout(() => {
+            clearQuoteError();
+        }, seconds * 1000);
+    }, [clearQuoteError]);
+
     const clearQuote = useCallback(() => {
         quoteRequestIdRef.current += 1; // Invalidate any in-flight quote requests
         if (abortControllerRef.current) {
@@ -53,10 +83,10 @@ export const useParaswapQuote = ({
             abortControllerRef.current = null;
         }
         setSwapQuote(null);
-        setQuoteError(null);
+        clearQuoteError();
         setAutoRefreshEnabled(false);
         resetRefreshCountdown();
-    }, [resetRefreshCountdown]);
+    }, [resetRefreshCountdown, clearQuoteError]);
 
     /**
      * Normalize and validate token address for ParaSwap API
@@ -192,7 +222,7 @@ export const useParaswapQuote = ({
                 }
 
                 setSwapQuote(quotePayload);
-                setQuoteError(null);
+                clearQuoteError();
                 setAutoRefreshEnabled(true);
                 onQuoteLoaded?.(quotePayload);
                 return quotePayload;
@@ -271,7 +301,7 @@ export const useParaswapQuote = ({
                 }
 
                 setSwapQuote(quotePayload);
-                setQuoteError(null);
+                clearQuoteError();
                 setAutoRefreshEnabled(true);
                 onQuoteLoaded?.(quotePayload);
                 return quotePayload;
@@ -285,7 +315,7 @@ export const useParaswapQuote = ({
 
             logger.error('[useParaswapQuote] Quote error:', error);
             addLog?.('Quote error: ' + error.message, 'error');
-            setQuoteError({
+            setQuoteErrorWithTimer({
                 message: error.message || 'Failed to fetch quote',
                 type: 'QUOTE_ERROR',
                 timestamp: new Date().toISOString()
@@ -474,6 +504,8 @@ export const useParaswapQuote = ({
         isQuoteLoading,
         isTyping,
         quoteError,
-        setQuoteError,
+        setQuoteError: setQuoteErrorWithTimer,
+        clearQuoteError,
+        errorCountdown,
     };
 };

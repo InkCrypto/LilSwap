@@ -83,6 +83,7 @@ export const useDebtPositions = ({ account, provider, networkRpcProvider, fromTo
             try {
                 // Use debt token address from backend, with fallback to on-chain
                 let nextDebtTokenAddr = toToken.variableDebtTokenAddress;
+                
                 if (!nextDebtTokenAddr || nextDebtTokenAddr === ethers.ZeroAddress) {
                     logger.debug('[useDebtPositions] No debt token from backend, falling back to on-chain...');
                     const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, readProvider);

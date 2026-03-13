@@ -46,9 +46,15 @@ const AUGUSTUS_ADDRESSES = {
     V5_BASE: normalizeAddress('0x59C7C832e96D2568bea6db468C1aAdcbbDa08A52'), // Base only
 };
 
+const ALCHEMY_KEY = import.meta.env.VITE_ALCHEMY_API_KEY;
+
+const getAlchemyRpcUrl = (slug) => 
+    ALCHEMY_KEY ? `https://${slug}.g.alchemy.com/v2/${ALCHEMY_KEY}` : null;
+
 export const NETWORKS = {
     ETHEREUM: (() => {
         const book = getOfficialAddressBook(1);
+        const alchemyUrl = getAlchemyRpcUrl('eth-mainnet');
         return {
             key: 'ETHEREUM',
             label: 'Ethereum Mainnet',
@@ -56,9 +62,11 @@ export const NETWORKS = {
             chainId: 1,
             hexChainId: '0x1',
             icon: '/icons/networks/ethereum.svg',
+            alchemySlug: 'eth-mainnet',
 
             explorer: 'https://etherscan.io',
             rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
                 'https://mainnet.gateway.tenderly.co',
                 'https://rpc.flashbots.net',
                 'https://eth.llamarpc.com',
@@ -80,6 +88,8 @@ export const NETWORKS = {
     })(),
     BNB: (() => {
         const book = getOfficialAddressBook(56);
+        // Alchemy BNB slug is bnb-mainnet
+        const alchemyUrl = getAlchemyRpcUrl('bnb-mainnet');
         return {
             key: 'BNB',
             label: 'BNB Chain',
@@ -87,9 +97,11 @@ export const NETWORKS = {
             chainId: 56,
             hexChainId: '0x38',
             icon: '/icons/networks/binance.svg',
+            alchemySlug: 'bnb-mainnet',
 
             explorer: 'https://bscscan.com',
             rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
                 'https://bsc.publicnode.com',
                 'https://bsc-dataseed.binance.org',
                 'https://bsc-dataseed1.binance.org'
@@ -109,6 +121,7 @@ export const NETWORKS = {
     })(),
     POLYGON: (() => {
         const book = getOfficialAddressBook(137);
+        const alchemyUrl = getAlchemyRpcUrl('polygon-mainnet');
         return {
             key: 'POLYGON',
             label: 'Polygon',
@@ -116,9 +129,11 @@ export const NETWORKS = {
             chainId: 137,
             hexChainId: '0x89',
             icon: '/icons/networks/polygon.svg',
+            alchemySlug: 'polygon-mainnet',
 
             explorer: 'https://polygonscan.com',
             rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
                 'https://gateway.tenderly.co/public/polygon',
                 'https://polygon-pokt.nodies.app',
                 'https://polygon-bor-rpc.publicnode.com',
@@ -140,6 +155,7 @@ export const NETWORKS = {
     })(),
     BASE: (() => {
         const book = getOfficialAddressBook(8453);
+        const alchemyUrl = getAlchemyRpcUrl('base-mainnet');
         return {
             key: 'BASE',
             label: 'Base',
@@ -147,9 +163,11 @@ export const NETWORKS = {
             chainId: 8453,
             hexChainId: '0x2105',
             icon: '/icons/networks/base.svg',
+            alchemySlug: 'base-mainnet',
 
             explorer: 'https://basescan.org',
             rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
                 'https://base.gateway.tenderly.co',
                 'https://base.llamarpc.com',
                 'https://base.publicnode.com',
@@ -172,6 +190,7 @@ export const NETWORKS = {
     })(),
     ARBITRUM: (() => {
         const book = getOfficialAddressBook(42161);
+        const alchemyUrl = getAlchemyRpcUrl('arb-mainnet');
         return {
             key: 'ARBITRUM',
             label: 'Arbitrum One',
@@ -179,9 +198,11 @@ export const NETWORKS = {
             chainId: 42161,
             hexChainId: '0xa4b1',
             icon: '/icons/networks/arbitrum.svg',
+            alchemySlug: 'arb-mainnet',
 
             explorer: 'https://arbiscan.io',
             rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
                 'https://arb1.arbitrum.io/rpc',
                 'https://arbitrum.llamarpc.com',
                 'https://arbitrum-one.public.blastapi.io',
@@ -203,6 +224,7 @@ export const NETWORKS = {
     })(),
     AVALANCHE: (() => {
         const book = getOfficialAddressBook(43114);
+        const alchemyUrl = getAlchemyRpcUrl('avax-mainnet');
         return {
             key: 'AVALANCHE',
             label: 'Avalanche C-Chain',
@@ -210,9 +232,11 @@ export const NETWORKS = {
             chainId: 43114,
             hexChainId: '0xa86a',
             icon: '/icons/networks/avalanche.svg',
+            alchemySlug: 'avax-mainnet',
 
             explorer: 'https://snowtrace.io',
             rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
                 'https://api.avax.network/ext/bc/C/rpc',
                 'https://avalanche.drpc.org',
                 'https://avax.meowrpc.com'

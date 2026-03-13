@@ -58,9 +58,11 @@ jobs:
         if: steps.check_version.outputs.exists == 'false'
         env:
           VITE_REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
+          VITE_ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
         run: |
           cp .env.example .env
           sed -i "s/REOWN_PROJECT_ID_HERE/${VITE_REOWN_PROJECT_ID}/g" .env
+          sed -i "s/ALCHEMY_API_KEY_HERE/${VITE_ALCHEMY_API_KEY}/g" .env
           pnpm build
 
       - name: Upload and Extract (Restore Deploy)

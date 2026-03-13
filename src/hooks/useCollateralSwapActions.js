@@ -23,6 +23,7 @@ export const useCollateralSwapActions = ({
     fetchQuote,
     resetRefreshCountdown,
     clearQuote,
+    clearQuoteError,
     selectedNetwork,
     simulateError,
     preferPermit = true,
@@ -233,6 +234,10 @@ export const useCollateralSwapActions = ({
     }, [provider, fromToken, addLog, fetchPositionData, networkAddresses, adapterAddress, targetNetwork.label, preferPermit, generateAndCachePermit]);
 
     const handleSwap = useCallback(async () => {
+        setTxError(null);
+        clearQuoteError?.();
+        setUserRejected(false);
+
         logger.debug('[useCollateralSwapActions] Swap initiated with:', {
             adapterAddress,
             fromToken: fromToken?.symbol,
@@ -423,7 +428,8 @@ export const useCollateralSwapActions = ({
                 // If it's a revert (e.g., LTV drop, insufficient liquidity), maybe show the reason
                 let diagnosticReason = err?.reason || err?.data || err?.message;
                 if (!String(diagnosticReason).match(/invalid character|could not coalesce error/i)) {
-                    setTxError(`Simulation failed: ${String(diagnosticReason).substring(0, 200)}`);
+                    // Use diagnosticReason directly as txError to allow errorMapping to catch clean selectors like 0x2075cc10
+                    setTxError(String(diagnosticReason).substring(0, 500));
                     fetchQuote();
                     return;
                 }

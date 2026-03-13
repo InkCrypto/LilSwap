@@ -13,7 +13,8 @@ import {
     Lock,
     Settings,
     Percent,
-    Info
+    Info,
+    AlertCircle
 } from 'lucide-react';
 import { Modal } from './Modal.jsx';
 import { InfoTooltip } from './InfoTooltip.jsx';
@@ -559,7 +560,8 @@ export const DebtSwapModal = ({
         clearQuote,
         resetRefreshCountdown,
         quoteError,
-        setQuoteError,
+        clearQuoteError,
+        errorCountdown,
         priceImpact,
     } = useParaswapQuote({
         debtAmount: swapAmount,
@@ -576,8 +578,9 @@ export const DebtSwapModal = ({
     // Show toast notification when quote error occurs
     useEffect(() => {
         if (quoteError && isOpen) {
+            const friendly = mapErrorToUserFriendly(quoteError.message);
             addToast({
-                message: `Unable to quote swap: ${quoteError.message || 'This token pair may not be available'}`,
+                message: `Unable to quote swap: ${friendly || 'This token pair may not be available'}`,
                 type: 'error',
                 duration: 5000
             });
@@ -661,6 +664,7 @@ export const DebtSwapModal = ({
         fetchQuote,
         resetRefreshCountdown,
         clearQuote,
+        clearQuoteError,
         selectedNetwork: effectiveNetwork,
         simulateError: false,
         preferPermit,
@@ -870,15 +874,8 @@ export const DebtSwapModal = ({
         }
     }, [fromToken, effectiveNetwork?.chainId, account, swappableTokens]);
 
-    // Clear transaction errors when key data changes so old errors don't persist
-    useEffect(() => {
-        if (txError) {
-            clearTxError && clearTxError();
-            clearUserRejected && clearUserRejected();
-        }
-    }, [swapQuote]);
-
     // Always clear userRejected when key data changes (quote updates)
+    // Note: We no longer clear txError on swapQuote changes to allow error messages to persist during auto-refreshes.
     useEffect(() => {
         if (userRejected) {
             clearUserRejected && clearUserRejected();
@@ -1276,20 +1273,51 @@ export const DebtSwapModal = ({
 
                 {/* Quote Error Display */}
                 {quoteError && (
-                    <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/50 p-2 rounded-lg">
-                        <div className="flex items-start gap-2 text-xs">
-                            <AlertTriangle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5 flex-none" />
-                            <p className="text-amber-900 dark:text-amber-100 leading-snug flex-1">
-                                {mapErrorToUserFriendly(quoteError.message) || 'This token pair may not have sufficient liquidity on ParaSwap'}
-                            </p>
-                            <button
-                                onClick={() => fetchQuote()}
-                                className="text-amber-700 dark:text-amber-300 hover:text-amber-900 dark:hover:text-amber-100 font-medium text-xs whitespace-nowrap px-2 py-0.5 rounded border border-amber-300 dark:border-amber-600/50 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors flex-none disabled:opacity-50"
-                                disabled={isQuoteLoading}
-                                title="Retry quote"
-                            >
-                                {isQuoteLoading ? 'Loading...' : 'Retry'}
-                            </button>
+                    <div className="bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/50 p-3 rounded-lg relative overflow-hidden transition-all animate-in fade-in slide-in-from-top-2 duration-300">
+                        {/* Manual Close Button */}
+                        <button
+                            onClick={clearQuoteError}
+                            className="absolute top-1.5 right-1.5 p-1 text-amber-600/50 hover:text-amber-800 dark:text-amber-400/50 dark:hover:text-amber-200 transition-colors"
+                            title="Clear error"
+                        >
+                            <X size={14} />
+                        </button>
+
+                        <div className="flex items-start gap-3 text-xs pr-4">
+                            <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-500 shrink-0 mt-0.5" />
+                            <div className="flex-1">
+                                <p className="text-amber-900 dark:text-amber-100 font-medium leading-snug">
+                                    {mapErrorToUserFriendly(quoteError.message) || 'This token pair may not have sufficient liquidity on ParaSwap'}
+                                </p>
+
+                                <div className="mt-2.5 flex items-center justify-between gap-4">
+                                    {/* Action Buttons */}
+                                    <div className="flex items-center gap-2">
+                                        <button
+                                            onClick={() => fetchQuote()}
+                                            className="text-[11px] font-bold px-2.5 py-1 bg-amber-600 text-white dark:bg-amber-500 rounded-md hover:bg-amber-700 dark:hover:bg-amber-600 transition-all shadow-sm active:scale-95 disabled:opacity-50"
+                                            disabled={isQuoteLoading}
+                                        >
+                                            {isQuoteLoading ? 'Retrying...' : 'Try Again'}
+                                        </button>
+                                    </div>
+
+                                    {/* Automatic Clear Indicator */}
+                                    {errorCountdown > 0 && (
+                                        <div className="flex items-center gap-2 flex-1 max-w-25">
+                                            <div className="flex-1 h-1 bg-amber-200 dark:bg-amber-900/40 rounded-full overflow-hidden">
+                                                <div
+                                                    className="h-full bg-amber-500 transition-all duration-1000 ease-linear"
+                                                    style={{ width: `${(errorCountdown / 15) * 100}%` }}
+                                                />
+                                            </div>
+                                            <span className="text-[10px] tabular-nums text-amber-600 dark:text-amber-400 font-bold">
+                                                {errorCountdown}s
+                                            </span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
@@ -1405,7 +1433,7 @@ export const DebtSwapModal = ({
                                         <div className="absolute -left-px top-1/2 -translate-y-1/2 w-1 h-1 rounded-full bg-slate-400 dark:bg-slate-600" />
 
                                         <div className="flex items-center gap-1.5 text-slate-500 dark:text-slate-400 text-[12px] ml-1.5">
-                                            <span>Fee ({(swapQuote?.feeBps || 0) / 100}%)</span>
+                                            <span>Fee ({((swapQuote?.feeBps || 0) / 100).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 4 })}%)</span>
                                             {swapQuote?.discountPercent > 0 && (
                                                 <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider animate-pulse whitespace-nowrap">
                                                     {swapQuote.discountPercent}% OFF
@@ -1465,8 +1493,9 @@ export const DebtSwapModal = ({
                                                 {(() => {
                                                     const feeBps = swapQuote?.feeBps || 0;
                                                     const discountPct = swapQuote.discountPercent;
-                                                    const originalFeeBps = feeBps / (1 - discountPct / 100);
-                                                    const savingsBps = originalFeeBps - feeBps;
+                                                    // Use the integer math or format here
+                                                    const originalFeeBps = discountPct < 100 ? feeBps / (1 - discountPct / 100) : feeBps;
+                                                    const savingsBps = Math.max(0, originalFeeBps - feeBps);
 
                                                     try {
                                                         const savingsPercentage = savingsBps / 10000;
@@ -1660,25 +1689,40 @@ export const DebtSwapModal = ({
 
                 {/* Errors */}
                 {(txError || userRejected) && (
-                    <div className="flex justify-center -mt-1 mb-2">
-                        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 py-1.5 px-3 rounded-lg flex items-center gap-2 max-w-[90%]">
-                            <AlertTriangle className="w-3.5 h-3.5 text-red-500 dark:text-red-400 shrink-0" />
-                            <p className="text-[11px] md:text-xs font-medium text-red-800 dark:text-red-300 truncate">
-                                {userRejected ? 'Transaction rejected in wallet' : 'Transaction failed'}
+                    <div className="flex flex-col items-center gap-1.5 -mt-1 mb-2">
+                        <div className="bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/20 py-1 px-2.5 rounded-lg flex items-center gap-2 max-w-[95%]">
+                            <AlertTriangle className="w-3 h-3 text-red-500 dark:text-red-400 shrink-0" />
+                            <p className="text-[10px] md:text-[11px] font-medium text-red-800 dark:text-red-300 line-clamp-2 leading-tight">
+                                {userRejected ? 'Transaction rejected in wallet' : mapErrorToUserFriendly(txError)}
                             </p>
                             {txError && !userRejected && (
                                 <button
                                     onClick={() => copyToClipboard(txError)}
-                                    className="flex items-center gap-1 text-[10px] font-bold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/30 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-500/30 shrink-0 ml-1"
+                                    title="Copy full error details"
+                                    className="flex items-center gap-1 text-[9px] font-bold text-red-600 dark:text-red-400 hover:text-red-700 dark:hover:text-red-300 transition-colors bg-red-100 dark:bg-red-500/20 hover:bg-red-200 dark:hover:bg-red-500/30 px-1.5 py-0.5 rounded border border-red-200 dark:border-red-500/30 shrink-0 ml-1"
                                 >
-                                    <Copy className="w-3 h-3" />
-                                    Copy
+                                    <Copy className="w-2.5 h-2.5" />
+                                    Details
                                 </button>
                             )}
-                            <button onClick={userRejected ? clearUserRejected : clearTxError} className="p-0.5 rounded text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors shrink-0 ml-1">
-                                <X className="w-3 h-3" />
+                            <button onClick={userRejected ? clearUserRejected : clearTxError} className="p-0.5 rounded text-red-400 hover:text-red-600 dark:hover:text-red-300 transition-colors shrink-0 ml-0.5">
+                                <X className="w-2.5 h-2.5" />
                             </button>
                         </div>
+
+                        {/* Specific Troubleshooting Hint (only if not rejected) */}
+                        {txError && !userRejected && (
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 dark:text-slate-400 font-medium">
+                                <Info className="w-3 h-3" />
+                                <span>
+                                    {txError.includes('slippage') || txError.includes('revert') || txError.includes('CALL_EXCEPTION') || txError.includes('OVERFLOW') || txError.includes('UNDERFLOW') || txError.includes('0x2075cc10') ? (
+                                        txError.includes('OVERFLOW') || txError.includes('UNDERFLOW') || txError.includes('0x2075cc10') ? "For small trades, try a larger amount. Otherwise, reload the page." : "Try increasing slippage or reloading the page."
+                                    ) : (
+                                        "Reload the page and try again."
+                                    )}
+                                </span>
+                            </div>
+                        )}
                     </div>
                 )}
 

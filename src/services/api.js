@@ -104,9 +104,9 @@ export const getDebtQuote = async (params, signal = null) => {
             logger.debug('Debt quote request cancelled');
             throw error; // Let the caller handle or ignore
         }
-        const userMessage = error.response?.data?.userMessage;
-        const errorMessage = userMessage || error.response?.data?.error || error.message || 'Error fetching quote';
-        logger.error('Failed to get debt quote', { error: errorMessage, details: error.response?.data });
+        const data = error.response?.data;
+        const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error fetching quote';
+        logger.error('Failed to get debt quote', { error: errorMessage, details: data });
         throw new Error(errorMessage);
     }
 };
@@ -131,8 +131,9 @@ export const buildDebtSwapTx = async (params) => {
         logger.debug('Debt swap transaction built', { to: response.data.to });
         return response.data;
     } catch (error) {
-        const errorMessage = error.response?.data?.error || error.message || 'Error building transaction';
-        logger.error('Failed to build debt swap transaction', { error: errorMessage });
+        const data = error.response?.data;
+        const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error building transaction';
+        logger.error('Failed to build debt swap transaction', { error: errorMessage, details: data });
         throw new Error(errorMessage);
     }
 };
@@ -186,9 +187,9 @@ export const getCollateralQuote = async (params, signal = null) => {
             logger.debug('Collateral quote request cancelled');
             throw error; // Let the caller handle or ignore
         }
-        const userMessage = error.response?.data?.userMessage;
-        const errorMessage = userMessage || error.response?.data?.error || error.message || 'Error fetching collateral quote';
-        logger.error('Failed to get collateral quote', { error: errorMessage, details: error.response?.data });
+        const data = error.response?.data;
+        const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error fetching collateral quote';
+        logger.error('Failed to get collateral quote', { error: errorMessage, details: data });
         throw new Error(errorMessage);
     }
 };
@@ -213,8 +214,9 @@ export const buildCollateralSwapTx = async (params) => {
         logger.debug('Collateral swap transaction built', { augustus: response.data.augustus });
         return response.data;
     } catch (error) {
-        const errorMessage = error.response?.data?.error || error.message || 'Error building collateral transaction';
-        logger.error('Failed to build collateral swap transaction', { error: errorMessage });
+        const data = error.response?.data;
+        const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error building collateral transaction';
+        logger.error('Failed to build collateral swap transaction', { error: errorMessage, details: data });
         throw new Error(errorMessage);
     }
 };

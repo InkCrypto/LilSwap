@@ -1,3 +1,5 @@
+import { logSessionService } from '../services/logSessionService';
+
 /**
  * Native Frontend Logging System
  * Configurable log levels via environment variables
@@ -127,6 +129,68 @@ const getTimestamp = () => {
 };
 
 /**
+ * Relay log to backend for persistent storage
+ */
+const relayLogToBackend = async (level, message, data) => {
+    // Skip user rejections as they are not errors we need to track centrally
+    if (isUserRejectedError(data)) return;
+
+    try {
+        const apiUrl = import.meta.env.VITE_API_URL || 'http://localhost:3001/v1';
+        
+        // Extract useful info from Error objects
+        let stack = null;
+        let meta = {};
+        
+        if (data instanceof Error) {
+            stack = data.stack;
+            meta = { name: data.name, code: data.code };
+        } else if (typeof data === 'object' && data !== null) {
+            meta = data;
+        } else {
+            meta = { raw: data };
+        }
+
+        // Add additional context
+        const url = window.location.href;
+        const userAddress = meta.userAddress || meta.walletAddress || null;
+        
+        const payload = {
+            level,
+            message,
+            meta,
+            stack,
+            url,
+            userAddress
+        };
+
+        // Sign the payload
+        const { signature, timestamp, sessionId } = await logSessionService.signPayload(payload);
+
+        // Non-blocking fetch
+        fetch(`${apiUrl}/logs`, {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json',
+                'X-Log-Session-Id': sessionId,
+                'X-Log-Signature': signature,
+                'X-Log-Timestamp': timestamp
+            },
+            body: JSON.stringify(payload)
+        }).then(res => {
+            if (res.status === 401 || res.status === 429) {
+                // If unauthorized or limit reached, reset session so it re-handshakes next time
+                logSessionService.reset();
+            }
+        }).catch(() => {
+            // Silently fail if backend logging fails to avoid console noise
+        });
+    } catch (err) {
+        // unreachable in most browsers for fetch but safe to have
+    }
+};
+
+/**
  * Log error message
  * @param {string} message
  * @param {any} data - Additional data to log
@@ -172,6 +236,9 @@ export const error = (message, data = null) => {
     }
 
     console.groupEnd();
+
+    // Relay to backend
+    relayLogToBackend(LOG_LEVELS.ERROR, message, data);
 };
 
 /**
@@ -190,6 +257,9 @@ export const warn = (message, data = null) => {
         STYLES.message
     );
     if (data) console.warn(data);
+
+    // Relay to backend
+    relayLogToBackend(LOG_LEVELS.WARN, message, data);
 };
 
 /**

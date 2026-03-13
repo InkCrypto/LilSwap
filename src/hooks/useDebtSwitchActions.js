@@ -22,6 +22,7 @@ export const useDebtSwitchActions = ({
     fetchQuote,
     resetRefreshCountdown,
     clearQuote,
+    clearQuoteError,
     selectedNetwork,
     simulateError,
     preferPermit = true, // default: prefer off-chain signature (permit)
@@ -203,6 +204,7 @@ export const useDebtSwitchActions = ({
 
             // Use debt token address from backend, with fallback to on-chain
             let debtTokenAddress = toToken.variableDebtTokenAddress;
+            
             if (!debtTokenAddress || debtTokenAddress === ethers.ZeroAddress) {
                 logger.debug('[handleApproveDelegation] No debt token from backend, falling back to on-chain...');
                 const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
@@ -216,6 +218,7 @@ export const useDebtSwitchActions = ({
 
             if (preferPermitFinal) {
                 // Request EIP-712 signature and cache it
+                logger.debug('[handleApproveDelegation] Requesting permit for debtTokenAddress:', debtTokenAddress);
                 addLog?.('Requesting signature (user preference)...', 'info');
                 const permit = await generateAndCachePermit(debtTokenAddress, await provider.getSigner());
                 return { type: 'permit', permit };
@@ -246,6 +249,10 @@ export const useDebtSwitchActions = ({
         }
     }, [provider, toToken?.underlyingAsset, toToken?.address, addLog, fetchDebtData, networkAddresses, adapterAddress, targetNetwork.label, preferPermit, generateAndCachePermit]);
     const handleSwap = useCallback(async () => {
+        setTxError(null);
+        clearQuoteError?.();
+        setUserRejected(false);
+
         if (!adapterAddress) {
             addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
             return;
@@ -710,7 +717,7 @@ export const useDebtSwitchActions = ({
 
                                 // Try estimateGas on the read provider — if it succeeds, use it as a valid fallback
                                 try {
-                                    const est = await adapterRead.estimateGas(swapParams, creditPermit, collateralPermit, { from: account });
+                                    const est = await adapterRead.swapDebt.estimateGas(swapParams, creditPermit, collateralPermit, { from: account });
                                     logger.debug('[estimateGas][diagnostic] networkRpcProvider estimated gas:', est.toString());
 
                                     // Accept the read-provider estimate as a fallback and continue flow
@@ -759,13 +766,14 @@ export const useDebtSwitchActions = ({
 
                 // If after retries we still have an error, handle it (preserve previous UX)
                 if (lastEstimateError) {
-                    logger.error('❌ GAS ESTIMATION FAILED:', lastEstimateError);
-                    logger.error('  - Error name:', lastEstimateError?.name);
-                    logger.error('  - Error code:', lastEstimateError?.code);
-                    logger.error('  - Error message:', lastEstimateError?.message);
-                    logger.error('  - Error data:', lastEstimateError?.data);
-                    logger.error('  - Error reason:', lastEstimateError?.reason);
-                    logger.error('  - Error shortMessage:', lastEstimateError?.shortMessage);
+                    logger.error('❌ GAS ESTIMATION FAILED', {
+                        name: lastEstimateError?.name,
+                        code: lastEstimateError?.code,
+                        message: lastEstimateError?.message,
+                        data: lastEstimateError?.data,
+                        reason: lastEstimateError?.reason,
+                        shortMessage: lastEstimateError?.shortMessage
+                    });
 
                     // Surface a clearer message when diagnostics found a revert reason
                     if (diagnosticReason) {
@@ -783,7 +791,8 @@ export const useDebtSwitchActions = ({
                         setTxError('RPC returned malformed response. Try switching RPC endpoint or refresh the page.');
                     } else if (diagnosticReason) {
                         addLog?.(`Reason: ${diagnosticReason}`, 'error');
-                        setTxError(`Simulation failed: ${String(diagnosticReason).substring(0, 200)}`);
+                        // Use diagnosticReason directly as txError to allow errorMapping to catch clean selectors like 0x2075cc10
+                        setTxError(String(diagnosticReason).substring(0, 500));
                     } else {
                         addLog?.(`Reason: ${lastEstimateError?.shortMessage || lastEstimateError.message.substring(0, 150)}`, 'error');
                         setTxError('Simulation failed. The quote has been updated. Please try again.');
