@@ -36,7 +36,7 @@ export default defineConfig(({ mode }) => ({
           'ethers-core': ['ethers'],
           'wallet-libs': ['@reown/appkit', '@reown/appkit-adapter-ethers'],
           'aave-discovery': ['@bgd-labs/aave-address-book'],
-          'ui-vendor': ['lucide-react', 'react', 'react-dom', 'framer-motion'],
+          'ui-vendor': ['lucide-react', 'react', 'react-dom'],
           axios: ['axios'],
         },
       },
