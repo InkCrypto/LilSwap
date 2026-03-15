@@ -6,7 +6,7 @@ import { useToast } from './context/ToastContext.jsx';
 import { ApiMetaProvider } from './context/ApiMetaContext.jsx';
 import { UserActivityProvider } from './context/UserActivityContext.jsx';
 import AppFooter from './components/AppFooter.jsx';
-import TurnstileGuard from './components/TurnstileGuard.jsx';
+import { syncInternalState } from './services/api.js';
 
 // Lazy load Dashboard
 const Dashboard = lazy(() => import('./components/Dashboard.jsx').then(module => ({ default: module.Dashboard })));
@@ -73,6 +73,13 @@ export default function App() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // Initialize internal state on startup
+  useEffect(() => {
+    syncInternalState().catch(err => {
+      console.error('State sync failed', err);
+    });
+  }, []);
+
 
 
   const handleConnect = async () => {
@@ -96,7 +103,6 @@ export default function App() {
   return (
     <UserActivityProvider>
       <ApiMetaProvider>
-        <TurnstileGuard>
         <div className="min-h-screen bg-background-light dark:bg-background-dark text-slate-800 dark:text-slate-100 selection:bg-primary/30">
 
           {/* HEADER */}
@@ -236,7 +242,6 @@ export default function App() {
           <AppFooter />
 
         </div>
-        </TurnstileGuard>
       </ApiMetaProvider>
     </UserActivityProvider>
   );

@@ -13,54 +13,84 @@ export const apiClient = axios.create({
     timeout: 45000,
 });
 
-// Session state (In-memory only for security)
+// Internal state management
 let currentSession = {
     sessionId: null,
     signatureKey: null,
     expiry: 0,
     isInitializing: false,
-    initPromise: null
+    isPending: true,
+    initPromise: null,
+    _resolvePending: null,
+    _performFetch: null
 };
 
 // Event labels
 export const SESSION_EXPIRED_EVENT = 'lilswap:session_expired';
 
 /**
- * Returns current session snapshots (read-only)
+ * Returns current state snapshots (read-only)
  */
 export const getSessionData = () => ({ ...currentSession });
 
 /**
- * Initializes a secure session with the backend using Turnstile
- * @param {string} turnstileToken - Token from CF Turnstile widget
- * @returns {Promise<Object>} Session data
+ * Synchronizes internal state with the backend.
+ * @returns {Promise<Object>} State data
  */
-export const initializeSecureSession = async (turnstileToken = null) => {
-    // If already initializing, return the existing promise
-    if (currentSession.isInitializing) return currentSession.initPromise;
+export const syncInternalState = async () => {
+    if (currentSession.sessionId) {
+        return currentSession;
+    }
+
+    if (currentSession.isInitializing) {
+        return currentSession.initPromise;
+    }
 
     currentSession.isInitializing = true;
+    currentSession.isPending = false;
+    
     currentSession.initPromise = (async () => {
+        let worker;
         try {
-            // In dev mode without keys, we can skip token if backend allows
-            const response = await apiClient.post('/auth/session', { 
-                turnstileToken,
-                // Dev hint for backend to allow bypass if configured
-                isDev: import.meta.env.DEV 
-            }, { 
-                // Don't use the interceptor for the auth call to avoid recursion
+            logger.debug('[Auth] S1');
+            const res = await apiClient.get('/auth/init', {
+                _skipAuthInterceptor: true
+            });
+            const { c, d } = res.data;
+
+            logger.debug('[Auth] S2', { d });
+            
+            const n = await new Promise((resolve, reject) => {
+                worker = new Worker(new URL('./integrityWorker.js', import.meta.url), { type: 'module' });
+                
+                worker.onmessage = (e) => {
+                    if (e.data.error) reject(new Error(e.data.error));
+                    else resolve(e.data.n);
+                };
+                
+                worker.onerror = (err) => reject(err);
+                
+                worker.postMessage({ c, d });
+            });
+
+            logger.debug('[Auth] S3');
+
+            const response = await apiClient.post('/auth/verify', { c, n }, { 
                 _skipAuthInterceptor: true 
             });
 
             currentSession = {
+                ...currentSession,
                 sessionId: response.data.sessionId,
                 signatureKey: response.data.signatureKey,
                 expiry: response.data.expiry,
                 isInitializing: false,
-                initPromise: null
+                isPending: false,
+                initPromise: null,
+                _resolvePending: null,
+                _performFetch: null
             };
 
-            // Propagate session to logSessionService
             logSessionService.setSession(
                 currentSession.sessionId, 
                 currentSession.signatureKey, 
@@ -69,9 +99,12 @@ export const initializeSecureSession = async (turnstileToken = null) => {
 
             return currentSession;
         } catch (error) {
+            logger.error('[Auth] State sync failed', error.message || error);
             currentSession.isInitializing = false;
             currentSession.initPromise = null;
             throw error;
+        } finally {
+            if (worker) worker.terminate();
         }
     })();
 
@@ -81,9 +114,18 @@ export const initializeSecureSession = async (turnstileToken = null) => {
 // Add request interceptor for logging and security signing
 apiClient.interceptors.request.use(
     async (config) => {
-        // Skip auth for internal handshake or if explicitly requested
+        // Skip auth for internal init or if explicitly requested
         if (config._skipAuthInterceptor || config.url === '/auth/session') {
             return config;
+        }
+
+        // Wait for session initialization if it's currently in progress
+        if ((currentSession.isInitializing || currentSession.isPending) && currentSession.initPromise) {
+            try {
+                await currentSession.initPromise;
+            } catch (err) {
+                // If init fails, we proceed and let the regular auth fail if needed
+            }
         }
 
         // Use dynamic session signing if available
@@ -119,7 +161,6 @@ apiClient.interceptors.request.use(
 // Add retry interceptor
 apiClient.interceptors.response.use(
     (response) => {
-        // Passively capture the API version from any successful response
         const v = response.headers?.['x-api-version'];
         if (v) notifyApiVersion(v);
         notifyApiStatus(true);
@@ -128,16 +169,15 @@ apiClient.interceptors.response.use(
     async (error) => {
         const config = error.config;
 
-        // Retry logic for rate limits and network errors
         if (!config || !config.retry) {
             config.retry = { count: 0, maxRetries: 2, delay: 1000 };
         }
 
         const shouldRetry =
             config.retry.count < config.retry.maxRetries &&
-            (error.response?.status === 429 || // Too Many Requests
-                error.response?.status === 503 || // Service Unavailable
-                error.code === 'ECONNABORTED' ||  // Timeout
+            (error.response?.status === 429 ||
+                error.response?.status === 503 ||
+                error.code === 'ECONNABORTED' ||
                 error.message?.includes('rate limit'));
 
         if (shouldRetry) {
@@ -154,28 +194,35 @@ apiClient.interceptors.response.use(
             return apiClient(config);
         }
 
-        // Ignore canceled/aborted requests (expected when switching tokens)
         if (error.code === 'ERR_CANCELED' || error.name === 'CanceledError' || error.name === 'AbortError' || error.message === 'canceled') {
             return Promise.reject(error);
         }
 
-        // Detect session expiry (401 Unauthorized with an existing session)
-        if (error.response?.status === 401 && currentSession.sessionId && !config._skipAuthInterceptor) {
-            
-            // Clear current session
+        if (error.response?.status === 401 && !config._skipAuthInterceptor && !config._retryAfterSync) {
+            // Clear expired session
             currentSession = {
                 sessionId: null,
                 signatureKey: null,
                 expiry: 0,
                 isInitializing: false,
-                initPromise: null
+                isPending: false,
+                initPromise: null,
+                _resolvePending: null,
+                _performFetch: null
             };
-
-            // Reset log service
             logSessionService.setSession(null, null, 0);
 
-            // Broadcast event for UI to react (e.g., TurnstileGuard)
-            window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+            try {
+                // Re-initialize session silently (user won't see any loading screen)
+                await syncInternalState();
+                // Retry original request once with updated session headers
+                config._retryAfterSync = true;
+                return apiClient(config);
+            } catch (syncError) {
+                // If re-initialization also fails, notify the UI
+                window.dispatchEvent(new CustomEvent(SESSION_EXPIRED_EVENT));
+                return Promise.reject(syncError);
+            }
         }
 
         logger.error('API Request Failed', {
@@ -184,7 +231,6 @@ apiClient.interceptors.response.use(
             status: error.response?.status
         });
 
-        // If it's a network error or 5xx error, mark API as down
         if (!error.response || error.response.status >= 500 || error.code === 'ECONNABORTED') {
             notifyApiStatus(false);
         }
@@ -193,17 +239,6 @@ apiClient.interceptors.response.use(
     }
 );
 
-/**
- * Get quote for Debt Swap
- * @param {Object} params - Quote parameters
- * @param {Object} params.fromToken - Source token (current debt): { address, decimals, symbol }
- * @param {Object} params.toToken - Destination token (new debt): { address, decimals, symbol }
- * @param {string} params.destAmount - Destination amount in string (wei)
- * @param {string} params.userAddress - Adapter address
- * @param {string} params.walletAddress - Actual user wallet address
- * @param {number} params.chainId - Chain ID
- * @returns {Promise<Object>} Quote data (priceRoute, srcAmount, version, augustus)
- */
 export const getDebtQuote = async (params, signal = null) => {
     try {
         const response = await apiClient.post('/quote/debt', params, { signal });
@@ -212,7 +247,7 @@ export const getDebtQuote = async (params, signal = null) => {
     } catch (error) {
         if (axios.isCancel(error)) {
             logger.debug('Debt quote request cancelled');
-            throw error; // Let the caller handle or ignore
+            throw error;
         }
         const data = error.response?.data;
         const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error fetching quote';
@@ -221,20 +256,6 @@ export const getDebtQuote = async (params, signal = null) => {
     }
 };
 
-/**
- * Build Debt Swap transaction via ParaSwap
- * @param {Object} params - Transaction parameters
- * @param {Object} params.priceRoute - ParaSwap route obtained from the quote
- * @param {string} params.srcAmount - Source amount in string (wei)
- * @param {string} params.destAmount - Destination amount in string (wei)
- * @param {Object} params.fromToken - Source token data (address, decimals, symbol)
- * @param {Object} params.toToken - Destination token data (address, decimals, symbol)
- * @param {string} params.userAddress - Adapter address
- * @param {string} params.walletAddress - Actual user wallet address
- * @param {number} params.slippageBps - Slippage in basis points (e.g., 100 = 1%)
- * @param {number} params.chainId - Chain ID
- * @returns {Promise<Object>} Transaction data (to, data, value, gasLimit)
- */
 export const buildDebtSwapTx = async (params) => {
     try {
         const response = await apiClient.post('/build/debt/paraswap', params);
@@ -248,12 +269,6 @@ export const buildDebtSwapTx = async (params) => {
     }
 };
 
-/**
- * Fetch aggregated user positions (supplies and borrows) from Aave
- * @param {string} walletAddress - User wallet address
- * @param {number} chainId - Chain ID
- * @returns {Promise<Object>} Aggregated position data
- */
 export const getUserPosition = async (walletAddress, chainId) => {
     try {
         const response = await apiClient.post('/position', {
@@ -261,7 +276,6 @@ export const getUserPosition = async (walletAddress, chainId) => {
             chainId
         });
 
-        // The backend now wraps even single-chain queries with the chainId key for consistency
         const positionData = response.data[chainId] || response.data;
 
         logger.debug('User position fetched', {
@@ -276,17 +290,6 @@ export const getUserPosition = async (walletAddress, chainId) => {
     }
 };
 
-/**
- * Get quote for Collateral Swap (ExactIn)
- * @param {Object} params - Quote parameters
- * @param {Object} params.fromToken - Source token (current collateral): { address, decimals, symbol }
- * @param {Object} params.toToken - Destination token (new collateral): { address, decimals, symbol }
- * @param {string} params.srcAmount - Source amount in string (wei)
- * @param {string} params.userAddress - Adapter address
- * @param {string} params.walletAddress - Actual user wallet address
- * @param {number} params.chainId - Chain ID
- * @returns {Promise<Object>} Quote data (priceRoute, destAmount, version, augustus)
- */
 export const getCollateralQuote = async (params, signal = null) => {
     try {
         const response = await apiClient.post('/quote/collateral', params, { signal });
@@ -295,7 +298,7 @@ export const getCollateralQuote = async (params, signal = null) => {
     } catch (error) {
         if (axios.isCancel(error)) {
             logger.debug('Collateral quote request cancelled');
-            throw error; // Let the caller handle or ignore
+            throw error;
         }
         const data = error.response?.data;
         const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error fetching collateral quote';
@@ -304,20 +307,6 @@ export const getCollateralQuote = async (params, signal = null) => {
     }
 };
 
-/**
- * Build Collateral Swap transaction via ParaSwap
- * @param {Object} params - Transaction parameters
- * @param {Object} params.priceRoute - ParaSwap route obtained from the quote
- * @param {string} params.srcAmount - Source amount in string (wei)
- * @param {boolean} params.isMaxSwap - Whether it's a full balance swap (requires offset)
- * @param {Object} params.fromToken - Source token data (address, decimals, symbol)
- * @param {Object} params.toToken - Destination token data (address, decimals, symbol)
- * @param {string} params.userAddress - Adapter address
- * @param {string} params.walletAddress - User's wallet address
- * @param {number} params.slippageBps - Slippage in basis points (e.g., 50 = 0.5%)
- * @param {number} params.chainId - Chain ID
- * @returns {Promise<Object>} Transaction data
- */
 export const buildCollateralSwapTx = async (params) => {
     try {
         const response = await apiClient.post('/build/collateral/paraswap', params);

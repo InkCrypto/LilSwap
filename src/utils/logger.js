@@ -179,7 +179,7 @@ const relayLogToBackend = async (level, message, data) => {
             body: JSON.stringify(payload)
         }).then(res => {
             if (res.status === 401 || res.status === 429) {
-                // If unauthorized or limit reached, reset session so it re-handshakes next time
+                // If unauthorized or limit reached, reset session so it re-syncs next time
                 logSessionService.reset();
             }
         }).catch(() => {

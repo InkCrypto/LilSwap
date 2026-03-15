@@ -3,7 +3,7 @@ import { ethers } from 'ethers';
 /**
  * LogSessionService
  * Manages the signing of logs using the dynamic session established by the main API client.
- * This avoids multiple handshakes and ensures consistency.
+ * This avoids multiple syncs and ensures consistency.
  */
 class LogSessionService {
     constructor() {
