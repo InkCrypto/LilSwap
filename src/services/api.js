@@ -1,5 +1,6 @@
 import axios from 'axios';
-import { ethers } from 'ethers';
+
+
 import logger from '../utils/logger';
 import { notifyApiVersion, notifyApiStatus } from '../context/ApiMetaContext.jsx';
 import { logSessionService } from './logSessionService';
@@ -131,15 +132,33 @@ apiClient.interceptors.request.use(
         // Use dynamic session signing if available
         if (currentSession.sessionId && currentSession.signatureKey) {
             const timestamp = Date.now().toString();
-            const hasBody = config.data && Object.keys(config.data).length > 0;
-            const bodyString = hasBody ? JSON.stringify(config.data) : '';
+
+            // Handle both fresh (object) and retried (already serialized string) config.data
+            let bodyString = '';
+            if (config.data) {
+                bodyString = typeof config.data === 'string'
+                    ? config.data
+                    : JSON.stringify(config.data);
+            }
             
             try {
-                const signature = ethers.computeHmac(
-                    'sha256',
-                    ethers.hexlify(ethers.toUtf8Bytes(currentSession.signatureKey)),
-                    ethers.toUtf8Bytes(timestamp + bodyString)
+                // Use SubtleCrypto to match server-side Node.js crypto.createHmac('sha256', key)
+                const enc = new TextEncoder();
+                const keyMaterial = await crypto.subtle.importKey(
+                    'raw',
+                    enc.encode(currentSession.signatureKey),
+                    { name: 'HMAC', hash: 'SHA-256' },
+                    false,
+                    ['sign']
                 );
+                const signatureBuffer = await crypto.subtle.sign(
+                    'HMAC',
+                    keyMaterial,
+                    enc.encode(timestamp + bodyString)
+                );
+                const signature = Array.from(new Uint8Array(signatureBuffer))
+                    .map(b => b.toString(16).padStart(2, '0'))
+                    .join('');
                 
                 config.headers['X-Internal-Signature'] = signature;
                 config.headers['X-Internal-Timestamp'] = timestamp;
@@ -148,6 +167,7 @@ apiClient.interceptors.request.use(
                 // Fail silently
             }
         }
+
 
         logger.api(config.method?.toUpperCase() || 'REQUEST', config.url, config.data);
         return config;
