@@ -1,10 +1,10 @@
-name: Rollback App (Frontend)
+name: Rollback App (Unified)
 
 on:
   workflow_dispatch:
     inputs:
       target_tag:
-        description: 'Tag to rollback/restore to (e.g., v0.6.0)'
+        description: "Tag to rollback/restore to (e.g., v1.0.0)"
         required: true
         type: string
 
@@ -12,78 +12,114 @@ jobs:
   check-and-restore:
     runs-on: ubuntu-latest
     steps:
-      - name: Setup SSH
+      - name: Validate Target Tag
+        run: |
+          TAG="${{ github.event.inputs.target_tag }}"
+          if [[ ! "$TAG" =~ ^v[0-9].* ]]; then
+            echo "ERROR: Invalid tag '$TAG'. Expected format like v1.0.0"
+            exit 1
+          fi
+
+      - name: Configure SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Add Remote to Known Hosts
+      - name: Check if Release Exists on Server
+        id: check_release
         run: |
-          mkdir -p ~/.ssh
-          ssh-keyscan -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_HOST }} >> ~/.ssh/known_hosts
-
-      - name: Check if version exists on server
-        id: check_version
-        run: |
-          if ssh -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "[ -d \"${{ secrets.REMOTE_APP_ROOT }}/releases/${{ github.event.inputs.target_tag }}\" ]"; then
-            echo "exists=true" >> $GITHUB_OUTPUT
+          if ssh -p ${{ secrets.REMOTE_PORT }} -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "[ -d \"${{ secrets.REMOTE_APP_ROOT }}/releases/${{ github.event.inputs.target_tag }}\" ]"; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
           else
-            echo "exists=false" >> $GITHUB_OUTPUT
+            echo "exists=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Checkout Code
-        if: steps.check_version.outputs.exists == 'false'
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.inputs.target_tag }}
-
-      - name: Install pnpm
-        if: steps.check_version.outputs.exists == 'false'
-        uses: pnpm/action-setup@v3
-        with:
-          version: 9
-
-      - name: Setup Node.js
-        if: steps.check_version.outputs.exists == 'false'
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: "pnpm"
-
-      - name: Install Dependencies
-        if: steps.check_version.outputs.exists == 'false'
-        run: pnpm install --frozen-lockfile
-
-      - name: Build
-        if: steps.check_version.outputs.exists == 'false'
-        env:
-          VITE_REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
-          VITE_ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
-          VITE_API_SECRET: ${{ secrets.API_SECRET }}
+      - name: Recreate Missing Release on Server
+        if: steps.check_release.outputs.exists == 'false'
         run: |
-          cp .env.example .env
-          sed -i "s/REOWN_PROJECT_ID_HERE/${VITE_REOWN_PROJECT_ID}/g" .env
-          sed -i "s/ALCHEMY_API_KEY_HERE/${VITE_ALCHEMY_API_KEY}/g" .env
-          sed -i "s/VITE_API_SECRET_HERE/${VITE_API_SECRET}/g" .env
-          pnpm build
+          ssh -p ${{ secrets.REMOTE_PORT }} -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} 'bash -s' << 'EOF'
+            set -e
 
-      - name: Upload and Extract (Restore Deploy)
-        if: steps.check_version.outputs.exists == 'false'
-        run: |
-          ROOT="${{ secrets.REMOTE_APP_ROOT }}"
-          TAG="${{ github.event.inputs.target_tag }}"
-          TARGET="$ROOT/releases/$TAG"
-          ssh -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "mkdir -p $TARGET"
-          tar czf - -C dist . | ssh -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "tar xzf - -C $TARGET"
+            ROOT="${{ secrets.REMOTE_APP_ROOT }}"
+            TAG="${{ github.event.inputs.target_tag }}"
+            RELEASE="$ROOT/releases/$TAG"
+            SHARED="$ROOT/shared"
+
+            mkdir -p "$ROOT/releases" "$SHARED"
+
+            export GIT_SSH_COMMAND='ssh -i ~/.ssh/inkcrypto -o StrictHostKeyChecking=no'
+
+            if [ ! -d "$RELEASE/.git" ]; then
+              git clone --depth=1 --branch "$TAG" git@github.com:InkCrypto/LilSwap.git "$RELEASE"
+            fi
+
+            if [ ! -f "$SHARED/.env" ]; then
+              cp "$RELEASE/.env.example" "$SHARED/.env"
+            fi
+
+            upsert_env() {
+              local file="$1"
+              local key="$2"
+              local value="$3"
+              if grep -q "^${key}=" "$file"; then
+                sed -i "s#^${key}=.*#${key}=${value}#" "$file"
+              else
+                echo "${key}=${value}" >> "$file"
+              fi
+            }
+
+            upsert_env "$SHARED/.env" "API_SECRET" "${{ secrets.API_SECRET }}"
+            upsert_env "$SHARED/.env" "ALCHEMY_API_KEY" "${{ secrets.ALCHEMY_API_KEY }}"
+            upsert_env "$SHARED/.env" "VITE_REOWN_PROJECT_ID" "${{ secrets.VITE_REOWN_PROJECT_ID }}"
+
+            ln -sfn "$SHARED/.env" "$RELEASE/.env"
+
+            mkdir -p "$SHARED/storage"
+            rm -rf "$RELEASE/storage"
+            ln -sfn "$SHARED/storage" "$RELEASE/storage"
+
+            if [ -f "$RELEASE/composer.json" ]; then
+              (cd "$RELEASE" && composer2 install --no-dev --prefer-dist --optimize-autoloader)
+            fi
+
+            if [ -f "$RELEASE/package.json" ]; then
+              if command -v pnpm >/dev/null 2>&1; then
+                PM="pnpm"
+              elif command -v corepack >/dev/null 2>&1; then
+                corepack enable
+                corepack prepare pnpm@9 --activate
+                PM="pnpm"
+              elif command -v npm >/dev/null 2>&1; then
+                npm install -g pnpm@9
+                PM="pnpm"
+              else
+                echo "ERROR: pnpm/corepack/npm not available on server."
+                exit 1
+              fi
+
+              (cd "$RELEASE" && "$PM" install --frozen-lockfile && "$PM" build)
+            fi
+
+            mkdir -p "$RELEASE/bootstrap/cache"
+            chmod -R 775 "$SHARED/storage" "$RELEASE/bootstrap/cache"
+          EOF
 
       - name: Atomic Symlink Swap
         run: |
-          ROOT="${{ secrets.REMOTE_APP_ROOT }}"
-          TAG="${{ github.event.inputs.target_tag }}"
-          ssh -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
-            if [ ! -d \"$ROOT/releases/$TAG\" ]; then
-              echo \"Error: Release $TAG not found even after attempt to deploy.\"
+          ssh -p ${{ secrets.REMOTE_PORT }} -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} 'bash -s' << 'EOF'
+            set -e
+
+            ROOT="${{ secrets.REMOTE_APP_ROOT }}"
+            TAG="${{ github.event.inputs.target_tag }}"
+            RELEASE="$ROOT/releases/$TAG"
+
+            if [ ! -d "$RELEASE" ]; then
+              echo "ERROR: Release $TAG not found."
               exit 1
             fi
-            ln -sfn $ROOT/releases/$TAG $ROOT/current
-          "
+
+            ln -sfn "$RELEASE" "$ROOT/current"
+            ln -sfn "$ROOT/current/public" "$ROOT/public"
+
+            echo "SUCCESS: Rollback to $TAG complete."
+          EOF
