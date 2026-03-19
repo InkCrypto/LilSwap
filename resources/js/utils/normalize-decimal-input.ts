@@ -11,6 +11,7 @@ export const normalizeDecimalInput = (value: string): string => {
 
     // Ensure there's only one dot
     const parts = normalized.split('.');
+
     if (parts.length > 2) {
         normalized = parts[0] + '.' + parts.slice(1).join('');
     }

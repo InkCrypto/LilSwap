@@ -11,7 +11,6 @@ import {
     CheckCircle2,
 } from 'lucide-react';
 import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react';
-import { Button } from './ui/button';
 
 
 import { useWeb3 } from '@/contexts/web3-context';
@@ -31,6 +30,7 @@ import { CompactAmountInput } from './compact-amount-input';
 import { InfoTooltip } from './info-tooltip';
 import { Modal } from './modal';
 import { TokenSelector } from './token-selector';
+import { Button } from './ui/button';
 
 // Helper for USD formatting
 const formatUSD = (value: number | null | undefined) => {
@@ -65,7 +65,6 @@ interface CollateralSwapModalProps {
     providedSupplies?: any[] | null;
     marketAssets?: any[] | null;
     chainId?: number | null;
-    donator?: any | null;
 }
 
 const MAX_PREVALIDATIONS_PER_OPEN = 8;
@@ -77,7 +76,6 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     initialToToken = null,
     providedSupplies = null,
     marketAssets: externalMarketAssets = null,
-    donator = null,
 }) => {
     const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
     const { addToast } = useToast();
@@ -215,13 +213,20 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
     // Helper to get unique display symbol if there are collisions
     const getDisplaySymbol = useCallback((token: any, allTokens: any[]) => {
-        if (!token) return '';
+        if (!token) {
+            return '';
+        }
 
         const addr = (token.address || token.underlyingAsset || '').toLowerCase();
 
         // Arbitrum Specifics - Explicitly disambiguate USDC
-        if (addr === '0xaf88d065e77c8cc2239327c5edb3a432268e5831') return 'USDC';
-        if (addr === '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8') return 'USDC.e';
+        if (addr === '0xaf88d065e77c8cc2239327c5edb3a432268e5831') {
+            return 'USDC';
+        }
+
+        if (addr === '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8') {
+            return 'USDC.e';
+        }
 
         const hasCollision = allTokens.some(t =>
             t.symbol === token.symbol &&
@@ -243,6 +248,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             if (isBridged) {
                 // Return SYMBOL.e (removing any existing .e to avoid .e.e)
                 const baseSymbol = token.symbol.replace(/\.e$/i, '');
+
                 return `${baseSymbol}.e`;
             }
         }
@@ -303,6 +309,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     const filteredSelectorTokens = oppositeToken
         ? selectorTokens.filter((t) => {
             const oppositeAddr = (oppositeToken.address || oppositeToken.underlyingAsset || '').toLowerCase();
+
             return (t.address || t.underlyingAsset || '').toLowerCase() !== oppositeAddr;
         })
         : selectorTokens;
@@ -452,6 +459,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     useEffect(() => {
         if (!isOpen) {
             lastToastErrorRef.current = null;
+
             return;
         }
 
@@ -464,12 +472,14 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 });
                 lastToastErrorRef.current = 'userRejected';
             }
+
             return;
         }
 
         if (txError) {
             const friendly = mapErrorToUserFriendly(txError) || 'Swap failed. Please try again.';
             const errorKey = `tx:${friendly}`;
+
             if (lastToastErrorRef.current !== errorKey) {
                 addToast({
                     message: friendly,
@@ -478,6 +488,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 });
                 lastToastErrorRef.current = errorKey;
             }
+
             return;
         }
 
@@ -651,6 +662,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                         onClick={() => {
                                             setIsAutoSlippage(true);
                                             setSlippageInputValue('');
+
                                             if (recommendedSlippage > 0) {
                                                 setSlippage(recommendedSlippage);
                                             }
@@ -986,6 +998,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                 {(() => {
                                                     const feeBpsRaw = swapQuote?.feeBps;
                                                     const feeBps = Number(feeBpsRaw);
+
                                                     if (!Number.isFinite(feeBps)) {
                                                         return 'Service Fee (--)';
                                                     }
@@ -1007,6 +1020,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                 {(() => {
                                                     const feeBpsRaw = swapQuote?.feeBps;
                                                     const feeBps = Number(feeBpsRaw);
+
                                                     if (!Number.isFinite(feeBps)) {
                                                         return '--';
                                                     }

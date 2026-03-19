@@ -79,7 +79,9 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
  * @returns The translated message.
  */
 export const mapErrorToUserFriendly = (technicalMessage: string | null | undefined, locale: 'en' | 'pt' = 'en'): string | null => {
-    if (!technicalMessage) return null;
+    if (!technicalMessage) {
+return null;
+}
 
     // Check for direct matches in ERROR_MAP
     for (const [key, pair] of Object.entries(ERROR_MAP)) {

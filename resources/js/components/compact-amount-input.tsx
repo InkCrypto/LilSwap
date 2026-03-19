@@ -1,12 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
 import { ChevronDown, X } from 'lucide-react';
-import { Input } from './ui/input';
-import { Button } from './ui/button';
-import { Popover, PopoverContent, PopoverTrigger } from './ui/popover';
-import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
+import React, { useState } from 'react';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
-import logger from '../utils/logger';
+import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
 
 interface CompactAmountInputProps {
     token: {
@@ -47,23 +43,42 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
     const [popoverOpen, setPopoverOpen] = useState(false);
 
     const compactNumber = (str: string | undefined) => {
-        if (!str) return '0';
+        if (!str) {
+            return '0';
+        }
+
         const n = parseFloat(str);
-        if (isNaN(n)) return str;
-        if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(2)}M`;
-        if (n >= 1_000) return `${(n / 1_000).toFixed(2)}K`;
+
+        if (isNaN(n)) {
+            return str;
+        }
+
+        if (n >= 1_000_000) {
+            return `${(n / 1_000_000).toFixed(2)}M`;
+        }
+
+        if (n >= 1_000) {
+            return `${(n / 1_000).toFixed(2)}K`;
+        }
+
         return Number(n.toFixed(4)).toString();
     };
 
     const handleApplyPct = (pct: number) => {
-        if (!maxAmount || maxAmount === BigInt(0)) return;
+        if (!maxAmount || maxAmount === BigInt(0)) {
+            return;
+        }
+
         const calculatedAmount = (maxAmount * BigInt(pct)) / BigInt(100);
         onChange(ethers.formatUnits(calculatedAmount, decimals));
         setPopoverOpen(false);
     };
 
     const handleApplyMax = () => {
-        if (!maxAmount || maxAmount === BigInt(0)) return;
+        if (!maxAmount || maxAmount === BigInt(0)) {
+            return;
+        }
+
         onChange(ethers.formatUnits(maxAmount, decimals));
     };
 
@@ -145,7 +160,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                         >
                             %
                         </button>
-                        
+
                         {popoverOpen && (
                             <div className="absolute bottom-full right-0 mb-2 p-1.5 flex gap-1.5 w-auto rounded-lg border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 shadow-xl z-50 animate-in slide-in-from-bottom-2 duration-150">
                                 {[25, 50, 75].map((pct) => (

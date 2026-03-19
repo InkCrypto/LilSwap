@@ -2,17 +2,25 @@ import { ethers } from 'ethers';
 import logger from '../utils/logger';
 
 function getCsrfToken(): string | null {
-    if (typeof document === 'undefined') return null;
+    if (typeof document === 'undefined') {
+return null;
+}
+
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || null;
 }
 
 function isSameOriginRpcUrl(rpcUrl: string): boolean {
-    if (rpcUrl.startsWith('/rpc/')) return true;
+    if (rpcUrl.startsWith('/rpc/')) {
+return true;
+}
 
-    if (typeof window === 'undefined') return false;
+    if (typeof window === 'undefined') {
+return false;
+}
 
     try {
         const url = new URL(rpcUrl, window.location.origin);
+
         return url.origin === window.location.origin && url.pathname.startsWith('/rpc/');
     } catch {
         return false;
@@ -28,6 +36,7 @@ function buildProviderConnection(rpcUrl: string): string | ethers.FetchRequest {
     request.setHeader('X-Requested-With', 'XMLHttpRequest');
 
     const csrfToken = getCsrfToken();
+
     if (csrfToken) {
         request.setHeader('X-CSRF-TOKEN', csrfToken);
     }
@@ -66,6 +75,7 @@ export async function createRpcProviderWithFallback(rpcUrls: string[], timeout: 
 
     logger.error('All RPCs failed. Using first URL as fallback:', rpcUrls[0]);
     logger.error('Errors:', errors);
+
     return new ethers.JsonRpcProvider(rpcUrls[0], undefined, { staticNetwork: true });
 }
 

@@ -33,8 +33,12 @@ const ALIAS: Record<string, string> = {
 const DEV = (import.meta as any).env?.DEV;
 
 export const getTokenLogo = (symbol: string): string => {
-    if (!symbol) return '';
+    if (!symbol) {
+return '';
+}
+
     const key = ALIAS[symbol.toUpperCase()] ?? symbol.toLowerCase();
+
     return `/icons/tokens/${key}.svg`;
 };
 
@@ -44,14 +48,22 @@ export const onTokenImgError = (symbol: string) => (e: React.SyntheticEvent<HTML
     const key = symbol ? (ALIAS[symbol.toUpperCase()] ?? symbol.toLowerCase()) : null;
 
     if (key && !src.includes('app.aave.com')) {
-        if (DEV) console.warn(`[token-icons] Local icon missing for "${symbol}" — trying Aave CDN`);
+        if (DEV) {
+console.warn(`[token-icons] Local icon missing for "${symbol}" — trying Aave CDN`);
+}
+
         target.src = `https://app.aave.com/icons/tokens/${key}.svg`;
+
         return;
     }
 
     if (key && src.includes('app.aave.com')) {
-        if (DEV) console.warn(`[token-icons] No icon found for "${symbol}" — falling back to text label`);
+        if (DEV) {
+console.warn(`[token-icons] No icon found for "${symbol}" — falling back to text label`);
+}
+
         target.style.display = 'none';
+
         if (target.nextSibling && (target.nextSibling as HTMLElement).tagName === 'SPAN') {
             (target.nextSibling as HTMLElement).style.display = 'block';
         }

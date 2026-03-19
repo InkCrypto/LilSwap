@@ -1,16 +1,20 @@
-import { ethers } from 'ethers';
 import { AaveV3Ethereum, AaveV3Base, AaveV3Polygon, AaveV3BNB, AaveV3Arbitrum, AaveV3Avalanche } from '@bgd-labs/aave-address-book';
+import { ethers } from 'ethers';
 import logger from '../utils/logger';
 
 /**
  * Helper: Normalize address checksum using ethers v6
  */
 const normalizeAddress = (address: string | undefined): string | null => {
-    if (!address) return null;
+    if (!address) {
+return null;
+}
+
     try {
         return ethers.getAddress(address);
     } catch (error: any) {
         logger.warn(`[networks.ts] Failed to normalize address ${address}:`, error.message);
+
         return address;
     }
 };
@@ -24,6 +28,7 @@ const getOfficialAddressBook = (chainId: number) => {
         42161: AaveV3Arbitrum,
         43114: AaveV3Avalanche,
     };
+
     return bookMap[chainId] || null;
 };
 
@@ -61,6 +66,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     ETHEREUM: (() => {
         const book = getOfficialAddressBook(1);
         const alchemyUrl = getAlchemyRpcUrl('eth-mainnet');
+
         return {
             key: 'ETHEREUM',
             label: 'Ethereum Mainnet',
@@ -93,6 +99,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     BNB: (() => {
         const book = getOfficialAddressBook(56);
         const alchemyUrl = getAlchemyRpcUrl('bnb-mainnet');
+
         return {
             key: 'BNB',
             label: 'BNB Chain',
@@ -123,6 +130,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     POLYGON: (() => {
         const book = getOfficialAddressBook(137);
         const alchemyUrl = getAlchemyRpcUrl('polygon-mainnet');
+
         return {
             key: 'POLYGON',
             label: 'Polygon',
@@ -155,6 +163,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     BASE: (() => {
         const book = getOfficialAddressBook(8453);
         const alchemyUrl = getAlchemyRpcUrl('base-mainnet');
+
         return {
             key: 'BASE',
             label: 'Base',
@@ -188,6 +197,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     ARBITRUM: (() => {
         const book = getOfficialAddressBook(42161);
         const alchemyUrl = getAlchemyRpcUrl('arb-mainnet');
+
         return {
             key: 'ARBITRUM',
             label: 'Arbitrum One',
@@ -220,6 +230,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     AVALANCHE: (() => {
         const book = getOfficialAddressBook(43114);
         const alchemyUrl = getAlchemyRpcUrl('avax-mainnet');
+
         return {
             key: 'AVALANCHE',
             label: 'Avalanche C-Chain',
@@ -255,7 +266,9 @@ export const getNetworkByChainId = (chainId: number | string | undefined): Netwo
     if (!chainId && chainId !== 0) {
         return DEFAULT_NETWORK;
     }
+
     const numericId = typeof chainId === 'string' ? Number(chainId) : chainId;
+
     return (
         Object.values(NETWORKS).find((network) => network.chainId === numericId) || DEFAULT_NETWORK
     );

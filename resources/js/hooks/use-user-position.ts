@@ -36,6 +36,7 @@ export const useUserPosition = () => {
         if (!account || !selectedNetwork?.chainId) {
             setData({ supplies: [], borrows: [], marketAssets: [], summary: null });
             prevAddressRef.current = null;
+
             return;
         }
 
@@ -55,11 +56,13 @@ export const useUserPosition = () => {
             (now - cacheRef.current.timestamp) < CACHE_TTL) {
             logger.debug('[useUserPosition] Using cached data');
             setData(cacheRef.current.data);
+
             return;
         }
 
         setLoading(true);
         setError(null);
+
         try {
             const position = await getUserPosition(account, selectedNetwork.chainId);
             const newData: UserPositionData = {

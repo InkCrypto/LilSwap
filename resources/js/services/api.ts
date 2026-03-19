@@ -1,6 +1,6 @@
 import axios from 'axios';
-import logger from '../utils/logger';
 import { notifyApiVersion, notifyApiStatus } from '../contexts/api-meta-context';
+import logger from '../utils/logger';
 
 // Axios instance configured to point to the Laravel BFF Proxy
 export const apiClient = axios.create({
@@ -27,9 +27,12 @@ let lastProxySessionPayload: ProxySessionPayload | null = null;
 let proxySessionBootstrapInFlight: Promise<any> | null = null;
 
 const isProtectedProxyEndpoint = (url?: string | null) => {
-    if (!url) return false;
+    if (!url) {
+return false;
+}
 
     const normalized = String(url).toLowerCase();
+
     return (
         normalized.startsWith('/position') ||
         normalized.startsWith('/quote/') ||
@@ -96,18 +99,22 @@ apiClient.interceptors.request.use(
         }
 
         const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content');
+
         if (csrfToken) {
             config.headers = config.headers || {};
+
             if (!(config.headers as any)['X-CSRF-TOKEN']) {
                 (config.headers as any)['X-CSRF-TOKEN'] = csrfToken;
             }
         }
 
         logger.api(config.method?.toUpperCase() || 'REQUEST', config.url || '', config.data);
+
         return config;
     },
     (error) => {
         logger.error('API Request Error', error);
+
         return Promise.reject(error);
     }
 );
@@ -116,10 +123,12 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
     (response) => {
         const version = response.headers['x-api-version'] || response.headers['X-Api-Version'];
+
         if (version) {
             notifyApiVersion(version);
             notifyApiStatus(true);
         }
+
         return response;
     },
     async (error) => {
@@ -138,6 +147,7 @@ apiClient.interceptors.response.use(
             try {
                 await runProxyBootstrap(lastProxySessionPayload as ProxySessionPayload);
                 config.__proxySessionRetried = true;
+
                 return apiClient(config);
             } catch (bootstrapError) {
                 logger.warn('Proxy session auto-recovery failed', {
@@ -168,6 +178,7 @@ apiClient.interceptors.response.use(
             });
 
             await new Promise(resolve => setTimeout(resolve, delay));
+
             return apiClient(config);
         }
 
@@ -191,11 +202,16 @@ export const getDebtQuote = async (params: any, signal?: AbortSignal) => {
     try {
         const response = await apiClient.post('/quote/debt', params, { signal });
         logger.debug('Debt quote received', { srcAmount: response.data.srcAmount });
+
         return response.data;
     } catch (error: any) {
-        if (axios.isCancel(error)) throw error;
+        if (axios.isCancel(error)) {
+throw error;
+}
+
         const data = error.response?.data;
         const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error fetching quote';
+
         throw new Error(errorMessage);
     }
 };
@@ -203,10 +219,12 @@ export const getDebtQuote = async (params: any, signal?: AbortSignal) => {
 export const buildDebtSwapTx = async (params: any) => {
     try {
         const response = await apiClient.post('/build/debt/paraswap', params);
+
         return response.data;
     } catch (error: any) {
         const data = error.response?.data;
         const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error building transaction';
+
         throw new Error(errorMessage);
     }
 };
@@ -217,9 +235,11 @@ export const getUserPosition = async (walletAddress: string, chainId: number) =>
             walletAddress,
             chainId
         });
+
         return response.data[chainId] || response.data;
     } catch (error: any) {
         const errorMessage = error.response?.data?.error || error.message || 'Error fetching position';
+
         throw new Error(errorMessage);
     }
 };
@@ -227,11 +247,16 @@ export const getUserPosition = async (walletAddress: string, chainId: number) =>
 export const getCollateralQuote = async (params: any, signal?: AbortSignal) => {
     try {
         const response = await apiClient.post('/quote/collateral', params, { signal });
+
         return response.data;
     } catch (error: any) {
-        if (axios.isCancel(error)) throw error;
+        if (axios.isCancel(error)) {
+throw error;
+}
+
         const data = error.response?.data;
         const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error fetching collateral quote';
+
         throw new Error(errorMessage);
     }
 };
@@ -239,10 +264,12 @@ export const getCollateralQuote = async (params: any, signal?: AbortSignal) => {
 export const buildCollateralSwapTx = async (params: any) => {
     try {
         const response = await apiClient.post('/build/collateral/paraswap', params);
+
         return response.data;
     } catch (error: any) {
         const data = error.response?.data;
         const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error building collateral transaction';
+
         throw new Error(errorMessage);
     }
 };

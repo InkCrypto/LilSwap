@@ -53,7 +53,6 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
     isLoading = false,
     searchPlaceholder = "Search token...",
     renderStatus,
-    hideOverlay = false,
     rateField = 'variableBorrowRate',
     marketAssets = [],
 }) => {
@@ -196,8 +195,14 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                                                         const addr = (token.address || token.underlyingAsset || '').toLowerCase();
 
                                                         // Arbitrum Specifics - Explicitly disambiguate USDC
-                                                        if (addr === '0xaf88d065e77c8cc2239327c5edb3a432268e5831') return 'USDC';
-                                                        if (addr === '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8') return 'USDC.e';
+                                                        if (addr === '0xaf88d065e77c8cc2239327c5edb3a432268e5831') {
+                                                            return 'USDC';
+                                                        }
+
+                                                        if (addr === '0xff970a61a04b1ca14834a43f5de4533ebddb5cc8') {
+                                                            return 'USDC.e';
+                                                        }
+
                                                         const hasCollision = tokens.some(t =>
                                                             t.symbol === token.symbol &&
                                                             (t.address || t.underlyingAsset || '').toLowerCase() !== (token.address || token.underlyingAsset || '').toLowerCase()
@@ -216,9 +221,11 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
 
                                                             if (isBridged) {
                                                                 const baseSymbol = token.symbol.replace(/\.e$/i, '');
+
                                                                 return `${baseSymbol}.e`;
                                                             }
                                                         }
+
                                                         return token.symbol;
                                                     })()}
                                                 </div>

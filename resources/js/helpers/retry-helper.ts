@@ -43,6 +43,7 @@ export const retryContractCall = async <T>(
 
             if (attempt === maxAttempts) {
                 logger.error(`[Retry] ${label} failed after ${maxAttempts} attempts:`, error);
+
                 throw error;
             }
 

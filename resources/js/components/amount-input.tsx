@@ -1,9 +1,9 @@
-import React, { useState, useEffect, useRef } from 'react';
 import { ethers } from 'ethers';
+import React, { useState, useEffect, useRef } from 'react';
 import logger from '../utils/logger';
 import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
-import { Input } from './ui/input';
 import { Button } from './ui/button';
+import { Input } from './ui/input';
 
 interface AmountInputProps {
     maxAmount: bigint;
@@ -34,7 +34,9 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
     // Update input when maxAmount changes (except during manual editing)
     useEffect(() => {
-        if (isEditingRef.current) return;
+        if (isEditingRef.current) {
+            return;
+        }
 
         if (maxAmount && maxAmount > BigInt(0)) {
             const formatted = ethers.formatUnits(maxAmount, decimals);
@@ -50,15 +52,22 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
     useEffect(() => {
         return () => {
-            if (editingTimeoutRef.current) clearTimeout(editingTimeoutRef.current);
+            if (editingTimeoutRef.current) {
+                clearTimeout(editingTimeoutRef.current);
+            }
         };
     }, []);
 
     const handlePercentageClick = (percentage: number) => {
-        if (!maxAmount || maxAmount === BigInt(0)) return;
+        if (!maxAmount || maxAmount === BigInt(0)) {
+            return;
+        }
 
         isEditingRef.current = false;
-        if (editingTimeoutRef.current) clearTimeout(editingTimeoutRef.current);
+
+        if (editingTimeoutRef.current) {
+            clearTimeout(editingTimeoutRef.current);
+        }
 
         setSelectedPercentage(percentage);
         const calculatedAmount = (maxAmount * BigInt(percentage)) / BigInt(100);
@@ -71,7 +80,11 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         const normalized = normalizeDecimalInput(e.target.value);
 
         isEditingRef.current = true;
-        if (editingTimeoutRef.current) clearTimeout(editingTimeoutRef.current);
+
+        if (editingTimeoutRef.current) {
+            clearTimeout(editingTimeoutRef.current);
+        }
+
         editingTimeoutRef.current = setTimeout(() => {
             isEditingRef.current = false;
         }, 500);
@@ -85,13 +98,14 @@ export const AmountInput: React.FC<AmountInputProps> = ({
             } else {
                 const parsable = normalized.endsWith('.') ? `${normalized.slice(0, -1) || '0'}` : normalized;
                 const parsedAmount = ethers.parseUnits(parsable, decimals);
+
                 if (parsedAmount > maxAmount) {
                     onAmountChange(maxAmount);
                 } else {
                     onAmountChange(parsedAmount);
                 }
             }
-        } catch (error) {
+        } catch {
             logger.warn('Invalid input:', normalized);
         }
     };

@@ -1,9 +1,11 @@
-import React, { createContext, useContext, useCallback, useEffect, useMemo, useState, ReactNode } from 'react';
-import { ethers } from 'ethers';
+import { mainnet, bsc, polygon, base, arbitrum, avalanche } from '@reown/appkit/networks';
 import { createAppKit, useAppKitProvider, useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
 import { EthersAdapter } from '@reown/appkit-adapter-ethers';
-import { mainnet, bsc, polygon, base, arbitrum, avalanche } from '@reown/appkit/networks';
-import { DEFAULT_NETWORK, NETWORKS, getNetworkByChainId, NetworkConfig } from '../constants/networks';
+import { ethers } from 'ethers';
+import type { ReactNode } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
+import type { NetworkConfig } from '../constants/networks';
+import { DEFAULT_NETWORK, NETWORKS, getNetworkByChainId } from '../constants/networks';
 import { createRpcProvider } from '../helpers/rpc-helper';
 import { bootstrapProxySession, disconnectProxySession, setProxySessionIdentity } from '../services/api';
 import logger from '../utils/logger';
@@ -25,9 +27,11 @@ export const Web3Context = createContext<Web3ContextType | null>(null);
 
 export const useWeb3 = () => {
     const context = useContext(Web3Context);
+
     if (!context) {
         throw new Error('useWeb3 must be used within a Web3Provider');
     }
+
     return context;
 };
 
@@ -86,7 +90,11 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const networkRpcProvider = useMemo(() => {
         const rpcUrls = selectedNetwork?.rpcUrls;
-        if (!rpcUrls || rpcUrls.length === 0) return null;
+
+        if (!rpcUrls || rpcUrls.length === 0) {
+return null;
+}
+
         return createRpcProvider(rpcUrls);
     }, [selectedNetwork]);
 
@@ -110,6 +118,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     useEffect(() => {
         if (chainId) {
             const newNetwork = getNetworkByChainId(chainId);
+
             if (newNetwork) {
                 setSelectedNetworkKey(newNetwork.key);
             }
@@ -119,6 +128,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     useEffect(() => {
         if (!isConnected || !address) {
             setProxySessionIdentity(null);
+
             return;
         }
 
@@ -143,6 +153,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
             await modal.open();
         } catch (error) {
             logger.error('[Web3Provider] Connection failed:', error);
+
             throw error;
         } finally {
             setIsConnecting(false);
@@ -162,10 +173,14 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     const changeNetwork = useCallback(async (networkKey: string) => {
         const targetNetwork = NETWORKS[networkKey];
-        if (!targetNetwork) return;
+
+        if (!targetNetwork) {
+return;
+}
 
         try {
             const appKitNetwork = appKitNetworks.find(n => n.id === targetNetwork.chainId);
+
             if (appKitNetwork) {
                 await modal.switchNetwork(appKitNetwork);
             }

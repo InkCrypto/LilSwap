@@ -1,12 +1,64 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ethers } from 'ethers';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_NETWORK } from '../constants/networks';
-import { getDebtQuote, getCollateralQuote } from '../services/api';
-import { useDebounce } from './use-debounce';
 import { useUserActivity } from '../contexts/user-activity-context';
+import { getDebtQuote, getCollateralQuote } from '../services/api';
 import logger from '../utils/logger';
+import { useDebounce } from './use-debounce';
 
 const AUTO_REFRESH_SECONDS = 30;
+
+const pickNumberish = (value: unknown): number | null => {
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        return value;
+    }
+
+    if (typeof value === 'string' && value.trim() !== '') {
+        const parsed = Number(value);
+
+        return Number.isFinite(parsed) ? parsed : null;
+    }
+
+    return null;
+};
+
+const resolveFeeBps = (routeResult: any): number | null => {
+    const directCandidates = [
+        routeResult?.feeBps,
+        routeResult?.fee_bps,
+        routeResult?.serviceFeeBps,
+        routeResult?.service_fee_bps,
+    ];
+
+    for (const candidate of directCandidates) {
+        const parsed = pickNumberish(candidate);
+
+        if (parsed !== null) {
+            return parsed;
+        }
+    }
+
+    return null;
+};
+
+const resolveDiscountPercent = (routeResult: any): number => {
+    const directCandidates = [
+        routeResult?.discountPercent,
+        routeResult?.discount_percent,
+        routeResult?.partnerDiscountPercent,
+        routeResult?.partner_discount_percent,
+    ];
+
+    for (const candidate of directCandidates) {
+        const parsed = pickNumberish(candidate);
+
+        if (parsed !== null) {
+            return parsed;
+        }
+    }
+
+    return 0;
+};
 
 interface UseParaswapQuoteProps {
     debtAmount?: bigint;
@@ -63,10 +115,12 @@ export const useParaswapQuote = ({
     const clearQuoteError = useCallback(() => {
         setQuoteError(null);
         setErrorCountdown(0);
+
         if (errorTimerRef.current) {
             clearTimeout(errorTimerRef.current);
             errorTimerRef.current = null;
         }
+
         if (errorIntervalRef.current) {
             clearInterval(errorIntervalRef.current);
             errorIntervalRef.current = null;
@@ -89,10 +143,12 @@ export const useParaswapQuote = ({
 
     const clearQuote = useCallback(() => {
         quoteRequestIdRef.current += 1;
+
         if (abortControllerRef.current) {
             abortControllerRef.current.abort();
             abortControllerRef.current = null;
         }
+
         setSwapQuote(null);
         clearQuoteError();
         setAutoRefreshEnabled(false);
@@ -100,78 +156,34 @@ export const useParaswapQuote = ({
     }, [resetRefreshCountdown, clearQuoteError]);
 
     const normalizeTokenAddress = (address: string, symbol = 'unknown') => {
-        if (!address) return null;
+        if (!address) {
+            return null;
+        }
+
         try {
             return ethers.getAddress(address);
         } catch (error: any) {
             logger.warn(`[useParaswapQuote] Invalid address checksum for ${symbol}: ${address}`, error.message);
+
             return address;
         }
-    };
-
-    const pickNumberish = (value: unknown): number | null => {
-        if (typeof value === 'number' && Number.isFinite(value)) {
-            return value;
-        }
-
-        if (typeof value === 'string' && value.trim() !== '') {
-            const parsed = Number(value);
-            return Number.isFinite(parsed) ? parsed : null;
-        }
-
-        return null;
-    };
-
-    const resolveFeeBps = (routeResult: any): number | null => {
-        const directCandidates = [
-            routeResult?.feeBps,
-            routeResult?.fee_bps,
-            routeResult?.serviceFeeBps,
-            routeResult?.service_fee_bps,
-        ];
-
-        // eslint-disable-next-line no-restricted-syntax
-        for (const candidate of directCandidates) {
-            const parsed = pickNumberish(candidate);
-            if (parsed !== null) {
-                return parsed;
-            }
-        }
-
-        return null;
-    };
-
-    const resolveDiscountPercent = (routeResult: any): number => {
-        const directCandidates = [
-            routeResult?.discountPercent,
-            routeResult?.discount_percent,
-            routeResult?.partnerDiscountPercent,
-            routeResult?.partner_discount_percent,
-        ];
-
-        // eslint-disable-next-line no-restricted-syntax
-        for (const candidate of directCandidates) {
-            const parsed = pickNumberish(candidate);
-            if (parsed !== null) {
-                return parsed;
-            }
-        }
-
-        return 0;
     };
 
     const fetchQuote = useCallback(async () => {
         if (!debouncedAmount || debouncedAmount === BigInt(0) || !fromToken || !toToken) {
             setSwapQuote(null);
             setAutoRefreshEnabled(false);
+
             return null;
         }
 
         const fromAddr = (fromToken.address || fromToken.underlyingAsset || '').toLowerCase();
         const toAddr = (toToken.address || toToken.underlyingAsset || '').toLowerCase();
+
         if (fromAddr && toAddr && fromAddr === toAddr) {
             setSwapQuote(null);
             setAutoRefreshEnabled(false);
+
             return null;
         }
 
@@ -179,6 +191,7 @@ export const useParaswapQuote = ({
             addLog?.('Please connect wallet to get quote', 'warning');
             setSwapQuote(null);
             setAutoRefreshEnabled(false);
+
             return null;
         }
 
@@ -189,7 +202,10 @@ export const useParaswapQuote = ({
         quoteRequestIdRef.current += 1;
         const currentRequestId = quoteRequestIdRef.current;
 
-        if (abortControllerRef.current) abortControllerRef.current.abort();
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
 
@@ -230,12 +246,15 @@ export const useParaswapQuote = ({
                     apyPercent: null,
                 };
 
-                if (quoteRequestIdRef.current !== currentRequestId) return null;
+                if (quoteRequestIdRef.current !== currentRequestId) {
+                    return null;
+                }
 
                 setSwapQuote(quotePayload);
                 clearQuoteError();
                 setAutoRefreshEnabled(true);
                 onQuoteLoaded?.(quotePayload);
+
                 return quotePayload;
 
             } else {
@@ -245,6 +264,7 @@ export const useParaswapQuote = ({
                     : (typeof fromToken?.borrowRate === 'number' ? fromToken.borrowRate : 0.05);
 
                 let destAmountBigInt = BigInt(debouncedAmount.toString());
+
                 if (destAmountBigInt > 0n) {
                     const thirtyMinSeconds = 30 * 60;
                     const yearSeconds = 365 * 24 * 60 * 60;
@@ -252,6 +272,7 @@ export const useParaswapQuote = ({
                     const driftBuffer = Math.ceil(rawDebt * apyDecimal * (thirtyMinSeconds / yearSeconds));
                     destAmountBigInt += BigInt(driftBuffer) + 1n;
                 }
+
                 const destAmount = destAmountBigInt.toString();
 
                 const apyPercentToSend = (typeof fromToken?.variableBorrowRate === 'number')
@@ -288,27 +309,38 @@ export const useParaswapQuote = ({
                     apyPercent: typeof apyPercent === 'number' ? apyPercent : null,
                 };
 
-                if (quoteRequestIdRef.current !== currentRequestId) return null;
+                if (quoteRequestIdRef.current !== currentRequestId) {
+                    return null;
+                }
 
                 setSwapQuote(quotePayload);
                 clearQuoteError();
                 setAutoRefreshEnabled(true);
                 onQuoteLoaded?.(quotePayload);
+
                 return quotePayload;
             }
         } catch (error: any) {
-            if (error.name === 'AbortError' || error.message === 'canceled') return null;
+            if (error.name === 'AbortError' || error.message === 'canceled') {
+                return null;
+            }
+
             addLog?.('Quote error: ' + error.message, 'error');
             setQuoteErrorWithTimer({ message: error.message || 'Failed to fetch quote' });
             setSwapQuote(null);
+
             return null;
         } finally {
             setIsQuoteLoading(false);
         }
-    }, [debouncedAmount, isCollateral, fromToken, toToken, addLog, onQuoteLoaded, resetRefreshCountdown, selectedNetwork?.chainId, account, adapterAddress, enabled, clearQuoteError, setQuoteErrorWithTimer]);
+    }, [debouncedAmount, isCollateral, fromToken, toToken, addLog, onQuoteLoaded, resetRefreshCountdown, selectedNetwork?.chainId, account, adapterAddress, clearQuoteError, setQuoteErrorWithTimer]);
 
     useEffect(() => {
-        return () => { if (abortControllerRef.current) abortControllerRef.current.abort(); };
+        return () => {
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
+        };
     }, []);
 
     useEffect(() => {
@@ -322,38 +354,73 @@ export const useParaswapQuote = ({
     }, [fromToken?.address, fromToken?.underlyingAsset, toToken?.address, toToken?.underlyingAsset, clearQuote]);
 
     useEffect(() => {
-        if (!enabled) { clearQuote(); return; }
-        if (!currentAmount || currentAmount === 0n) { clearQuote(); return; }
-        if (currentAmount !== debouncedAmount && !tokenJustChangedRef.current) return;
+        if (!enabled) {
+            clearQuote();
+
+            return;
+        }
+
+        if (!currentAmount || currentAmount === 0n) {
+            clearQuote();
+
+            return;
+        }
+
+        if (currentAmount !== debouncedAmount && !tokenJustChangedRef.current) {
+            return;
+        }
+
         tokenJustChangedRef.current = false;
         fetchQuote();
     }, [currentAmount, debouncedAmount, enabled, fetchQuote, clearQuote]);
 
     useEffect(() => {
-        if (!autoRefreshEnabled || !enabled || freezeQuote) return;
+        if (!autoRefreshEnabled || !enabled || freezeQuote) {
+            return;
+        }
+
         const interval = setInterval(() => {
-            if (!isTabVisible || !isUserActive) return;
+            if (!isTabVisible || !isUserActive) {
+                return;
+            }
+
             setNextRefreshIn((prev) => {
-                if (prev <= 1) { fetchQuote(); return AUTO_REFRESH_SECONDS; }
+                if (prev <= 1) {
+                    fetchQuote();
+
+                    return AUTO_REFRESH_SECONDS;
+                }
+
                 return prev - 1;
             });
         }, 1000);
+
         return () => clearInterval(interval);
     }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote, isTabVisible, isUserActive]);
 
     const { priceImpact, recommendedSlippage } = useMemo(() => {
-        if (!swapQuote?.priceRoute) return { priceImpact: 0, recommendedSlippage: 10 };
+        if (!swapQuote?.priceRoute) {
+            return { priceImpact: 0, recommendedSlippage: 10 };
+        }
+
         let impact = swapQuote.priceRoute.priceImpact || 0;
+
         if (impact === 0 && swapQuote.priceRoute.srcUSD && swapQuote.priceRoute.destUSD) {
             const srcUSD = parseFloat(swapQuote.priceRoute.srcUSD);
             const destUSD = parseFloat(swapQuote.priceRoute.destUSD);
-            if (srcUSD > 0) impact = Math.max(0, (srcUSD - destUSD) / srcUSD);
+
+            if (srcUSD > 0) {
+                impact = Math.max(0, (srcUSD - destUSD) / srcUSD);
+            }
         }
+
         return { priceImpact: impact, recommendedSlippage: Math.max(10, Math.ceil(impact * 10000) + 10) };
     }, [swapQuote]);
 
     useEffect(() => {
-        if (isAutoSlippage && swapQuote) setSlippage(recommendedSlippage);
+        if (isAutoSlippage && swapQuote) {
+            setSlippage(recommendedSlippage);
+        }
     }, [swapQuote, isAutoSlippage, recommendedSlippage]);
 
     return {

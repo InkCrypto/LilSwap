@@ -1,130 +1,101 @@
-name: Deploy App (Unified)
+name: Deploy App (Laravel + Frontend)
 
 on:
   push:
     tags:
       - "v*"
-  workflow_dispatch:
-    inputs:
-      target_tag:
-        description: "Tag to deploy (e.g., v1.0.0)"
-        required: true
-        type: string
 
 jobs:
-  build-and-deploy:
+  deploy:
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      APP_TAG: ${{ github.ref_name }}
+      APP_ROOT: ${{ secrets.REMOTE_APP_ROOT }}
+      APP_REPO: ${{ github.repository }}
+      G_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Secrets exatamente como no arquivo enviado
+      REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
+      ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+      API_SECRET: ${{ secrets.API_SECRET }}
     steps:
-      - name: Resolve Target Tag
-        id: version
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG="${{ github.event.inputs.target_tag }}"
-          else
-            TAG="${GITHUB_REF#refs/tags/}"
-          fi
-
-          if [[ ! "$TAG" =~ ^v[0-9].* ]]; then
-            echo "ERROR: Invalid tag '$TAG'. Expected format like v1.0.0"
-            exit 1
-          fi
-
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Using tag: $TAG"
-
-      - name: Configure SSH
+      - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Prepare Release Directory on Server
-        env:
-          TAG: ${{ steps.version.outputs.tag }}
+      - name: Add Remote to Known Hosts
         run: |
-          ssh -p ${{ secrets.REMOTE_PORT }} -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} 'bash -s' << 'EOF'
-            set -e
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_HOST }} >> ~/.ssh/known_hosts
 
-            ROOT="${{ secrets.REMOTE_APP_ROOT }}"
-            TAG="${{ steps.version.outputs.tag }}"
-            RELEASE="$ROOT/releases/$TAG"
-            SHARED="$ROOT/shared"
+      - name: Clone and Build on Server
+        run: |
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
+            # Definindo as variáveis no remoto de forma segura
+            TAG='$APP_TAG'
+            ROOT='$APP_ROOT'
+            REPO='$APP_REPO'
+            TOKEN='$G_TOKEN'
 
-            mkdir -p "$ROOT/releases" "$SHARED"
+            REOWN_ID='$REOWN_PROJECT_ID'
+            ALCHEMY_KEY='$ALCHEMY_API_KEY'
+            API_SEC='$API_SECRET'
 
-            export GIT_SSH_COMMAND='ssh -i ~/.ssh/inkcrypto -o StrictHostKeyChecking=no'
+            TARGET=\"\$ROOT/releases/\$TAG\"
 
-            if [ ! -d "$RELEASE/.git" ]; then
-              git clone --depth=1 --branch "$TAG" git@github.com:InkCrypto/LilSwap.git "$RELEASE"
-            else
-              (cd "$RELEASE" && git fetch --tags --prune --depth=1 && git checkout "$TAG" && git reset --hard "$TAG")
-            fi
+            echo \"Deploying \$TAG to \$TARGET...\"
 
-            cp "$RELEASE/.env.example" "$SHARED/.env"
+            # 1. Clone
+            git clone --branch \$TAG --depth 1 https://x-access-token:\$TOKEN@github.com/\$REPO.git \$TARGET
 
-            upsert_env() {
-              local file="$1"
-              local key="$2"
-              local value="$3"
-              if grep -q "^${key}=" "$file"; then
-                sed -i "s#^${key}=.*#${key}=${value}#" "$file"
-              else
-                echo "${key}=${value}" >> "$file"
-              fi
-            }
+            cd \$TARGET
+            git remote remove origin
 
-            upsert_env "$SHARED/.env" "API_SECRET" "${{ secrets.API_SECRET }}"
-            upsert_env "$SHARED/.env" "ALCHEMY_API_KEY" "${{ secrets.ALCHEMY_API_KEY }}"
-            upsert_env "$SHARED/.env" "VITE_REOWN_PROJECT_ID" "${{ secrets.VITE_REOWN_PROJECT_ID }}"
+            # 2. Structure
+            mkdir -p \$ROOT/shared/storage/framework/{cache/data,sessions,testing,views}
+            mkdir -p \$ROOT/shared/storage/{app/public,logs}
+            mkdir -p \$ROOT/shared/database
+            touch \$ROOT/shared/database/database.sqlite
+            chmod -R 775 \$ROOT/shared/storage
 
-            ln -sfn "$SHARED/.env" "$RELEASE/.env"
+            # Links
+            rm -rf storage
+            ln -sfn \$ROOT/shared/storage storage
+            mkdir -p database
+            ln -sfn \$ROOT/shared/database/database.sqlite database/database.sqlite
 
-            mkdir -p "$SHARED/storage"
-            rm -rf "$RELEASE/storage"
-            ln -sfn "$SHARED/storage" "$RELEASE/storage"
+            # 3. Setup .env (Usando os nomes EXATOS fornecidos)
+            cp .env.example .env
+            sed -i \"s|^VITE_REOWN_PROJECT_ID=.*|VITE_REOWN_PROJECT_ID=\$REOWN_ID|g\" .env
+            sed -i \"s|^ALCHEMY_API_KEY=.*|ALCHEMY_API_KEY=\$ALCHEMY_KEY|g\" .env
+            sed -i \"s|^API_SECRET=.*|API_SECRET=\$API_SEC|g\" .env
+            sed -i \"s|DB_DATABASE=.*|DB_DATABASE=\$ROOT/shared/database/database.sqlite|g\" .env
 
-            if [ -f "$RELEASE/composer.json" ]; then
-              (cd "$RELEASE" && composer2 install --no-dev --prefer-dist --optimize-autoloader)
-            fi
+            # 4. Hostinger Node Path
+            NODE_BIN=\"/opt/alt/alt-nodejs22/root/bin\"
+            export PATH=\"\$NODE_BIN:\$PATH\"
 
-            if [ -f "$RELEASE/package.json" ]; then
-              if command -v pnpm >/dev/null 2>&1; then
-                PM="pnpm"
-              elif command -v corepack >/dev/null 2>&1; then
-                corepack enable
-                corepack prepare pnpm@9 --activate
-                PM="pnpm"
-              elif command -v npm >/dev/null 2>&1; then
-                npm install -g pnpm@9
-                PM="pnpm"
-              else
-                echo "ERROR: pnpm/corepack/npm not available on server."
-                exit 1
-              fi
+            # 5. Build
+            composer install --no-dev --optimize-autoloader
+            php artisan key:generate --force
+            php artisan migrate --force
+            \$NODE_BIN/corepack pnpm install --frozen-lockfile
+            \$NODE_BIN/corepack pnpm build
 
-              (cd "$RELEASE" && "$PM" install --frozen-lockfile && "$PM" build)
-            fi
+            # 6. Finalize
+            php artisan optimize:clear
+            php artisan storage:link
 
-            mkdir -p "$RELEASE/bootstrap/cache"
-            chmod -R 775 "$SHARED/storage" "$RELEASE/bootstrap/cache"
-          EOF
+            pkill -u \$(whoami) node || true
+          "
 
       - name: Atomic Symlink Swap
         run: |
-          ssh -p ${{ secrets.REMOTE_PORT }} -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} 'bash -s' << 'EOF'
-            set -e
-
-            ROOT="${{ secrets.REMOTE_APP_ROOT }}"
-            TAG="${{ steps.version.outputs.tag }}"
-            RELEASE="$ROOT/releases/$TAG"
-
-            if [ ! -d "$RELEASE" ]; then
-              echo "ERROR: Release directory not found: $RELEASE"
-              exit 1
-            fi
-
-            ln -sfn "$RELEASE" "$ROOT/current"
-            ln -sfn "$ROOT/current/public" "$ROOT/public"
-
-            cd "$ROOT/releases"
-            ls -1dt v* 2>/dev/null | tail -n +6 | xargs -r rm -rf
-          EOF
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
+            ROOT='$APP_ROOT'
+            TAG='$APP_TAG'
+            ln -sfn \$ROOT/releases/\$TAG/public \$ROOT/current &&
+            cd \$ROOT/releases && ls -1dt v* | tail -n +4 | xargs rm -rf
+          "

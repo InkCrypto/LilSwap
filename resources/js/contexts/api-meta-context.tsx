@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
 
 interface ApiMetaContextType {
     apiVersion: string | null;
@@ -7,32 +8,43 @@ interface ApiMetaContextType {
 
 const ApiMetaContext = createContext<ApiMetaContextType>({ apiVersion: null, isApiUp: true });
 
-let _setApiVersion: ((v: string | null) => void) | null = null;
-let _setIsApiUp: ((status: boolean) => void) | null = null;
+const API_VERSION_EVENT = 'lilswap:api-version';
+const API_STATUS_EVENT = 'lilswap:api-status';
 
 /**
  * Called by the axios interceptor on every successful response.
  * Kept outside React so it's callable without a hook.
  */
 export const notifyApiVersion = (version: string) => {
-    if (_setApiVersion) _setApiVersion(version);
+    window.dispatchEvent(new CustomEvent(API_VERSION_EVENT, { detail: version }));
 };
 
 export const notifyApiStatus = (isUp: boolean) => {
-    if (_setIsApiUp) _setIsApiUp(isUp);
+    window.dispatchEvent(new CustomEvent(API_STATUS_EVENT, { detail: isUp }));
 };
 
 export const ApiMetaProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const [apiVersion, setApiVersion] = useState<string | null>(null);
     const [isApiUp, setIsApiUp] = useState(true);
 
-    // Expose the setter so the interceptor can call it
-    _setApiVersion = useCallback((v: string | null) => {
-        setApiVersion(prev => (prev === v ? prev : v));
-    }, []);
+    useEffect(() => {
+        const onVersion = (event: Event) => {
+            const customEvent = event as CustomEvent<string | null>;
+            setApiVersion((prev) => (prev === customEvent.detail ? prev : customEvent.detail));
+        };
 
-    _setIsApiUp = useCallback((status: boolean) => {
-        setIsApiUp(prev => (prev === status ? prev : status));
+        const onStatus = (event: Event) => {
+            const customEvent = event as CustomEvent<boolean>;
+            setIsApiUp((prev) => (prev === customEvent.detail ? prev : customEvent.detail));
+        };
+
+        window.addEventListener(API_VERSION_EVENT, onVersion as EventListener);
+        window.addEventListener(API_STATUS_EVENT, onStatus as EventListener);
+
+        return () => {
+            window.removeEventListener(API_VERSION_EVENT, onVersion as EventListener);
+            window.removeEventListener(API_STATUS_EVENT, onStatus as EventListener);
+        };
     }, []);
 
     return (

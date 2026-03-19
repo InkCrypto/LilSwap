@@ -31,7 +31,8 @@ const STYLES = {
 
 const getCurrentLogLevel = (): LogLevel => {
     const envLevel = (import.meta as any).env.VITE_LOG_LEVEL?.toLowerCase();
-    if (envLevel && LOG_PRIORITY.hasOwnProperty(envLevel)) {
+
+    if (envLevel && Object.hasOwn(LOG_PRIORITY, envLevel)) {
         return envLevel as LogLevel;
     }
 
@@ -46,7 +47,9 @@ const currentLevel = getCurrentLogLevel();
 const currentPriority = LOG_PRIORITY[currentLevel];
 
 export const isUserRejectedError = (error: any): boolean => {
-    if (!error) return false;
+    if (!error) {
+        return false;
+    }
 
     const code = error?.code ?? error?.error?.code;
     const name = String(error?.name || '').toLowerCase();
@@ -75,11 +78,14 @@ const shouldLog = (level: LogLevel): boolean => {
 
 const getTimestamp = (): string => {
     const now = new Date();
+
     return now.toISOString().split('T')[1].replace('Z', '');
 };
 
 const relayLogToBackend = async (level: LogLevel, message: string, data: any) => {
-    if (isUserRejectedError(data)) return;
+    if (isUserRejectedError(data)) {
+        return;
+    }
 
     try {
         const apiUrl = (import.meta as any).env.VITE_API_URL || '/api';
@@ -124,46 +130,83 @@ const relayLogToBackend = async (level: LogLevel, message: string, data: any) =>
             headers,
             credentials: 'same-origin',
             body: JSON.stringify(payload)
-        }).catch(() => { });
-    } catch (err) { }
+        }).catch(() => {
+            // Best-effort logging relay.
+        });
+    } catch {
+        // Ignore relay setup errors.
+    }
 };
 
 export const error = (message: string, data: any = null) => {
-    if (!shouldLog(LOG_LEVELS.ERROR)) return;
+    if (!shouldLog(LOG_LEVELS.ERROR)) {
+        return;
+    }
+
     const timestamp = getTimestamp();
     console.group(`%c[${timestamp}] %c[ERROR]%c ${message}`, STYLES.timestamp, STYLES.error, STYLES.message);
-    if (data) console.error(data);
+
+    if (data) {
+        console.error(data);
+    }
+
     console.groupEnd();
     relayLogToBackend(LOG_LEVELS.ERROR, message, data);
 };
 
 export const warn = (message: string, data: any = null) => {
-    if (!shouldLog(LOG_LEVELS.WARN)) return;
+    if (!shouldLog(LOG_LEVELS.WARN)) {
+        return;
+    }
+
     const timestamp = getTimestamp();
     console.log(`%c[${timestamp}] %c[WARN]%c ${message}`, STYLES.timestamp, STYLES.warn, STYLES.message);
-    if (data) console.warn(data);
+
+    if (data) {
+        console.warn(data);
+    }
+
     relayLogToBackend(LOG_LEVELS.WARN, message, data);
 };
 
 export const info = (message: string, data: any = null) => {
-    if (!shouldLog(LOG_LEVELS.INFO)) return;
+    if (!shouldLog(LOG_LEVELS.INFO)) {
+        return;
+    }
+
     const timestamp = getTimestamp();
     console.log(`%c[${timestamp}] %c[INFO]%c ${message}`, STYLES.timestamp, STYLES.info, STYLES.message);
-    if (data) console.log(data);
+
+    if (data) {
+        console.log(data);
+    }
 };
 
 export const debug = (message: string, data: any = null) => {
-    if (!shouldLog(LOG_LEVELS.DEBUG)) return;
+    if (!shouldLog(LOG_LEVELS.DEBUG)) {
+        return;
+    }
+
     const timestamp = getTimestamp();
     console.log(`%c[${timestamp}] %c[DEBUG]%c ${message}`, STYLES.timestamp, STYLES.debug, STYLES.message);
-    if (data) console.log(data);
+
+    if (data) {
+        console.log(data);
+    }
 };
 
 export const api = (method: string, url: string, data: any = null) => {
-    if (!shouldLog(LOG_LEVELS.DEBUG)) return;
+    if (!shouldLog(LOG_LEVELS.DEBUG)) {
+        return;
+    }
+
     const timestamp = getTimestamp();
     console.group(`%c[${timestamp}] %c[API]%c ${method.toUpperCase()} ${url}`, STYLES.timestamp, 'color: #00aa88; font-weight: bold;', STYLES.message);
-    if (data) console.log('Data:', data);
+
+    if (data) {
+        console.log('Data:', data);
+    }
+
     console.groupEnd();
 };
 

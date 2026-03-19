@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { ethers } from 'ethers';
-import { ADDRESSES } from '../constants/addresses';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { ABIS } from '../constants/abis';
+import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
-import { getDebtTokenContract } from '../services/aave-contracts';
 import { retryContractCall } from '../helpers/retry-helper';
+import { getDebtTokenContract } from '../services/aave-contracts';
 import logger from '../utils/logger';
 
 interface UseDebtPositionsProps {
@@ -38,22 +38,34 @@ export const useDebtPositions = ({
 
     const formatUnitsFixed = (balance: bigint, decimals: number): string => {
         const s = ethers.formatUnits(balance, decimals);
-        if (!/[eE]/.test(s)) return s;
-        
+
+        if (!/[eE]/.test(s)) {
+            return s;
+        }
+
         const b = balance.toString();
-        if (decimals === 0) return b;
+
+        if (decimals === 0) {
+            return b;
+        }
+
         const intPart = b.length > decimals ? b.slice(0, -decimals) : '0';
         let frac = b.length > decimals ? b.slice(-decimals) : b.padStart(decimals, '0');
         frac = frac.replace(/0+$/, '');
+
         return frac ? `${intPart}.${frac}` : intPart;
     };
 
     const adapterAddress = useMemo(() => {
-        if (!networkAddresses?.DEBT_SWAP_ADAPTER) return null;
+        if (!networkAddresses?.DEBT_SWAP_ADAPTER) {
+            return null;
+        }
+
         try {
             return ethers.getAddress(networkAddresses.DEBT_SWAP_ADAPTER);
         } catch (error) {
             logger.warn('[useDebtPositions] Invalid DEBT_SWAP_ADAPTER', { adapter: networkAddresses.DEBT_SWAP_ADAPTER, error });
+
             return null;
         }
     }, [networkAddresses?.DEBT_SWAP_ADAPTER]);
@@ -77,11 +89,13 @@ export const useDebtPositions = ({
                 addLog?.(`Invalid DEBT_SWAP_ADAPTER for ${targetNetwork.label}. Check network config.`, 'error');
                 setAllowance(BigInt(0));
                 setIsDebtLoading(false);
+
                 return;
             }
 
             try {
                 let nextDebtTokenAddr = toToken.variableDebtTokenAddress;
+
                 if (!nextDebtTokenAddr || nextDebtTokenAddr === ethers.ZeroAddress) {
                     const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, readProvider);
                     const toTokenAddress = toToken.underlyingAsset || toToken.address;
@@ -97,17 +111,23 @@ export const useDebtPositions = ({
             }
 
             setIsDebtLoading(false);
+
             return;
         }
 
-        if (abortControllerRef.current) abortControllerRef.current.abort();
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
 
         setIsDebtLoading(true);
 
         try {
-            if (signal.aborted) return;
+            if (signal.aborted) {
+                return;
+            }
 
             const providerNetwork = await readProvider.getNetwork();
             const providerChainId = Number(providerNetwork.chainId);
@@ -116,6 +136,7 @@ export const useDebtPositions = ({
             if (providerChainId !== expectedChainId) {
                 const errorMsg = `❌ Provider WRONG NETWORK! Expected ${expectedChainId}, got ${providerChainId}`;
                 addLog?.(errorMsg, 'error');
+
                 throw new Error(errorMsg);
             }
 
@@ -135,7 +156,9 @@ export const useDebtPositions = ({
                 { maxAttempts: 5, initialDelay: 800 }
             );
 
-            if (signal.aborted || !isMountedRef.current) return;
+            if (signal.aborted || !isMountedRef.current) {
+                return;
+            }
 
             setDebtBalance(balance);
             setFormattedDebt(formatUnitsFixed(balance, fromToken.decimals));
@@ -144,10 +167,12 @@ export const useDebtPositions = ({
             if (!adapterAddress) {
                 setAllowance(BigInt(0));
                 setIsDebtLoading(false);
+
                 return;
             }
 
             let nextDebtTokenAddr = toToken.variableDebtTokenAddress;
+
             if (!nextDebtTokenAddr || nextDebtTokenAddr === ethers.ZeroAddress) {
                 const toTokenAddress = toToken.underlyingAsset || toToken.address;
                 const toReserveData = await poolContract.getReserveData(toTokenAddress);
@@ -161,13 +186,17 @@ export const useDebtPositions = ({
                 { maxAttempts: 3, initialDelay: 500 }
             );
 
-            if (signal.aborted || !isMountedRef.current) return;
+            if (signal.aborted || !isMountedRef.current) {
+                return;
+            }
+
             setAllowance(currentAllowance);
 
         } catch (error: any) {
             if (error.name !== 'AbortError' && !signal.aborted) {
                 logger.error('[fetchDebtData]', error);
                 const isRateLimit = error.message?.includes('429') || error.message?.includes('rate limit');
+
                 if (isRateLimit) {
                     addLog?.('⚠️ RPC Rate Limit! Please refresh.', 'error');
                 } else {
@@ -183,9 +212,13 @@ export const useDebtPositions = ({
 
     useEffect(() => {
         isMountedRef.current = true;
+
         return () => {
             isMountedRef.current = false;
-            if (abortControllerRef.current) abortControllerRef.current.abort();
+
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
         };
     }, []);
 
@@ -198,9 +231,10 @@ export const useDebtPositions = ({
     useEffect(() => {
         if (account && readProvider && fromToken && toToken) {
             const timer = setTimeout(() => fetchDebtData(), 500);
+
             return () => clearTimeout(timer);
         }
-    }, [account, readProvider, fromToken?.symbol, fromToken?.address, toToken?.symbol, toToken?.address, fetchDebtData]);
+    }, [account, readProvider, fromToken, toToken, fromToken?.symbol, fromToken?.address, toToken?.symbol, toToken?.address, fetchDebtData]);
 
     const needsApproval = useMemo(() =>
         Boolean(debtBalance && debtBalance > BigInt(0) && allowance < (debtBalance * BigInt(2))),

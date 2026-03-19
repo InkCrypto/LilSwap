@@ -1,125 +1,115 @@
-name: Rollback App (Unified)
+name: Rollback App (Laravel + Frontend)
 
 on:
   workflow_dispatch:
     inputs:
       target_tag:
-        description: "Tag to rollback/restore to (e.g., v1.0.0)"
+        description: "Tag to rollback/restore to (e.g., v0.6.0)"
         required: true
         type: string
 
 jobs:
   check-and-restore:
     runs-on: ubuntu-latest
-    steps:
-      - name: Validate Target Tag
-        run: |
-          TAG="${{ github.event.inputs.target_tag }}"
-          if [[ ! "$TAG" =~ ^v[0-9].* ]]; then
-            echo "ERROR: Invalid tag '$TAG'. Expected format like v1.0.0"
-            exit 1
-          fi
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      APP_ROOT: ${{ secrets.REMOTE_APP_ROOT }}
+      APP_REPO: ${{ github.repository }}
+      G_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Configure SSH
+      # Secrets exatamente como no arquivo enviado
+      REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
+      ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+      API_SECRET: ${{ secrets.API_SECRET }}
+    steps:
+      - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
         with:
           ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
 
-      - name: Check if Release Exists on Server
-        id: check_release
+      - name: Add Remote to Known Hosts
         run: |
-          if ssh -p ${{ secrets.REMOTE_PORT }} -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "[ -d \"${{ secrets.REMOTE_APP_ROOT }}/releases/${{ github.event.inputs.target_tag }}\" ]"; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
+          mkdir -p ~/.ssh
+          ssh-keyscan -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Check if version exists on server
+        id: check_version
+        env:
+          TARGET_TAG: ${{ github.event.inputs.target_tag }}
+        run: |
+          if ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "[ -d \"$APP_ROOT/releases/$TARGET_TAG\" ]"; then
+            echo "exists=true" >> $GITHUB_OUTPUT
           else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Recreate Missing Release on Server
-        if: steps.check_release.outputs.exists == 'false'
+      - name: Clone and Build on Server
+        if: steps.check_version.outputs.exists == 'false'
+        env:
+          TAG: ${{ github.event.inputs.target_tag }}
         run: |
-          ssh -p ${{ secrets.REMOTE_PORT }} -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} 'bash -s' << 'EOF'
-            set -e
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
+            TAG='$TAG'
+            ROOT='$APP_ROOT'
+            REPO='$APP_REPO'
+            TOKEN='$G_TOKEN'
 
-            ROOT="${{ secrets.REMOTE_APP_ROOT }}"
-            TAG="${{ github.event.inputs.target_tag }}"
-            RELEASE="$ROOT/releases/$TAG"
-            SHARED="$ROOT/shared"
+            REOWN_ID='$REOWN_PROJECT_ID'
+            ALCHEMY_KEY='$ALCHEMY_API_KEY'
+            API_SEC='$API_SECRET'
 
-            mkdir -p "$ROOT/releases" "$SHARED"
+            TARGET=\"\$ROOT/releases/\$TAG\"
 
-            export GIT_SSH_COMMAND='ssh -i ~/.ssh/inkcrypto -o StrictHostKeyChecking=no'
+            git clone --branch \$TAG --depth 1 https://x-access-token:\$TOKEN@github.com/\$REPO.git \$TARGET
 
-            if [ ! -d "$RELEASE/.git" ]; then
-              git clone --depth=1 --branch "$TAG" git@github.com:InkCrypto/LilSwap.git "$RELEASE"
-            fi
+            cd \$TARGET
+            git remote remove origin
 
-            if [ ! -f "$SHARED/.env" ]; then
-              cp "$RELEASE/.env.example" "$SHARED/.env"
-            fi
+            # Structure
+            mkdir -p \$ROOT/shared/storage/framework/{cache/data,sessions,testing,views}
+            mkdir -p \$ROOT/shared/storage/{app/public,logs}
+            mkdir -p \$ROOT/shared/database
+            touch \$ROOT/shared/database/database.sqlite
+            chmod -R 775 \$ROOT/shared/storage
 
-            upsert_env() {
-              local file="$1"
-              local key="$2"
-              local value="$3"
-              if grep -q "^${key}=" "$file"; then
-                sed -i "s#^${key}=.*#${key}=${value}#" "$file"
-              else
-                echo "${key}=${value}" >> "$file"
-              fi
-            }
+            rm -rf storage
+            ln -sfn \$ROOT/shared/storage storage
+            mkdir -p database
+            ln -sfn \$ROOT/shared/database/database.sqlite database/database.sqlite
 
-            upsert_env "$SHARED/.env" "API_SECRET" "${{ secrets.API_SECRET }}"
-            upsert_env "$SHARED/.env" "ALCHEMY_API_KEY" "${{ secrets.ALCHEMY_API_KEY }}"
-            upsert_env "$SHARED/.env" "VITE_REOWN_PROJECT_ID" "${{ secrets.VITE_REOWN_PROJECT_ID }}"
+            # Setup .env
+            cp .env.example .env
+            sed -i \"s|^VITE_REOWN_PROJECT_ID=.*|VITE_REOWN_PROJECT_ID=\$REOWN_ID|g\" .env
+            sed -i \"s|^ALCHEMY_API_KEY=.*|ALCHEMY_API_KEY=\$ALCHEMY_KEY|g\" .env
+            sed -i \"s|^API_SECRET=.*|API_SECRET=\$API_SEC|g\" .env
+            sed -i \"s|DB_DATABASE=.*|DB_DATABASE=\$ROOT/shared/database/database.sqlite|g\" .env
 
-            ln -sfn "$SHARED/.env" "$RELEASE/.env"
+            # Hostinger Node Path
+            NODE_BIN=\"/opt/alt/alt-nodejs22/root/bin\"
+            export PATH=\"\$NODE_BIN:\$PATH\"
 
-            mkdir -p "$SHARED/storage"
-            rm -rf "$RELEASE/storage"
-            ln -sfn "$SHARED/storage" "$RELEASE/storage"
+            # Build
+            composer install --no-dev --optimize-autoloader
+            php artisan key:generate --force
+            php artisan migrate --force
+            \$NODE_BIN/corepack pnpm install --frozen-lockfile
+            \$NODE_BIN/corepack pnpm build
 
-            if [ -f "$RELEASE/composer.json" ]; then
-              (cd "$RELEASE" && composer2 install --no-dev --prefer-dist --optimize-autoloader)
-            fi
+            # Finalize
+            php artisan optimize:clear
+            php artisan storage:link
 
-            if [ -f "$RELEASE/package.json" ]; then
-              if command -v pnpm >/dev/null 2>&1; then
-                PM="pnpm"
-              elif command -v corepack >/dev/null 2>&1; then
-                corepack enable
-                corepack prepare pnpm@9 --activate
-                PM="pnpm"
-              elif command -v npm >/dev/null 2>&1; then
-                npm install -g pnpm@9
-                PM="pnpm"
-              else
-                echo "ERROR: pnpm/corepack/npm not available on server."
-                exit 1
-              fi
-
-              (cd "$RELEASE" && "$PM" install --frozen-lockfile && "$PM" build)
-            fi
-
-            mkdir -p "$RELEASE/bootstrap/cache"
-            chmod -R 775 "$SHARED/storage" "$RELEASE/bootstrap/cache"
-          EOF
+            pkill -u \$(whoami) node || true
+          "
 
       - name: Atomic Symlink Swap
         run: |
-          ssh -p ${{ secrets.REMOTE_PORT }} -o StrictHostKeyChecking=no ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} 'bash -s' << 'EOF'
-            set -e
-
-            ROOT="${{ secrets.REMOTE_APP_ROOT }}"
-            TAG="${{ github.event.inputs.target_tag }}"
-            RELEASE="$ROOT/releases/$TAG"
-
-            if [ ! -d "$RELEASE" ]; then
-              echo "ERROR: Release $TAG not found."
+          ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
+            ROOT='$APP_ROOT'
+            TAG='${{ github.event.inputs.target_tag }}'
+            if [ ! -d \"\$ROOT/releases/\$TAG\" ]; then
+              echo \"Error: Release \$TAG not found even after attempt to deploy.\"
               exit 1
             fi
-
-            ln -sfn "$RELEASE" "$ROOT/current"
-            ln -sfn "$ROOT/current/public" "$ROOT/public"
-
-            echo "SUCCESS: Rollback to $TAG complete."
-          EOF
+            ln -sfn \$ROOT/releases/\$TAG/public \$ROOT/current
+          "

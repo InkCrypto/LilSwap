@@ -19,6 +19,7 @@ class LogSessionService {
      */
     async signPayload(body: any) {
         const secret = this.secret || (import.meta as any).env.VITE_API_SECRET;
+
         if (!secret) {
             return null;
         }
@@ -40,6 +41,7 @@ class LogSessionService {
             };
         } catch (err) {
             console.error('[LogSession] Signing error:', err);
+
             return null;
         }
     }

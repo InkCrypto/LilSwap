@@ -5,7 +5,9 @@ import { PositionsAccordion } from './positions-accordion';
 export const Dashboard: React.FC = () => {
     const { account } = useWeb3();
 
-    if (!account) return null;
+    if (!account) {
+return null;
+}
 
     return (
         <div className="w-full space-y-4 animate-in fade-in duration-500">

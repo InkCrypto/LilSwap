@@ -1,6 +1,7 @@
-import React, { createContext, useContext, useState, useCallback, ReactNode, useEffect } from 'react';
-import { createPortal } from 'react-dom';
 import { X, CheckCircle2, AlertTriangle, Info, ExternalLink } from 'lucide-react';
+import type { ReactNode} from 'react';
+import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 interface Toast {
     id: number;
@@ -21,9 +22,11 @@ const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
 export const useToast = () => {
     const context = useContext(ToastContext);
+
     if (!context) {
         throw new Error('useToast must be used within a ToastProvider');
     }
+
     return context;
 };
 
@@ -65,6 +68,7 @@ const ToastComponent: React.FC<{ toast: Toast; onRemove: (id: number) => void }>
             const timer = setTimeout(() => {
                 onRemove(toast.id);
             }, toast.duration);
+
             return () => clearTimeout(timer);
         }
     }, [toast.duration, isHovered, onRemove, toast.id]);

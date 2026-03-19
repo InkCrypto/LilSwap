@@ -1,6 +1,6 @@
+import { Coffee } from 'lucide-react';
 import React, { useState } from 'react';
 import { useApiMeta } from '../contexts/api-meta-context';
-import { Coffee } from 'lucide-react';
 import { DonateModal } from './donate-modal';
 
 // This will be provided by Vite in development/build

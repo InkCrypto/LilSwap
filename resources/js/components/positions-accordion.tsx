@@ -1,15 +1,15 @@
-import React, { useState, useContext, useMemo, lazy, Suspense, useEffect } from 'react';
-import { ArrowLeftRight, ChevronDown, ChevronUp, RefreshCw, AlertCircle, Network, ExternalLink, Gift, Wallet } from 'lucide-react';
-import { useAllPositions, ChainInfo, PositionInfo } from '../hooks/use-all-positions';
-import { toHexChainId } from '../utils/wallet';
-import { getNetworkByChainId } from '../constants/networks';
+import { AlertCircle, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, Gift, Network, RefreshCw } from 'lucide-react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
-import logger from '../utils/logger';
-import { InfoTooltip } from './info-tooltip';
+import { getNetworkByChainId } from '../constants/networks';
+import type { PositionInfo } from '../hooks/use-all-positions';
+import { useAllPositions } from '../hooks/use-all-positions';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
+import logger from '../utils/logger';
+import { toHexChainId } from '../utils/wallet';
 import { DonateModal } from './donate-modal';
+import { InfoTooltip } from './info-tooltip';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
 import { Card } from './ui/card';
 
 // Lazy load Swap Modals - Note: We'll migrate these next
@@ -18,14 +18,25 @@ const CollateralSwapModal = lazy(() => import('./collateral-swap-modal').then(mo
 
 // Formatting helpers
 const formatUSD = (value: number) => {
-    if (value === 0) return '$0.00';
-    if (value < 0.01) return '< $0.01';
+    if (value === 0) {
+        return '$0.00';
+    }
+
+    if (value < 0.01) {
+        return '< $0.01';
+    }
+
     return `$${value.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 };
 
 const formatCompactUSD = (value: number) => {
-    if (value === 0) return '$0';
-    if (value < 1000) return formatUSD(value);
+    if (value === 0) {
+        return '$0';
+    }
+
+    if (value < 1000) {
+        return formatUSD(value);
+    }
 
     return new Intl.NumberFormat('en-US', {
         style: 'currency',
@@ -36,8 +47,13 @@ const formatCompactUSD = (value: number) => {
 };
 
 const formatTokenAmount = (amount: number, symbol: string) => {
-    if (amount === 0) return `0 ${symbol}`;
-    if (amount < 0.0000001) return `< 0.0000001 ${symbol}`;
+    if (amount === 0) {
+        return `0 ${symbol}`;
+    }
+
+    if (amount < 0.0000001) {
+        return `< 0.0000001 ${symbol}`;
+    }
 
     if (amount < 0.1) {
         return `${Number(amount.toFixed(7)).toString()} ${symbol}`;
@@ -108,12 +124,16 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
         });
 
         const network = getNetworkByChainId(chainId);
-        if (network) setSelectedNetwork?.(network.key);
+
+        if (network) {
+            setSelectedNetwork?.(network.key);
+        }
 
         void (async () => {
             try {
                 if (provider) {
                     const currentChainId = (await provider.getNetwork()).chainId;
+
                     if (Number(currentChainId) !== chainId) {
                         const chainHex = toHexChainId(chainId);
                         logger.debug('Requesting chain switch', { chainId, chainHex });
@@ -131,8 +151,10 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                 if (provider && errorCode === 'NETWORK_ERROR' && /network changed/i.test(errorMessage)) {
                     try {
                         const updatedChainId = (await provider.getNetwork()).chainId;
+
                         if (Number(updatedChainId) === chainId) {
                             logger.debug('Network switched successfully after transient NETWORK_ERROR', { chainId });
+
                             return;
                         }
                     } catch {
@@ -151,18 +173,31 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
     };
 
     const getLastFetchText = () => {
-        if (!lastFetch) return null;
+        if (!lastFetch) {
+            return null;
+        }
+
         const now = Date.now();
         const diff = now - lastFetch;
         const seconds = Math.floor(diff / 1000);
-        if (seconds < 10) return 'just now';
-        if (seconds < 60) return `${seconds}s ago`;
+
+        if (seconds < 10) {
+            return 'just now';
+        }
+
+        if (seconds < 60) {
+            return `${seconds}s ago`;
+        }
+
         const minutes = Math.floor(seconds / 60);
+
         return `${minutes}m ago`;
     };
 
     const chainEntries = useMemo(() => {
-        if (!positionsByChain) return [];
+        if (!positionsByChain) {
+            return [];
+        }
 
         const entries = Object.entries(positionsByChain).map(([chainId, info]) => {
             const chainIdNum = parseInt(chainId);
@@ -184,12 +219,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
             const sortedSupplies = (info?.supplies || []).slice().sort((a, b) => {
                 const valA = parseFloat(a.formattedAmount || '0') * parseFloat(a.priceInUSD || '0');
                 const valB = parseFloat(b.formattedAmount || '0') * parseFloat(b.priceInUSD || '0');
+
                 return valB - valA;
             });
 
             const sortedBorrows = (info?.borrows || []).slice().sort((a, b) => {
                 const valA = parseFloat(a.formattedAmount || '0') * parseFloat(a.priceInUSD || '0');
                 const valB = parseFloat(b.formattedAmount || '0') * parseFloat(b.priceInUSD || '0');
+
                 return valB - valA;
             });
 
@@ -215,7 +252,10 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
         });
 
         return entries.sort((a, b) => {
-            if (a.hasPositions !== b.hasPositions) return a.hasPositions ? -1 : 1;
+            if (a.hasPositions !== b.hasPositions) {
+                return a.hasPositions ? -1 : 1;
+            }
+
             return b.netWorthUSD - a.netWorthUSD;
         });
     }, [positionsByChain]);
@@ -241,7 +281,9 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
         );
     }
 
-    if (!positionsByChain) return null;
+    if (!positionsByChain) {
+        return null;
+    }
 
     const activeChains = chainEntries.filter(c => c.hasPositions);
     const emptyChains = chainEntries.filter(c => !c.hasPositions);

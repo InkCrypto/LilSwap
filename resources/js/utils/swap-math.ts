@@ -6,6 +6,7 @@ import { ethers } from 'ethers';
  */
 export function calcApprovalAmount(srcAmountBigInt: bigint, bufferBps: number = 0): bigint {
     const numerator = srcAmountBigInt * BigInt(10000 + bufferBps);
+
     // ceil division
     return (numerator + BigInt(10000) - BigInt(1)) / BigInt(10000);
 }
@@ -15,6 +16,7 @@ export function calcApprovalAmount(srcAmountBigInt: bigint, bufferBps: number = 
  */
 export function calcMinAmountOut(destAmountBigInt: bigint, slippageBps: number = 50): bigint {
     const numerator = destAmountBigInt * BigInt(10000 - slippageBps);
+
     return numerator / BigInt(10000);
 }
 

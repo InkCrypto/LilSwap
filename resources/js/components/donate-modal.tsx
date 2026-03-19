@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
-import { Modal } from './modal';
 import { Copy, CheckCircle2, Coffee } from 'lucide-react';
+import React, { useState } from 'react';
 import { useToast } from '../contexts/toast-context';
+import { Modal } from './modal';
 
 interface DonateModalProps {
     isOpen: boolean;

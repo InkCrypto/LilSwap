@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { apiClient } from '../services/api';
 import { useUserActivity } from '../contexts/user-activity-context';
+import { apiClient } from '../services/api';
 import logger from '../utils/logger';
 
 export interface PositionInfo {
@@ -41,7 +41,9 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
     const prevAddressRef = useRef<string | null>(walletAddress);
 
     const fetchPositions = useCallback(async (force = false) => {
-        if (!walletAddress) return;
+        if (!walletAddress) {
+return;
+}
 
         setLoading(true);
         setError(null);
@@ -56,9 +58,11 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
 
             const { _meta, ...positionsByChain } = response.data;
             setData(positionsByChain as Record<string, ChainInfo>);
+
             if (_meta?.donator) {
                 setDonator(_meta.donator);
             }
+
             setLastFetch(Date.now());
         } catch (err: any) {
             const errorMsg = err.response?.data?.message || err.message || 'Failed to fetch positions';
@@ -74,6 +78,7 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
         if (!walletAddress) {
             setData(null);
             prevAddressRef.current = null;
+
             return;
         }
 
@@ -86,7 +91,9 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
     }, [fetchPositions, walletAddress]);
 
     useEffect(() => {
-        if (!walletAddress) return;
+        if (!walletAddress) {
+return;
+}
 
         const refreshInterval = opts.refreshIntervalMs || 90000;
         const interval = setInterval(() => {

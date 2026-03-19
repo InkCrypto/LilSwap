@@ -1,10 +1,10 @@
 import { Head } from '@inertiajs/react';
-import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Lightbulb } from 'lucide-react';
+import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
 import { useAppearance } from '@/hooks/use-appearance';
-import { InfoTooltip } from '../components/info-tooltip';
 import AppFooter from '../components/app-footer';
+import { InfoTooltip } from '../components/info-tooltip';
 import LilLogo from '../components/lil-logo';
 
 import { Button } from '../components/ui/button';
@@ -24,6 +24,7 @@ export default function Welcome() {
 
     const [showAddress, setShowAddress] = useState(() => {
         const saved = typeof localStorage !== 'undefined' ? localStorage.getItem('lilswap_show_address') : 'false';
+
         return saved === 'true';
     });
     const [showAccountMenu, setShowAccountMenu] = useState(false);
@@ -36,6 +37,7 @@ export default function Welcome() {
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
+
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
@@ -114,6 +116,7 @@ export default function Welcome() {
                                             onClick={() => setShowAddress(prev => {
                                                 const newValue = !prev;
                                                 localStorage.setItem('lilswap_show_address', newValue.toString());
+
                                                 return newValue;
                                             })}
                                             className="hidden sm:flex p-1.5 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer"

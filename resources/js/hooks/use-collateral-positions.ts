@@ -1,7 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { ethers } from 'ethers';
-import { ADDRESSES } from '../constants/addresses';
+import { useCallback, useEffect, useMemo, useState, useRef } from 'react';
 import { ABIS } from '../constants/abis';
+import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
 import { retryContractCall } from '../helpers/retry-helper';
 import logger from '../utils/logger';
@@ -29,18 +29,34 @@ export const useCollateralPositions = ({
     const [isPositionLoading, setIsPositionLoading] = useState(false);
 
     const isValidATokenAddress = (addr: string) => {
-        if (!addr || addr === ethers.ZeroAddress) return false;
-        try { return BigInt(addr) > BigInt(0xff); } catch (_) { return false; }
+        if (!addr || addr === ethers.ZeroAddress) {
+            return false;
+        }
+
+        try {
+            return BigInt(addr) > BigInt(0xff);
+        } catch {
+            return false;
+        }
     };
 
     const formatUnitsFixed = (balance: bigint, decimals: number) => {
         const s = ethers.formatUnits(balance, decimals);
-        if (!/[eE]/.test(s)) return s;
+
+        if (!/[eE]/.test(s)) {
+            return s;
+        }
+
         const b = balance.toString();
-        if (decimals === 0) return b;
+
+        if (decimals === 0) {
+            return b;
+        }
+
         const intPart = b.length > decimals ? b.slice(0, -decimals) : '0';
         let frac = b.length > decimals ? b.slice(-decimals) : b.padStart(decimals, '0');
         frac = frac.replace(/0+$/, '');
+
         return frac ? `${intPart}.${frac}` : intPart;
     };
 
@@ -50,24 +66,37 @@ export const useCollateralPositions = ({
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
 
     const adapterAddress = useMemo(() => {
-        if (!networkAddresses?.SWAP_COLLATERAL_ADAPTER) return null;
-        try { return ethers.getAddress(networkAddresses.SWAP_COLLATERAL_ADAPTER); }
-        catch (error) { return null; }
+        if (!networkAddresses?.SWAP_COLLATERAL_ADAPTER) {
+            return null;
+        }
+
+        try {
+            return ethers.getAddress(networkAddresses.SWAP_COLLATERAL_ADAPTER);
+        } catch {
+            return null;
+        }
     }, [networkAddresses?.SWAP_COLLATERAL_ADAPTER]);
 
     const readProvider = useMemo(() => networkRpcProvider || provider, [networkRpcProvider, provider]);
 
     const fetchPositionData = useCallback(async () => {
-        if (!account || !readProvider || !fromToken) return;
+        if (!account || !readProvider || !fromToken) {
+            return;
+        }
 
-        if (abortControllerRef.current) abortControllerRef.current.abort();
+        if (abortControllerRef.current) {
+            abortControllerRef.current.abort();
+        }
+
         abortControllerRef.current = new AbortController();
         const signal = abortControllerRef.current.signal;
 
         setIsPositionLoading(true);
 
         try {
-            if (signal.aborted) return;
+            if (signal.aborted) {
+                return;
+            }
 
             if (fromToken.amount) {
                 const backendBalance = BigInt(fromToken.amount);
@@ -79,26 +108,34 @@ export const useCollateralPositions = ({
                 if (!adapterAddress) {
                     setAllowance(BigInt(0));
                     setIsPositionLoading(false);
+
                     return;
                 }
 
                 try {
                     let aTokenAddr = fromToken.aTokenAddress;
+
                     if (!isValidATokenAddress(aTokenAddr)) {
                         const dataProvider = new ethers.Contract(networkAddresses.DATA_PROVIDER, ABIS.DATA_PROVIDER, readProvider);
                         const underlyingAsset = fromToken.underlyingAsset || fromToken.address;
                         const tokenAddresses = await dataProvider.getReserveTokensAddresses(underlyingAsset);
                         aTokenAddr = tokenAddresses.aTokenAddress;
                     }
+
                     const aTokenContract = new ethers.Contract(aTokenAddr, ABIS.ERC20, readProvider);
                     const currentAllowance = await aTokenContract.allowance(account, adapterAddress);
-                    if (signal.aborted || !isMountedRef.current) return;
+
+                    if (signal.aborted || !isMountedRef.current) {
+                        return;
+                    }
+
                     setAllowance(currentAllowance);
                 } catch (error: any) {
                     logger.warn('[useCollateralPositions] Allowance check failed:', error.message);
                 }
 
                 setIsPositionLoading(false);
+
                 return;
             }
 
@@ -109,11 +146,13 @@ export const useCollateralPositions = ({
             if (providerChainId !== expectedChainId) {
                 const errorMsg = `provider chain mismatch: expected ${expectedChainId}, got ${providerChainId}`;
                 addLog?.(errorMsg, 'error');
+
                 throw new Error(errorMsg);
             }
 
             let aTokenAddr = fromToken.aTokenAddress;
             const dataProvider = new ethers.Contract(networkAddresses.DATA_PROVIDER, ABIS.DATA_PROVIDER, readProvider);
+
             if (!isValidATokenAddress(aTokenAddr)) {
                 const underlyingAsset = fromToken.underlyingAsset || fromToken.address;
                 const tokenAddresses = await dataProvider.getReserveTokensAddresses(underlyingAsset);
@@ -132,7 +171,9 @@ export const useCollateralPositions = ({
                 { maxAttempts: 5, initialDelay: 800 }
             );
 
-            if (signal.aborted || !isMountedRef.current) return;
+            if (signal.aborted || !isMountedRef.current) {
+                return;
+            }
 
             setSupplyBalance(balance);
             const formatted = formatUnitsFixed(balance, fromToken.decimals);
@@ -143,6 +184,7 @@ export const useCollateralPositions = ({
             if (!adapterAddress) {
                 setAllowance(BigInt(0));
                 setIsPositionLoading(false);
+
                 return;
             }
 
@@ -152,7 +194,9 @@ export const useCollateralPositions = ({
                 { maxAttempts: 3, initialDelay: 500 }
             );
 
-            if (signal.aborted || !isMountedRef.current) return;
+            if (signal.aborted || !isMountedRef.current) {
+                return;
+            }
 
             setAllowance(currentAllowance);
 
@@ -161,15 +205,21 @@ export const useCollateralPositions = ({
                 logger.error('[fetchPositionData]', error);
             }
         } finally {
-            if (!signal.aborted && isMountedRef.current) setIsPositionLoading(false);
+            if (!signal.aborted && isMountedRef.current) {
+                setIsPositionLoading(false);
+            }
         }
     }, [account, readProvider, fromToken, addLog, networkAddresses, adapterAddress, selectedNetwork]);
 
     useEffect(() => {
         isMountedRef.current = true;
+
         return () => {
             isMountedRef.current = false;
-            if (abortControllerRef.current) abortControllerRef.current.abort();
+
+            if (abortControllerRef.current) {
+                abortControllerRef.current.abort();
+            }
         };
     }, []);
 
@@ -182,6 +232,7 @@ export const useCollateralPositions = ({
     useEffect(() => {
         if (account && readProvider && fromToken) {
             const timer = setTimeout(() => fetchPositionData(), 500);
+
             return () => clearTimeout(timer);
         }
     }, [account, readProvider, fromToken, fetchPositionData]);

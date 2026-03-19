@@ -4,12 +4,12 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import '../css/app.css';
-import { initializeTheme } from '@/hooks/use-appearance';
 
-import { Web3Provider } from '@/contexts/web3-context';
 import { ApiMetaProvider } from '@/contexts/api-meta-context';
-import { UserActivityProvider } from '@/contexts/user-activity-context';
 import { ToastProvider } from '@/contexts/toast-context';
+import { UserActivityProvider } from '@/contexts/user-activity-context';
+import { Web3Provider } from '@/contexts/web3-context';
+import { initializeTheme } from '@/hooks/use-appearance';
 
 const appName = import.meta.env.VITE_APP_NAME || 'Laravel';
 

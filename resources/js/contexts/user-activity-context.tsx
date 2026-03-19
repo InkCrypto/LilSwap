@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import type { ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 
 interface UserActivityContextType {
     isTabVisible: boolean;
@@ -9,19 +10,19 @@ interface UserActivityContextType {
 const UserActivityContext = createContext<UserActivityContextType>({
     isTabVisible: true,
     isUserActive: true,
-    lastActivity: Date.now()
+    lastActivity: 0
 });
 
-export const UserActivityProvider: React.FC<{ children: ReactNode; inactivityThreshold?: number }> = ({ 
-    children, 
-    inactivityThreshold = 1800000 
+export const UserActivityProvider: React.FC<{ children: ReactNode; inactivityThreshold?: number }> = ({
+    children,
+    inactivityThreshold = 1800000
 }) => {
     const [isTabVisible, setIsTabVisible] = useState(true);
     const [isUserActive, setIsUserActive] = useState(true);
-    const [lastActivity, setLastActivity] = useState(Date.now());
+    const [lastActivity, setLastActivity] = useState(() => Date.now());
     const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    const handleActivity = () => {
+    const handleActivity = useCallback(() => {
         setLastActivity(Date.now());
         setIsUserActive(true);
 
@@ -32,11 +33,12 @@ export const UserActivityProvider: React.FC<{ children: ReactNode; inactivityThr
         timeoutRef.current = setTimeout(() => {
             setIsUserActive(false);
         }, inactivityThreshold);
-    };
+    }, [inactivityThreshold]);
 
     useEffect(() => {
         const handleVisibilityChange = () => {
             setIsTabVisible(document.visibilityState === 'visible');
+
             if (document.visibilityState === 'visible') {
                 handleActivity();
             }
@@ -60,13 +62,14 @@ export const UserActivityProvider: React.FC<{ children: ReactNode; inactivityThr
         return () => {
             document.removeEventListener('visibilitychange', handleVisibilityChange);
             activityEvents.forEach(event => {
-                window.removeEventListener(event, handleActivity as any);
+                window.removeEventListener(event, handleActivity);
             });
+
             if (timeoutRef.current) {
                 clearTimeout(timeoutRef.current);
             }
         };
-    }, [inactivityThreshold]);
+    }, [handleActivity, inactivityThreshold]);
 
     return (
         <UserActivityContext.Provider value={{ isTabVisible, isUserActive, lastActivity }}>

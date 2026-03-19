@@ -30,17 +30,20 @@ export const requestChainSwitch = async (chainId: number | string, provider: any
         });
 
         logger.info('Chain switch successful', { chainId: chainHex });
+
         return true;
     } catch (switchError: any) {
         if (switchError.code === 4902) {
             const errorMsg = `Chain ${chainId} is not configured in your wallet. Please add it manually.`;
             logger.warn('Chain not found in wallet', { chainId, code: switchError.code });
+
             throw new Error(errorMsg);
         }
 
         if (switchError.code === 4001) {
             const errorMsg = 'You rejected the chain switch request.';
             logger.info('User rejected chain switch', { chainId });
+
             throw new Error(errorMsg);
         }
 
@@ -49,6 +52,7 @@ export const requestChainSwitch = async (chainId: number | string, provider: any
             code: switchError.code,
             message: switchError.message
         });
+
         throw switchError;
     }
 };
@@ -64,5 +68,6 @@ export const getCurrentChainId = async (provider: any = null): Promise<number> =
     }
 
     const chainIdHex = await eipProvider.request({ method: 'eth_chainId' });
+
     return parseInt(chainIdHex, 16);
 };

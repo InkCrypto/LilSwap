@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState, useMemo } from 'react';
 import { ethers } from 'ethers';
+import { useCallback, useEffect, useState, useMemo } from 'react';
+import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
-import { ABIS } from '../constants/abis';
 import { buildCollateralSwapTx } from '../services/api';
-import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction, failTransaction } from '../services/transactions-api';
+import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } from '../services/transactions-api';
 import logger, { isUserRejectedError } from '../utils/logger';
 
 interface UseCollateralSwapActionsProps {
@@ -51,7 +51,6 @@ export const useCollateralSwapActions = ({
     selectedNetwork,
     simulateError,
     preferPermit = true,
-    forceRequirePermitOverride = false,
     onTxSent,
 }: UseCollateralSwapActionsProps) => {
     const [isActionLoading, setIsActionLoading] = useState(false);
@@ -62,36 +61,41 @@ export const useCollateralSwapActions = ({
             if (typeof window !== 'undefined' && window.localStorage) {
                 return window.localStorage.getItem('lilswap.forceRequirePermitCol') === '1';
             }
-        } catch (err) { }
+        } catch {
+            // Ignore localStorage unavailability.
+        }
+
         return false;
     });
     const [txError, setTxError] = useState<string | null>(null);
     const [userRejected, setUserRejected] = useState(false);
-    const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(() => {
-        try {
-            if (typeof window !== 'undefined' && window.localStorage) {
-                return window.localStorage.getItem('lilswap.colTxId');
-            }
-        } catch (_) { }
-        return null;
-    });
 
     const updateCurrentTransactionId = (id: string | null) => {
-        setCurrentTransactionId(id);
         try {
             if (typeof window !== 'undefined' && window.localStorage) {
-                if (id) window.localStorage.setItem('lilswap.colTxId', id);
-                else window.localStorage.removeItem('lilswap.colTxId');
+                if (id) {
+                    window.localStorage.setItem('lilswap.colTxId', id);
+                } else {
+                    window.localStorage.removeItem('lilswap.colTxId');
+                }
             }
-        } catch (err) { }
+        } catch {
+            // Ignore localStorage unavailability.
+        }
     };
 
     const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
     const adapterAddress = useMemo(() => {
-        if (!networkAddresses?.SWAP_COLLATERAL_ADAPTER) return null;
-        try { return ethers.getAddress(networkAddresses.SWAP_COLLATERAL_ADAPTER); }
-        catch (error) { return null; }
+        if (!networkAddresses?.SWAP_COLLATERAL_ADAPTER) {
+            return null;
+        }
+
+        try {
+            return ethers.getAddress(networkAddresses.SWAP_COLLATERAL_ADAPTER);
+        } catch {
+            return null;
+        }
     }, [networkAddresses?.SWAP_COLLATERAL_ADAPTER]);
 
     const chainId = targetNetwork.chainId;
@@ -108,35 +112,50 @@ export const useCollateralSwapActions = ({
     const ensureWalletNetwork = useCallback(async () => {
         if (!provider) {
             addLog?.('Provider unavailable. Please reconnect your wallet.', 'error');
+
             return null;
         }
+
         try {
             const currentNetwork = await provider.getNetwork();
-            if (Number(currentNetwork.chainId) === chainId) return provider;
+
+            if (Number(currentNetwork.chainId) === chainId) {
+                return provider;
+            }
         } catch (error: any) {
             addLog?.('Error reading current network: ' + error.message, 'error');
+
             return null;
         }
+
         if (!targetHexChainId) {
             addLog?.(`Target network chain ID not properly configured.`, 'error');
+
             return null;
         }
+
         try {
             await provider.send('wallet_switchEthereumChain', [{ chainId: targetHexChainId }]);
             addLog?.(`Network updated to ${targetNetwork.label}.`, 'success');
+
             return provider;
         } catch (error: any) {
             addLog?.(`Error switching to ${targetNetwork.label}: ${error?.message || error}`, 'error');
+
             return null;
         }
     }, [provider, chainId, targetHexChainId, targetNetwork.label, addLog]);
 
     const isValidATokenAddress = (addr: string) => {
-        if (!addr || addr === ethers.ZeroAddress) return false;
+        if (!addr || addr === ethers.ZeroAddress) {
+            return false;
+        }
+
         try {
             const val = BigInt(addr);
+
             return val > BigInt(0xff);
-        } catch (_) {
+        } catch {
             return false;
         }
     };
@@ -145,16 +164,20 @@ export const useCollateralSwapActions = ({
         try {
             const aTokenContract = new ethers.Contract(aTokenAddr, ABIS.DEBT_TOKEN, signer);
             let nonce;
+
             try {
                 nonce = await aTokenContract.nonces(account);
             } catch (err: any) {
                 if (err?.code === 'BAD_DATA' || err?.code === 'CALL_EXCEPTION') {
                     const noPermitErr: any = new Error('Token does not support EIP-2612 permit; use on-chain approve');
                     noPermitErr.code = 'NO_PERMIT';
+
                     throw noPermitErr;
                 }
+
                 throw err;
             }
+
             const name = await aTokenContract.name();
             const deadline = Math.floor(Date.now() / 1000) + 3600;
             const value = exactAmount || ethers.MaxUint256;
@@ -178,8 +201,17 @@ export const useCollateralSwapActions = ({
             const permitParams = { amount: value, deadline, v: sig.v, r: sig.r, s: sig.s };
             setSignedPermit({ params: permitParams, token: aTokenAddr, deadline, value });
             setForceRequirePermit(false);
-            try { if (typeof window !== 'undefined' && window.localStorage) window.localStorage.removeItem('lilswap.forceRequirePermitCol'); } catch (err) { }
+
+            try {
+                if (typeof window !== 'undefined' && window.localStorage) {
+                    window.localStorage.removeItem('lilswap.forceRequirePermitCol');
+                }
+            } catch {
+                // Ignore localStorage unavailability.
+            }
+
             addLog?.('Signature received and cached', 'success');
+
             return permitParams;
         } catch (err: any) {
             if (err?.code !== 'NO_PERMIT') {
@@ -189,15 +221,21 @@ export const useCollateralSwapActions = ({
                     addLog?.('Signature failed: ' + (err?.message || err), 'error');
                 }
             }
+
             throw err;
         }
     }, [account, adapterAddress, addLog, chainId]);
 
     const handleApprove = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
-        if (!provider || !fromToken) return;
+
+        if (!provider || !fromToken) {
+            return;
+        }
+
         if (!adapterAddress) {
             addLog?.(`Invalid COLLATERAL_ADAPTER for ${targetNetwork.label}.`, 'error');
+
             return;
         }
 
@@ -207,6 +245,7 @@ export const useCollateralSwapActions = ({
             const signer = await provider.getSigner();
 
             let aTokenAddress = fromToken.aTokenAddress;
+
             if (!isValidATokenAddress(aTokenAddress)) {
                 const dataProvider = new ethers.Contract(networkAddresses.DATA_PROVIDER, ABIS.DATA_PROVIDER, networkRpcProvider || signer);
                 const underlyingAsset = fromToken.address || fromToken.underlyingAsset;
@@ -217,6 +256,7 @@ export const useCollateralSwapActions = ({
             if (preferPermitFinal) {
                 addLog?.('Requesting signature (permit)...', 'info');
                 const permit = await generateAndCachePermit(aTokenAddress, signer, exactAmount);
+
                 return { type: 'permit', permit };
             }
 
@@ -229,6 +269,7 @@ export const useCollateralSwapActions = ({
 
             addLog?.('Approval confirmed!', 'success');
             fetchPositionData();
+
             return { type: 'tx', tx };
         } catch (error: any) {
             if (isUserRejectedError(error)) {
@@ -236,6 +277,7 @@ export const useCollateralSwapActions = ({
             } else {
                 addLog?.('Approval error: ' + (error?.message || error), 'error');
             }
+
             throw error;
         } finally {
             setIsSigning(false);
@@ -250,6 +292,7 @@ export const useCollateralSwapActions = ({
 
         if (!adapterAddress) {
             addLog?.(`Invalid COLLATERAL_ADAPTER for ${targetNetwork.label}.`, 'error');
+
             return;
         }
 
@@ -259,7 +302,10 @@ export const useCollateralSwapActions = ({
         if (!activeQuote) {
             addLog?.('Fetching quote...', 'info');
             activeQuote = await fetchQuote();
-            if (!activeQuote) return;
+
+            if (!activeQuote) {
+                return;
+            }
         }
 
         const now = Math.floor(Date.now() / 1000);
@@ -268,14 +314,21 @@ export const useCollateralSwapActions = ({
         if (quoteAge > 300) {
             addLog?.(`⚠️ Quote is too old (${quoteAge}s). Updating...`, 'warning');
             activeQuote = await fetchQuote();
-            if (!activeQuote) return;
+
+            if (!activeQuote) {
+                return;
+            }
         }
 
         setIsActionLoading(true);
 
         try {
             const activeProvider = await ensureWalletNetwork();
-            if (!activeProvider) return;
+
+            if (!activeProvider) {
+                return;
+            }
+
             const signer = await activeProvider.getSigner();
 
             const { priceRoute, srcAmount, fromToken: quoteFrom, toToken: quoteTo } = activeQuote;
@@ -283,6 +336,7 @@ export const useCollateralSwapActions = ({
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
 
             let aTokenAddr = quoteFrom.aTokenAddress;
+
             if (!isValidATokenAddress(aTokenAddr)) {
                 const dataProvider = new ethers.Contract(networkAddresses.DATA_PROVIDER, ABIS.DATA_PROVIDER, networkRpcProvider || signer);
                 const tokenAddresses = await dataProvider.getReserveTokensAddresses(quoteFrom.address || quoteFrom.underlyingAsset);
@@ -297,6 +351,7 @@ export const useCollateralSwapActions = ({
 
             if (allowance < srcAmountBigInt || forceRequirePermit) {
                 const currentTs = Math.floor(Date.now() / 1000);
+
                 if (effectivePreferPermit) {
                     if (signedPermit && !forceRequirePermit && signedPermit.token === aTokenAddr && signedPermit.deadline > currentTs && signedPermit.value >= srcAmountBigInt) {
                         addLog?.('Using cached signature...', 'info');
@@ -305,6 +360,7 @@ export const useCollateralSwapActions = ({
                         addLog?.('Requesting Signature (permit)...', 'warning');
                         const permitAmount = srcAmountBigInt + (srcAmountBigInt * 100n / 10000n) + 1n;
                         let permitResult;
+
                         try {
                             permitResult = await handleApprove(true, permitAmount);
                         } catch (permitErr: any) {
@@ -319,7 +375,9 @@ export const useCollateralSwapActions = ({
                                 throw permitErr;
                             }
                         }
+
                         setIsActionLoading(true);
+
                         if (permitResult && permitResult.permit) {
                             permitParams = permitResult.permit;
                         } else if (permitResult !== null) {
@@ -378,7 +436,9 @@ export const useCollateralSwapActions = ({
 
             const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
 
-            if (simulateError) throw new Error('Simulation test failure.');
+            if (simulateError) {
+                throw new Error('Simulation test failure.');
+            }
 
             const flashLoanArgs = [
                 adapterAddress,
@@ -389,16 +449,20 @@ export const useCollateralSwapActions = ({
             ];
 
             let gasLimit;
+
             try {
                 const estimatedGas = await poolContract.flashLoanSimple.estimateGas(...flashLoanArgs);
                 gasLimit = (estimatedGas * BigInt(150)) / BigInt(100);
             } catch (err: any) {
-                let diagnosticReason = err?.reason || err?.data || err?.message;
+                const diagnosticReason = err?.reason || err?.data || err?.message;
+
                 if (!String(diagnosticReason).match(/invalid character|could not coalesce error/i)) {
                     setTxError(String(diagnosticReason).substring(0, 500));
                     fetchQuote();
+
                     return;
                 }
+
                 gasLimit = BigInt(3000000);
             }
 
@@ -408,9 +472,12 @@ export const useCollateralSwapActions = ({
             addLog?.(`Tx sent! Hash: ${tx.hash}`, 'success');
             onTxSent?.(tx.hash);
 
-            if (localTxId) await recordTransactionHash(localTxId, tx.hash);
+            if (localTxId) {
+                await recordTransactionHash(localTxId, tx.hash);
+            }
 
             let receipt;
+
             try {
                 receipt = await tx.wait();
             } catch (waitErr: any) {
@@ -420,22 +487,28 @@ export const useCollateralSwapActions = ({
                     waitMessage.includes('invalid value for value.index') ||
                     waitMessage.includes('"result": null');
 
-                if (!isTransientReceiptIssue) throw waitErr;
+                if (!isTransientReceiptIssue) {
+                    throw waitErr;
+                }
 
                 addLog?.('Submitted successfully. Confirmation in background.', 'warning');
                 clearQuote();
                 updateCurrentTransactionId(null);
                 fetchPositionData();
+
                 return;
             }
 
-            if (receipt.status === 0) throw new Error('Transaction reverted on-chain.');
+            if (receipt.status === 0) {
+                throw new Error('Transaction reverted on-chain.');
+            }
 
             addLog?.('🚀 SUCCESS! Collateral Swap complete.', 'success');
 
             if (localTxId) {
                 const gasUsed = receipt.gasUsed;
                 const gasPrice = receipt.gasPrice || receipt.effectiveGasPrice;
+
                 try {
                     await confirmTransactionOnChain(localTxId, {
                         gasUsed: gasUsed.toString(),
@@ -455,26 +528,34 @@ export const useCollateralSwapActions = ({
             if (isUserRejectedError(error)) {
                 setUserRejected(true);
                 addLog?.('User rejected transaction.', 'warning');
-                if (localTxId) try { await rejectTransaction(localTxId, 'wallet_rejected'); } catch (e) { }
+
+                if (localTxId) {
+                    try {
+                        await rejectTransaction(localTxId, 'wallet_rejected');
+                    } catch {
+                        // Best-effort telemetry only.
+                    }
+                }
             } else {
                 setTxError(error.message || 'Swap failed.');
                 addLog?.('FAILURE: ' + error.message, 'error');
             }
+
             resetRefreshCountdown();
         } finally {
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
     }, [
-        account, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, provider, slippage, clearQuote, fetchPositionData,
+        account, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, slippage, clearQuote, fetchPositionData,
         resetRefreshCountdown, signedPermit, adapterAddress, networkAddresses, chainId, ensureWalletNetwork,
-        targetNetwork.label, preferPermit, forceRequirePermit, handleApprove, currentTransactionId, onTxSent,
-        fromToken, toToken, networkRpcProvider
+        targetNetwork.label, preferPermit, forceRequirePermit, handleApprove, onTxSent,
+        networkRpcProvider, clearQuoteError, simulateError
     ]);
 
     return {
         isActionLoading, isSigning, signedPermit, forceRequirePermit, txError, userRejected,
         handleApprove, handleSwap, clearTxError: () => setTxError(null),
-        clearUserRejected: () => setUserRejected(false), clearCachedPermit: () => {}, setTxError,
+        clearUserRejected: () => setUserRejected(false), clearCachedPermit: () => { }, setTxError,
     };
 };
