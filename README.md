@@ -1,80 +1,142 @@
-# LilSwap App (Frontend)
+# LilSwap App
 
-**LilSwap App** is the official frontend interface for [LilSwap](https://lilswap.xyz). It is a high-performance, non-custodial cockpit built for managing Aave V3 positions. It enables users to optimize their debt and collateral through seamless swaps, gasless signatures, and multi-chain liquidity aggregation.
+LilSwap App is the official LilSwap interface for managing and optimizing Aave V3 positions.
 
-**Live version:** [app.lilswap.xyz](https://app.lilswap.xyz)
+Website: https://lilswap.xyz
+Live application: https://app.lilswap.xyz
 
+## Who This Project Is For
 
-## Key Features
+- DeFi users who actively manage collateral and debt on Aave V3.
+- Advanced users who need efficient multi-chain position management.
+- Developers and integrators who want to run, extend, or contribute to the LilSwap project.
 
-- **Advanced Debt Shifting:** Convert debt positions between different assets within Aave V3 using ParaSwap's repay adapters.
-- **Collateral Swapping:** Seamlessly migrate between different collateral assets to optimize yield or risk.
-- **Gasless Permissions:** Native support for EIP-712 Credit Delegation and Permit signatures.
-- **Multi-Chain Support:** Native support for **Ethereum Mainnet, Base, BNB Chain, Polygon, and Arbitrum One.**
-- **Optimized Execution:** Real-time quote engine and smart routing to ensure minimal slippage and efficient health factor management.
-- **0% Execution Fees:** No additional fees for debt swaps, paying only the network gas.
+## What LilSwap Does
 
+LilSwap helps users optimize risk and capital efficiency by enabling streamlined position management across supported networks.
 
+Core capabilities:
 
-## Project Roadmap
+- Debt Swap between borrowed assets in Aave V3.
+- Collateral Swap between supplied assets in Aave V3.
+- Gasless flows for supported permit and delegation paths.
+- Multi-chain operation with unified UX.
+- Partner and donor discount flow.
+- Responsive dashboard for real-time position visibility.
 
-- **Phase 1: Foundations (Complete)**
-  - Infrastructure setup for core debt-shifting logic.
-  - Multi-chain integration (Base, Ethereum, Polygon, and BNB).
-  - Dynamic token discovery via Aave Address Book.
+## Supported Networks
 
-- **Phase 2: Collateral & Full Aave V3 Support (In Progress)**
-  - Implementation of on-chain Collateral Swapping (Live).
-  - Reach full parity with Aave V3 supported networks (Ethereum Core/Prime/EtherFi, Arbitrum, Avalanche, Base, BNB, Optimism, Polygon, Gnosis, Sonic).
-  - UI refinement for position tracking and health factor simulation (Complete).
-
-
-- **Phase 3: High-Efficiency Trading (Ongoing)**
-  - Support for off-chain/gasless trade execution.
-  - Integration with CoW Protocol for MEV protection.
-  - Advanced risk management features and automated safety buffers.
-
-
+- Ethereum Mainnet
+- Base
+- BNB Chain
+- Polygon
+- Arbitrum One
+- Avalanche
 
 ## Tech Stack
 
-- **Frontend:** React 19, Vite, Tailwind CSS 4, Wagmi.
-- **Backend (Engine):** Node.js, Express, Ethers.js v6.
-- **Integration:** Aave V3, ParaSwap API, CoW SDK.
+- Laravel 12 (web app and API proxy layer)
+- React 19 + TypeScript
+- Tailwind CSS 4
+- Ethers.js and Reown AppKit
 
-## Getting Started
+## API Access Policy
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/InkCrypto/LilSwap.git
-   ```
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-3. **Configure Environment:**
-   Copy `.env.example` to `.env` and fill in your RPC URLs and API keys.
-   Recommendation: keep only `.env.example` in the repo. Each developer creates their own `.env.local` for local overrides.
+LilSwap App depends on a robust, production-grade proprietary API hosted at https://api.lilswap.xyz.
 
-## Local & CI environment setup (short)
+To protect platform integrity, user safety, and service reliability, API access is restricted and requires authentication. This policy is in place due to repeated abuse and unauthorized consumption by malicious or bad-faith projects.
 
+If your team has a legitimate integration need and wants to request API access, contact:
 
-- Local development: copy `.env.example` to `.env.local` in the project root (this file is gitignored) and edit values. Example:
+- contact@lilswap.xyz
 
-   ```bash
-   cp .env.example .env.local
-   # Edit .env.local to point to the API you want to use for development.
-   # For a local engine: http://localhost:3001
-   # For testing against production API: https://api.lilswap.xyz/v1
-   # Example: VITE_API_URL=https://api.lilswap.xyz/v1
-   ```
+All API key requests are subject to review, approval criteria, and usage policy enforcement.
 
-- By default contributors should point to the official production API unless they explicitly run a local engine.
+## Local Development
 
-- CI / Production: set `VITE_API_URL` in your CI/build environment so production builds embed the official API URL. Do not store production secrets in the repo.
-4. **Run Development Mode:**
-   ```bash
-   npm run dev
-   ```
+### Prerequisites
 
-*Disclaimer: LilSwap is a specialized interface for Aave V3. Interacting with DeFi protocols involves financial risk.*
+- PHP 8.2+
+- Composer
+- Node.js 20+
+- pnpm
+
+### 1) Install dependencies
+
+Windows PowerShell:
+
+```powershell
+composer install
+pnpm install
+```
+
+macOS/Linux:
+
+```bash
+composer install
+pnpm install
+```
+
+### 2) Configure environment
+
+Windows PowerShell:
+
+```powershell
+copy .env.example .env
+```
+
+macOS/Linux:
+
+```bash
+cp .env.example .env
+```
+
+Then run:
+
+```bash
+php artisan key:generate
+php artisan migrate
+```
+
+### 3) Run the app
+
+```bash
+composer dev
+```
+
+This starts the Laravel server, queue worker, and Vite dev server together.
+
+## Frontend Quality Checks
+
+```bash
+pnpm run lint:check
+pnpm run types:check
+pnpm run build
+```
+
+## Fair and Honest Use
+
+If you use this codebase, please do so in a way that respects both the open-source license and project identity.
+
+- Keep required attribution intact.
+- Do not remove or misrepresent original authorship.
+- Do not reuse LilSwap branding in forks or redistributions without explicit written permission.
+- If your use case is proprietary, use an appropriate commercial agreement.
+
+For legal details, see:
+
+- LICENSE
+- NOTICE
+- TRADEMARKS.md
+
+## Disclaimer
+
+Using DeFi protocols involves financial risk. Use this software at your own risk and verify all transactions before signing.
+
+## License
+
+This project is licensed under the **GNU Affero General Public License v3.0 (AGPL-3.0)** or later.
+
+For proprietary use cases or commercial licensing arrangements, please contact contact@lilswap.xyz.
+
+See the [LICENSE](LICENSE) file for the full license text.
