@@ -41,6 +41,10 @@ export const Modal: React.FC<ModalProps> = ({
                         e.preventDefault();
                     }
                 }}
+                onOpenAutoFocus={(e) => {
+                    // Focus the DialogContent instead of the first input
+                    // This prevents keyboard from popping up on mobile
+                }}
             >
                 <DialogDescription className="sr-only">
                     {typeof title === 'string' ? `${title} dialog` : 'Modal dialog'}

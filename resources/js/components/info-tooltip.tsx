@@ -1,5 +1,5 @@
 import { Info } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useEffect, useId } from 'react';
 import {
     Tooltip,
     TooltipContent,
@@ -21,20 +21,53 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
     maxWidth = '250px',
     children
 }) => {
+    const id = useId();
     const [open, setOpen] = useState(false);
+    const [isClicked, setIsClicked] = useState(false);
     const tooltipText = message || content;
+
+    useEffect(() => {
+        const handleOtherOpen = (e: any) => {
+            if (e.detail.id !== id) {
+                setIsClicked(false);
+                setOpen(false);
+            }
+        };
+        window.addEventListener('info-tooltip-open', handleOtherOpen);
+        return () => window.removeEventListener('info-tooltip-open', handleOtherOpen);
+    }, [id]);
 
     const handleClick = (e: React.MouseEvent) => {
         e.stopPropagation();
-        setOpen((prev) => !prev);
+        const nextState = !isClicked;
+        
+        if (nextState) {
+            // Notify other tooltips to close
+            window.dispatchEvent(new CustomEvent('info-tooltip-open', { detail: { id } }));
+        }
+
+        setIsClicked(nextState);
+        setOpen(nextState);
+    };
+
+    const handleOpenChange = (newOpen: boolean) => {
+        if (newOpen) {
+            // Notify other tooltips to close when this one starts to open (even via hover)
+            window.dispatchEvent(new CustomEvent('info-tooltip-open', { detail: { id } }));
+        }
+
+        // If it was opened by click, we preserve it regardless of hover state
+        // Note: if another tooltip calls handleOpenChange(true), our useEffect 
+        // will set isClicked to false, allowing this one to close.
+        if (isClicked) return;
+        setOpen(newOpen);
     };
 
     return (
-        <Tooltip open={open} onOpenChange={setOpen} delayDuration={1000}>
-            <TooltipTrigger asChild>
+        <Tooltip open={open || isClicked} onOpenChange={handleOpenChange} delayDuration={700}>
+            <TooltipTrigger asChild onClick={handleClick}>
                 <span 
                     className="relative inline-flex cursor-pointer transition-opacity hover:opacity-80"
-                    onClick={handleClick}
                 >
                     {children || <Info size={size} className="text-slate-400 hover:text-slate-500 dark:text-slate-500 dark:hover:text-slate-400 transition-colors" />}
                 </span>
@@ -43,7 +76,10 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
                 showArrow={false}
                 className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl"
                 style={{ maxWidth }}
-                onPointerDownOutside={() => setOpen(false)}
+                onPointerDownOutside={() => {
+                    setIsClicked(false);
+                    setOpen(false);
+                }}
             >
                 <p className="text-[12px] text-slate-800 dark:text-slate-300 text-center leading-relaxed">
                     {tooltipText}

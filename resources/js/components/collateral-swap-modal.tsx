@@ -865,7 +865,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                     {isUSDMode && (
                                         <span className={`text-2xl font-mono font-bold mr-0.5 select-none transition-colors ${(() => {
                                             const usdVal = parseFloat(swapQuote?.priceRoute?.destUSD || '0');
-                                            return usdVal > 0 ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500';
+                                            return usdVal > 0 ? 'text-slate-900 dark:text-white' : 'text-muted-foreground';
                                         })()}`}>$</span>
                                     )}
                                     <input

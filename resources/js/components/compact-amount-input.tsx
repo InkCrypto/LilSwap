@@ -1,5 +1,5 @@
 import { ChevronDown, X, ArrowUpDown } from 'lucide-react';
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
 import { formatCompactNumber } from '../utils/formatters';
@@ -55,6 +55,23 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
     placeholder = '0.00',
 }) => {
     const [popoverOpen, setPopoverOpen] = useState(false);
+    const popoverRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+                setPopoverOpen(false);
+            }
+        };
+
+        if (popoverOpen) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [popoverOpen]);
 
 
 
@@ -91,7 +108,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
             <div className="flex items-center gap-2 sm:gap-3">
                 <div className="flex-1 relative overflow-hidden flex items-center pl-0.5 focus-within:z-10">
                     {isUSDMode && (
-                        <span className={`text-2xl font-mono font-bold mr-0.5 select-none transition-colors ${isError ? 'text-rose-500' : (value && value !== '0' ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500')}`}>$</span>
+                        <span className={`text-2xl font-mono font-bold mr-0.5 select-none transition-colors ${isError ? 'text-rose-500' : (value && value !== '0' ? 'text-slate-900 dark:text-white' : 'text-muted-foreground')}`}>$</span>
                     )}
                     <input
                         type="text"
@@ -173,7 +190,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                         <span className="text-slate-500 font-medium whitespace-nowrap">Balance {formattedBalance ? formatCompactNumber(formattedBalance) : '0'}</span>
 
                         {/* % button + custom popover */}
-                        <div className="relative">
+                        <div className="relative" ref={popoverRef}>
                             <button
                                 type="button"
                                 className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors disabled:opacity-50"
