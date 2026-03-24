@@ -3,8 +3,24 @@
  * ensuring it only contains numbers and a single decimal point.
  */
 export const normalizeDecimalInput = (value: string): string => {
-    // Replace all commas with dots
-    let normalized = value.replace(/,/g, '.');
+    let normalized = value.trim();
+
+    // Check if it has both , and .
+    if (normalized.includes(',') && normalized.includes('.')) {
+        const lastComma = normalized.lastIndexOf(',');
+        const lastDot = normalized.lastIndexOf('.');
+        if (lastComma < lastDot) {
+            // US format 1,234.56 -> remove ,
+            normalized = normalized.replace(/,/g, '');
+        } else {
+            // Euro format 1.234,56 -> remove . and replace , with .
+            normalized = normalized.replace(/\./g, '').replace(/,/g, '.');
+        }
+    } else {
+        // Only one separator type or none - replace comma for Euro/others 
+        // to handle "1,5" -> "1.5"
+        normalized = normalized.replace(/,/g, '.');
+    }
 
     // Remove anything that's not a digit or a dot
     normalized = normalized.replace(/[^0-9.]/g, '');

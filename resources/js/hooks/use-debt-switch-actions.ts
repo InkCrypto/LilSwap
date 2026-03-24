@@ -379,11 +379,15 @@ export const useDebtSwitchActions = ({
 
             const tx = await adapterContract.swapDebt(swapParams, creditPermit, collateralPermit, { gasLimit });
             addLog?.(`Tx sent: ${tx.hash}`, 'success');
-            onTxSent?.(tx.hash);
-
+            
+            // EARLY HASH PULSE: Record hash immediately in the background
             if (transactionId) {
-                await recordTransactionHash(transactionId, tx.hash);
+                recordTransactionHash(transactionId, tx.hash).catch(err => {
+                    console.warn('[handleSwap] Early hash report failed:', err.message);
+                });
             }
+
+            onTxSent?.(tx.hash);
 
             const receipt = await tx.wait();
 
@@ -392,10 +396,18 @@ export const useDebtSwitchActions = ({
             }
 
             if (transactionId) {
-                await confirmTransactionOnChain(transactionId, {
-                    gasUsed: receipt.gasUsed.toString(),
-                    actualPaid: exactDebtRepayAmount.toString(),
-                });
+                try {
+                    await confirmTransactionOnChain(transactionId, {
+                        gasUsed: receipt.gasUsed.toString(),
+                        gasPrice: (receipt.gasPrice || receipt.effectiveGasPrice)?.toString(),
+                        actualPaid: exactDebtRepayAmount.toString(),
+                        // Rich metadata for instant sync
+                        srcActualAmount: srcAmount.toString(),
+                        priceImplicitUsd: activeQuote?.priceImplicitUsd || null
+                    });
+                } catch (confirmErr: any) {
+                    console.warn('[handleSwap] Backend confirm failed:', confirmErr?.message);
+                }
             }
 
             addLog?.('SUCCESS! Swap complete.', 'success');

@@ -60,6 +60,16 @@ const resolveDiscountPercent = (routeResult: any): number => {
     return 0;
 };
 
+const resolvePriceImplicitUsd = (priceRoute: any): number | null => {
+    if (!priceRoute) return null;
+    const srcUSD = parseFloat(priceRoute.srcUSD || '0');
+    const destUSD = parseFloat(priceRoute.destUSD || '0');
+    if (srcUSD > 0 || destUSD > 0) {
+        return Math.max(srcUSD, destUSD);
+    }
+    return null;
+};
+
 interface UseParaswapQuoteProps {
     debtAmount?: bigint;
     sellAmount?: bigint;
@@ -245,6 +255,7 @@ export const useParaswapQuote = ({
                     bufferBps,
                     feeBps,
                     discountPercent,
+                    priceImplicitUsd: resolvePriceImplicitUsd(priceRoute),
                     apyPercent: null,
                 };
 
@@ -313,6 +324,7 @@ export const useParaswapQuote = ({
                     bufferBps,
                     feeBps,
                     discountPercent,
+                    priceImplicitUsd: resolvePriceImplicitUsd(priceRoute),
                     apyPercent: typeof apyPercent === 'number' ? apyPercent : null,
                 };
 

@@ -477,11 +477,15 @@ export const useCollateralSwapActions = ({
 
             const tx = await poolContract.flashLoanSimple(...flashLoanArgs, { gasLimit });
             addLog?.(`Tx sent! Hash: ${tx.hash}`, 'success');
-            onTxSent?.(tx.hash);
-
+            
+            // EARLY HASH PULSE: Record hash immediately in the background
             if (localTxId) {
-                await recordTransactionHash(localTxId, tx.hash);
+                recordTransactionHash(localTxId, tx.hash).catch(err => {
+                    console.warn('[handleSwap] Early hash report failed, will retry or wait for poller:', err.message);
+                });
             }
+
+            onTxSent?.(tx.hash);
 
             let receipt;
 
@@ -513,14 +517,14 @@ export const useCollateralSwapActions = ({
             addLog?.('🚀 SUCCESS! Collateral Swap complete.', 'success');
 
             if (localTxId) {
-                const gasUsed = receipt.gasUsed;
-                const gasPrice = receipt.gasPrice || receipt.effectiveGasPrice;
-
                 try {
                     await confirmTransactionOnChain(localTxId, {
-                        gasUsed: gasUsed.toString(),
-                        gasPrice: gasPrice?.toString(),
-                        actualPaid: srcAmount.toString()
+                        gasUsed: receipt.gasUsed.toString(),
+                        gasPrice: (receipt.gasPrice || receipt.effectiveGasPrice)?.toString(),
+                        actualPaid: srcAmount.toString(),
+                        // Additional rich metadata for instant backend rehydration
+                        srcActualAmount: srcAmount.toString(),
+                        priceImplicitUsd: activeQuote.priceImplicitUsd || null 
                     });
                 } catch (confirmErr: any) {
                     logger.warn('[handleSwap] Backend confirm failed:', confirmErr?.message);

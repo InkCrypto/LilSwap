@@ -261,26 +261,38 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             return null;
         }
 
-        if (swapQuote?.priceRoute?.srcUSD) {
-            return formatUSD(parseFloat(swapQuote.priceRoute.srcUSD));
-        }
-
-        // Fallback to oracle price
         const rawPrice = parseFloat(toToken.priceInUSD || '0');
         const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
 
-        if (swapQuote?.srcAmount) {
-            try {
-                const tokenAmount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
+        if (isUSDMode) {
+            // In USD mode, show Token units
+            if (swapQuote?.srcAmount) {
+                try {
+                    const tokenAmount = ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18);
+                    return formatCompactToken(tokenAmount, toToken.symbol);
+                } catch {
+                    return null;
+                }
+            }
+            return `0 ${toToken.symbol}`;
+        } else {
+            // In Token mode, show USD value
+            if (swapQuote?.priceRoute?.srcUSD) {
+                return formatUSD(parseFloat(swapQuote.priceRoute.srcUSD));
+            }
 
-                return formatUSD(tokenAmount * price);
-            } catch {
-                return null;
+            if (swapQuote?.srcAmount) {
+                try {
+                    const tokenAmount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
+                    return formatUSD(tokenAmount * price);
+                } catch {
+                    return null;
+                }
             }
         }
 
         return null;
-    }, [toToken, swapQuote]);
+    }, [toToken, swapQuote, isUSDMode]);
 
     const getBorrowStatus = useCallback((token: any) => {
         if (!token) {
@@ -958,11 +970,23 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     <span className="text-sm font-medium">Loading quote...</span>
                                 </div>
                             ) : swapQuote && toToken && fromToken ? (
-                                <div className="flex items-center gap-2 overflow-hidden">
+                                <div className="flex items-center overflow-hidden">
+                                    {isUSDMode && (
+                                        <span className={`text-2xl font-mono font-bold mr-0.5 select-none transition-colors ${(() => {
+                                            const usdVal = parseFloat(swapQuote?.priceRoute?.srcUSD || '0');
+                                            return usdVal > 0 ? 'text-slate-900 dark:text-white' : 'text-slate-400 dark:text-slate-500';
+                                        })()}`}>$</span>
+                                    )}
                                     <input
                                         type="text"
                                         readOnly
-                                        value={ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18)}
+                                        value={(() => {
+                                            if (isUSDMode) {
+                                                const usdVal = parseFloat(swapQuote.priceRoute.srcUSD || '0');
+                                                return usdVal.toFixed(2);
+                                            }
+                                            return ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18);
+                                        })()}
                                         className="text-2xl font-mono font-bold bg-transparent border-none text-slate-900 dark:text-white block w-full py-0.5 leading-none focus:outline-none cursor-text select-all"
                                     />
 
@@ -1005,9 +1029,9 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                     </div>
 
                     {/* Bottom Row: USD Value */}
-                    <div className="flex items-center justify-between mt-0 pl-1.5">
-                        <div className="text-xs text-slate-500 block min-h-4">
-                            {toSecondaryValue && <span>{toSecondaryValue}</span>}
+                    <div className="flex items-center justify-between mt-0 pl-1.5 min-h-5">
+                        <div className="text-xs text-slate-500 font-medium transition-colors">
+                            {toSecondaryValue || ''}
                         </div>
                     </div>
                 </div>
