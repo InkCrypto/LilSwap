@@ -170,14 +170,6 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 description: `Swap Collateral: ${fromToken.symbol} → ${toToken.symbol}`
             });
 
-            addToast({
-                message: 'Swap submitted!',
-                type: 'success',
-                action: {
-                    label: 'View',
-                    onClick: () => setSheetOpen(true)
-                }
-            });
             onClose();
         }
     });

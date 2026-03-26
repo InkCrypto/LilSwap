@@ -194,14 +194,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 description: `Swap Debt: ${fromToken.symbol} → ${toToken.symbol}`
             });
 
-            addToast({
-                message: 'Transaction submitted!',
-                type: 'success',
-                action: {
-                    label: 'View',
-                    onClick: () => setSheetOpen(true)
-                }
-            });
             onClose();
         }
     });

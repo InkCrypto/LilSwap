@@ -1,29 +1,56 @@
 import { CheckCircle2, Clock, ExternalLink, RefreshCw, Trash2, X, AlertTriangle, Loader2 } from 'lucide-react';
-import React, { useEffect, useRef, useMemo } from 'react';
+import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { getNetworkByChainId } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { useWeb3 } from '../contexts/web3-context';
 
+const LastSyncIndicator: React.FC<{ lastSyncTime: number }> = ({ lastSyncTime }) => {
+    const [, setTick] = useState(0);
+
+    useEffect(() => {
+        const interval = setInterval(() => {
+            setTick(t => t + 1);
+        }, 1000);
+        return () => clearInterval(interval);
+    }, [lastSyncTime]); // Reset interval if lastSyncTime changes
+
+    const now = Date.now();
+    const diff = now - lastSyncTime;
+    const seconds = Math.floor(diff / 1000);
+
+    if (seconds < 10) {
+        return <span>just now</span>;
+    }
+
+    if (seconds < 60) {
+        return <span>{seconds}s ago</span>;
+    }
+
+    const minutes = Math.floor(seconds / 60);
+    return <span>{minutes}m ago</span>;
+};
+
 export const TransactionHistorySheet: React.FC = () => {
-    const { 
-        transactions, 
-        isSheetOpen, 
-        setSheetOpen, 
-        clearHistory, 
-        apiHistory, 
-        isLoadingHistory, 
-        hasMore, 
+    const {
+        transactions,
+        isSheetOpen,
+        setSheetOpen,
+        apiHistory,
+        isLoadingHistory,
+        hasMore,
         loadHistory,
         isSyncingHistory,
         lastSyncTime
     } = useTransactionTracker();
-    
+
     const { account: address } = useWeb3();
     const observerTarget = useRef<HTMLDivElement>(null);
     const [showAbsolute, setShowAbsolute] = React.useState(false);
     const [touchStart, setTouchStart] = React.useState({ x: 0, y: 0 });
+    const hasInitialLoaded = useRef(false);
+
 
     const handleTouchStart = (e: React.TouchEvent) => {
         setTouchStart({
@@ -42,12 +69,20 @@ export const TransactionHistorySheet: React.FC = () => {
         }
     };
 
-    // Initial load
+    // Initial load - Run only once when sheet opens or address changes
     useEffect(() => {
-        if (isSheetOpen && address && apiHistory.length === 0) {
+        if (isSheetOpen && address && !hasInitialLoaded.current) {
+            hasInitialLoaded.current = true;
             loadHistory(address, false);
         }
-    }, [isSheetOpen, address, apiHistory.length, loadHistory]);
+    }, [isSheetOpen, address, loadHistory]);
+
+    // Reset initial load state when sheet closes
+    useEffect(() => {
+        if (!isSheetOpen) {
+            hasInitialLoaded.current = false;
+        }
+    }, [isSheetOpen]);
 
     // Infinite scroll observer
     useEffect(() => {
@@ -70,15 +105,15 @@ export const TransactionHistorySheet: React.FC = () => {
     // Merge and deduplicate
     const combinedHistory = useMemo(() => {
         const localHashes = new Set(transactions.map(t => t.hash?.toLowerCase()).filter(Boolean));
-        
+
         const mappedApiHistory = apiHistory.map(tx => {
             let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
             if (tx.tx_status === 'CONFIRMED') mappedStatus = 'success';
             else if (['FAILED', 'REJECTED', 'EXPIRED'].includes(tx.tx_status)) mappedStatus = 'error';
 
             const isDebt = tx.swap_type === 'debt';
-            const desc = isDebt 
-                ? `Swap Debt: ${tx.from_token_symbol} → ${tx.to_token_symbol}` 
+            const desc = isDebt
+                ? `Swap Debt: ${tx.from_token_symbol} → ${tx.to_token_symbol}`
                 : `Swap Collateral: ${tx.from_token_symbol} → ${tx.to_token_symbol}`;
 
             return {
@@ -116,33 +151,27 @@ export const TransactionHistorySheet: React.FC = () => {
 
         const now = Date.now();
         const diffInSeconds = Math.floor((now - timestamp) / 1000);
-        
+
         if (diffInSeconds < 60) return 'Just now';
-        
+
         const minutes = Math.floor(diffInSeconds / 60);
         if (minutes < 60) return `${minutes}m ago`;
-        
+
         const hours = Math.floor(minutes / 60);
         if (hours < 24) return `${hours}h ago`;
-        
+
         const days = Math.floor(hours / 24);
         if (days < 30) return `${days}d ago`;
-        
+
         const months = Math.floor(days / 30);
         return `${months}mo ago`;
     };
 
-    const getLastSyncText = () => {
-        if (!lastSyncTime) return '';
-        const diff = Math.floor((Date.now() - lastSyncTime) / 1000);
-        if (diff < 60) return `${diff}s ago`;
-        return `${Math.floor(diff / 60)}m ago`;
-    };
 
     return (
         <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
-            <SheetContent 
-                side="right" 
+            <SheetContent
+                side="right"
                 className="w-full sm:max-w-md bg-white dark:bg-slate-950 border-l border-slate-200 dark:border-slate-800 p-0 flex flex-col"
                 onTouchStart={handleTouchStart}
                 onTouchEnd={handleTouchEnd}
@@ -153,28 +182,17 @@ export const TransactionHistorySheet: React.FC = () => {
                             <Clock className="w-5 h-5 text-primary" />
                             Recent Activity
                         </SheetTitle>
-                        {transactions.length > 0 && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                onClick={clearHistory}
-                                className="h-8 w-8 text-slate-400 hover:text-red-500 transition-colors focus-visible:ring-0"
-                                title="Clear local list"
-                            >
-                                <Trash2 className="w-4 h-4" />
-                            </Button>
-                        )}
                     </div>
                     {lastSyncTime && (
                         <div className="flex justify-end mt-1 -mr-1">
-                            <button 
+                            <button
                                 onClick={() => address && loadHistory(address, false, true)}
                                 disabled={isSyncingHistory || isLoadingHistory}
                                 className="flex items-center gap-2 group text-slate-400 hover:text-primary transition-colors focus:outline-hidden disabled:opacity-50"
                                 title="Refresh history"
                             >
                                 <span className="text-xs text-slate-500 whitespace-nowrap select-none">
-                                    Updated {getLastSyncText()}
+                                    Updated <LastSyncIndicator lastSyncTime={lastSyncTime} />
                                 </span>
                                 <RefreshCw className={`w-3.5 h-3.5 ${isSyncingHistory || (isLoadingHistory && !transactions.length) ? 'animate-spin' : ''}`} />
                             </button>
@@ -226,10 +244,10 @@ export const TransactionHistorySheet: React.FC = () => {
 
                                             <div className="flex-1 min-w-0">
                                                 <div className="flex justify-between items-start gap-2">
-                                                    <p className="font-semibold text-sm text-slate-900 dark:text-white break-words">
+                                                    <p className="font-semibold text-sm text-slate-900 dark:text-white wrap-break-word">
                                                         {tx.description}
                                                     </p>
-                                                    <button 
+                                                    <button
                                                         onClick={() => setShowAbsolute(!showAbsolute)}
                                                         className="text-xs text-slate-500 hover:text-primary transition-colors whitespace-nowrap shrink-0 focus:outline-hidden"
                                                         title={showAbsolute ? "Show relative time" : "Show full date"}
@@ -239,16 +257,15 @@ export const TransactionHistorySheet: React.FC = () => {
                                                 </div>
 
                                                 <div className="flex items-center gap-3 mt-3">
-                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${
-                                                        tx.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' :
-                                                        tx.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' :
-                                                        'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
-                                                    }`}>
+                                                    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${tx.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' :
+                                                            tx.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' :
+                                                                'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                                                        }`}>
                                                         {tx.status === 'pending' ? 'Processing...' :
-                                                         tx.status === 'success' ? 'Confirmed' : 
-                                                         (tx.revertReason === 'reverted' ? 'Reverted' : 
-                                                          tx.revertReason === 'ghost_timeout' ? 'Timed Out (Not Found)' :
-                                                          tx.revertReason === 'drop_timeout' ? 'Dropped' : 'Failed')}
+                                                            tx.status === 'success' ? 'Confirmed' :
+                                                                (tx.revertReason === 'reverted' ? 'Reverted' :
+                                                                    tx.revertReason === 'ghost_timeout' ? 'Timed Out (Not Found)' :
+                                                                        tx.revertReason === 'drop_timeout' ? 'Dropped' : 'Failed')}
                                                     </span>
 
                                                     {tx.status === 'error' && tx.revertReason && (
@@ -274,7 +291,7 @@ export const TransactionHistorySheet: React.FC = () => {
                                     </div>
                                 );
                             })}
-                            
+
                             {/* Infinite Scroll Target */}
                             {hasMore && (
                                 <div ref={observerTarget} className="py-4 flex justify-center">

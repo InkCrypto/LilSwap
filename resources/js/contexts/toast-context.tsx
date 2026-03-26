@@ -1,4 +1,4 @@
-import { X, CheckCircle2, AlertTriangle, Info, ExternalLink } from 'lucide-react';
+import { X, CheckCircle2, AlertTriangle, Info, ExternalLink, Loader2 } from 'lucide-react';
 import type { ReactNode} from 'react';
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { createPortal } from 'react-dom';
@@ -7,14 +7,15 @@ interface Toast {
     id: number;
     title?: string;
     message?: string;
-    type: 'success' | 'error' | 'info';
+    type: 'success' | 'error' | 'info' | 'loading';
     action?: { url?: string; label: string; onClick?: () => void } | null;
     duration?: number;
     isLeaving?: boolean;
 }
 
 interface ToastContextType {
-    addToast: (toast: Omit<Toast, 'id' | 'isLeaving'>) => void;
+    addToast: (toast: Omit<Toast, 'id' | 'isLeaving'>) => number;
+    updateToast: (id: number, updates: Partial<Omit<Toast, 'id'>>) => void;
     removeToast: (id: number) => void;
 }
 
@@ -34,8 +35,13 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const [toasts, setToasts] = useState<Toast[]>([]);
 
     const addToast = useCallback(({ title, message, type = 'info', action = null, duration = 5000 }: Omit<Toast, 'id' | 'isLeaving'>) => {
-        const id = Date.now();
+        const id = Date.now() + Math.floor(Math.random() * 1000);
         setToasts(prev => [...prev, { id, title, message, type, action, duration }]);
+        return id;
+    }, []);
+
+    const updateToast = useCallback((id: number, updates: Partial<Omit<Toast, 'id'>>) => {
+        setToasts(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
     }, []);
 
     const removeToast = useCallback((id: number) => {
@@ -46,7 +52,7 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }, []);
 
     return (
-        <ToastContext.Provider value={{ addToast, removeToast }}>
+        <ToastContext.Provider value={{ addToast, updateToast, removeToast }}>
             {children}
             {typeof document !== 'undefined' && createPortal(
                 <div className="lilswap-toast-container fixed bottom-6 right-6 z-9999 flex flex-col-reverse gap-2 pointer-events-none">
@@ -76,13 +82,15 @@ const ToastComponent: React.FC<{ toast: Toast; onRemove: (id: number) => void }>
     const icons = {
         success: <CheckCircle2 className="w-5 h-5 text-emerald-400" />,
         error: <AlertTriangle className="w-5 h-5 text-red-400" />,
-        info: <Info className="w-5 h-5 text-blue-400" />
+        info: <Info className="w-5 h-5 text-blue-400" />,
+        loading: <Loader2 className="w-5 h-5 text-primary animate-spin" />
     };
 
     const bgColors = {
         success: 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/40 dark:border-emerald-500/30',
         error: 'bg-red-50 border-red-200 dark:bg-red-950/40 dark:border-red-500/30',
-        info: 'bg-white border-slate-200 dark:bg-slate-800/90 dark:border-slate-700/80'
+        info: 'bg-white border-slate-200 dark:bg-slate-800/90 dark:border-slate-700/80',
+        loading: 'bg-white border-slate-200 dark:bg-slate-800/90 dark:border-slate-700/80'
     };
 
     return (

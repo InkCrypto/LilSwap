@@ -18,7 +18,6 @@ export interface PendingTransaction {
 interface TransactionTrackerContextType {
     transactions: PendingTransaction[];
     addTransaction: (tx: Omit<PendingTransaction, 'status' | 'timestamp'>) => void;
-    clearHistory: () => void;
     apiHistory: any[];
     isLoadingHistory: boolean;
     hasMore: boolean;
@@ -75,8 +74,11 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
     const [isSyncingHistory, setIsSyncingHistory] = useState(false);
     const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
     
+    // Use refs to avoid loadHistory dependency loops
+    const isFetchingRef = useRef(false);
     const [isSheetOpen, setSheetOpen] = useState(false);
-    const { addToast } = useToast();
+    const { addToast, updateToast } = useToast();
+    const toastMap = useRef<Map<string, number>>(new Map());
 
     // Reset state on account switch
     useEffect(() => {
@@ -113,6 +115,20 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             console.warn('Failed to save transaction history', e);
         }
     }, [transactions]);
+    
+    // Auto-cleanup local records that are already confirmed in the API history
+    useEffect(() => {
+        if (apiHistory.length > 0 && transactions.length > 0) {
+            const apiHashes = new Set(apiHistory.map(tx => tx.tx_hash.toLowerCase()));
+            const toRemove = transactions.filter(t => apiHashes.has(t.hash.toLowerCase()));
+            
+            if (toRemove.length > 0) {
+                setTransactions(prev => prev.filter(t => !apiHashes.has(t.hash.toLowerCase())));
+                // Also remove from toast tracking if they were there
+                toRemove.forEach(t => toastMap.current.delete(t.hash));
+            }
+        }
+    }, [apiHistory]);
 
     const activeCount = transactions.filter(t => t.status === 'pending').length;
 
@@ -124,17 +140,25 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
         };
         // Add to beginning of list
         setTransactions(prev => [newTx, ...prev]);
-    }, []);
 
-    const clearHistory = useCallback(() => {
-        // Only keep pending ones locally, but this clear doesn't clear the API.
-        // If we want to clear the API history, we'd need an endpoint. For now, it only clears the local queue clutter.
-        setTransactions(prev => prev.filter(t => t.status === 'pending'));
-    }, []);
+        // Show Loading Toast and track it
+        const toastId = addToast({
+            title: 'Transaction Submitted',
+            message: tx.description,
+            type: 'loading',
+            duration: 0, // Keep it open until confirmed or failed
+            action: {
+                label: 'View',
+                onClick: () => setSheetOpen(true)
+            }
+        });
+        toastMap.current.set(tx.hash, toastId);
+    }, [addToast]);
 
     const loadHistory = useCallback(async (walletAddress: string, isLoadMore: boolean = false, isSilent: boolean = false) => {
-        if (!walletAddress || isLoadingHistory || isSyncingHistory || (!hasMore && isLoadMore)) return;
+        if (!walletAddress || isFetchingRef.current || (!hasMore && isLoadMore)) return;
 
+        isFetchingRef.current = true;
         if (isSilent) {
             setIsSyncingHistory(true);
         } else {
@@ -158,8 +182,9 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
         } finally {
             setIsLoadingHistory(false);
             setIsSyncingHistory(false);
+            isFetchingRef.current = false;
         }
-    }, [page, hasMore, isLoadingHistory, isSyncingHistory]);
+    }, [page, hasMore]);
 
     // Polling mechanism for pending transactions
     useEffect(() => {
@@ -188,16 +213,42 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
                             t.hash === tx.hash ? { ...t, status: isSuccess ? 'success' : 'error' } : t
                         ));
 
-                        // Show Toast Notification
-                        addToast({
-                            title: isSuccess ? 'Transaction Confirmed' : 'Transaction Failed',
-                            message: tx.description,
-                            type: isSuccess ? 'success' : 'error',
-                            action: {
-                                label: 'View',
-                                onClick: () => setSheetOpen(true)
-                            }
-                        });
+                        // Show/Update Toast Notification
+                        const toastId = toastMap.current.get(tx.hash);
+                        if (toastId) {
+                            updateToast(toastId, {
+                                title: isSuccess ? 'Transaction Confirmed' : 'Transaction Failed',
+                                type: isSuccess ? 'success' : 'error',
+                                duration: 5000,
+                            });
+                            toastMap.current.delete(tx.hash);
+                        } else {
+                            addToast({
+                                title: isSuccess ? 'Transaction Confirmed' : 'Transaction Failed',
+                                message: tx.description,
+                                type: isSuccess ? 'success' : 'error',
+                                action: {
+                                    label: 'View',
+                                    onClick: () => setSheetOpen(true)
+                                }
+                            });
+                        }
+                    } else {
+                        // Still pending — Check if it's taking too long (> 2 minutes)
+                        const elapsed = Date.now() - tx.timestamp;
+                        const toastId = toastMap.current.get(tx.hash);
+                        
+                        if (toastId && elapsed > 120000) {
+                            // Update the toast to be non-intrusive and allow it to clear
+                            updateToast(toastId, {
+                                title: 'Still Processing...',
+                                message: 'This transaction is taking a bit longer to confirm. You can safely close this; we\'ll update your history as soon as it completes.',
+                                type: 'info',
+                                duration: 8000,
+                            });
+                            // Remove from map so we don't keep spamming updates
+                            toastMap.current.delete(tx.hash);
+                        }
                     }
                 } catch (error) {
                     logger.warn(`[TransactionTracker] Failed to track transaction ${tx.hash}`, error);
@@ -229,7 +280,6 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
         <TransactionTrackerContext.Provider value={{
             transactions,
             addTransaction,
-            clearHistory,
             apiHistory,
             isLoadingHistory,
             hasMore,
