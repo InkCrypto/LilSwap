@@ -37,16 +37,14 @@ class ApiController extends Controller
         $body = $request->all();
         $timestamp = (string) (now()->getTimestamp() * 1000); // Milliseconds to match JS
 
-        // Preparation for signing (matches legacy api.js logic)
-        $bodyString = '';
-        if (!empty($body)) {
-            $bodyString = json_encode($body, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            if ($bodyString === '{}') {
-                $bodyString = '';
-            }
+        // Preparation for signing (matches exact string sent by client)
+        $bodyString = $request->getContent();
+        if (empty($bodyString) || $bodyString === '{}') {
+            $bodyString = '';
         }
 
-        $signingV2Enabled = filter_var(env('SIGNING_V2_ENABLED', false), FILTER_VALIDATE_BOOL);
+        $isLogs = str_contains($path, 'logs');
+        $signingV2Enabled = !$isLogs && filter_var(env('SIGNING_V2_ENABLED', false), FILTER_VALIDATE_BOOL);
         $nonce = $signingV2Enabled ? bin2hex(random_bytes(12)) : null;
         $payloadToSign = $signingV2Enabled
             ? $timestamp . '|' . $nonce . '|' . $bodyString

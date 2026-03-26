@@ -12,6 +12,8 @@ interface InfoTooltipProps {
     size?: number;
     maxWidth?: string;
     children?: React.ReactNode;
+    disableClick?: boolean;
+    disableHover?: boolean;
 }
 
 export const InfoTooltip: React.FC<InfoTooltipProps> = ({
@@ -19,7 +21,9 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
     content,
     size = 14,
     maxWidth = '250px',
-    children
+    children,
+    disableClick = false,
+    disableHover = false
 }) => {
     const id = useId();
     const [open, setOpen] = useState(false);
@@ -34,10 +38,15 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
             }
         };
         window.addEventListener('info-tooltip-open', handleOtherOpen);
+
         return () => window.removeEventListener('info-tooltip-open', handleOtherOpen);
     }, [id]);
 
     const handleClick = (e: React.MouseEvent) => {
+        if (disableClick) {
+            return;
+        }
+
         e.stopPropagation();
         const nextState = !isClicked;
         
@@ -52,6 +61,10 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
 
     const handleOpenChange = (newOpen: boolean) => {
         if (newOpen) {
+            if (disableHover && !isClicked) {
+                return;
+            }
+
             // Notify other tooltips to close when this one starts to open (even via hover)
             window.dispatchEvent(new CustomEvent('info-tooltip-open', { detail: { id } }));
         }
@@ -59,7 +72,10 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
         // If it was opened by click, we preserve it regardless of hover state
         // Note: if another tooltip calls handleOpenChange(true), our useEffect 
         // will set isClicked to false, allowing this one to close.
-        if (isClicked) return;
+        if (isClicked) {
+            return;
+        }
+
         setOpen(newOpen);
     };
 

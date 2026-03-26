@@ -19,6 +19,7 @@ import { useCollateralPositions } from '../hooks/use-collateral-positions';
 import { useCollateralSwapActions } from '../hooks/use-collateral-swap-actions';
 import { useParaswapQuote } from '../hooks/use-paraswap-quote';
 import { useUserPosition } from '../hooks/use-user-position';
+import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { getCollateralQuote } from '../services/api';
 
 import { getPairStatus, checkPairSwappable } from '../services/token-pair-cache';
@@ -61,6 +62,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
     const { addToast } = useToast();
     const { marketAssets: fetchedMarketAssets, supplies, summary } = useUserPosition();
+    const { addTransaction, setSheetOpen } = useTransactionTracker();
     const localMarketAssets = useMemo(() => externalMarketAssets || fetchedMarketAssets || [], [externalMarketAssets, fetchedMarketAssets]);
 
     // Local State
@@ -159,8 +161,23 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         clearQuote,
         clearQuoteError,
         selectedNetwork,
-        onTxSent: () => {
-            addToast({ message: 'Swap submitted!', type: 'success' });
+        onTxSent: (hash: string) => {
+            const amountDisplay = inputValue ? `${inputValue} ${fromToken.symbol}` : '';
+            
+            addTransaction({
+                hash,
+                chainId: selectedNetwork?.chainId || 1,
+                description: `Swap Collateral: ${fromToken.symbol} → ${toToken.symbol}`
+            });
+
+            addToast({
+                message: 'Swap submitted!',
+                type: 'success',
+                action: {
+                    label: 'View',
+                    onClick: () => setSheetOpen(true)
+                }
+            });
             onClose();
         }
     });

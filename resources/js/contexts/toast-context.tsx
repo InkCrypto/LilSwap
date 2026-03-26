@@ -8,7 +8,7 @@ interface Toast {
     title?: string;
     message?: string;
     type: 'success' | 'error' | 'info';
-    action?: { url: string; label: string } | null;
+    action?: { url?: string; label: string; onClick?: () => void } | null;
     duration?: number;
     isLeaving?: boolean;
 }
@@ -104,15 +104,31 @@ const ToastComponent: React.FC<{ toast: Toast; onRemove: (id: number) => void }>
                 {toast.title && <div className="font-bold text-slate-900 dark:text-white text-sm">{toast.title}</div>}
                 {toast.message && <div className="text-sm text-slate-600 dark:text-slate-300 mt-0.5 wrap-break-word">{toast.message}</div>}
                 {toast.action && (
-                    <a
-                        href={toast.action.url}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-primary hover:text-primary/80 transition-colors"
-                    >
-                        {toast.action.label}
-                        <ExternalLink className="w-3 h-3" />
-                    </a>
+                    <>
+                        {toast.action.url ? (
+                            <a
+                                href={toast.action.url}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-primary hover:text-primary/80 transition-colors"
+                            >
+                                {toast.action.label}
+                                <ExternalLink className="w-3 h-3" />
+                            </a>
+                        ) : (
+                            <button
+                                onClick={() => {
+                                    if (toast.action?.onClick) {
+                                        toast.action.onClick();
+                                    }
+                                    onRemove(toast.id); // Also clear the toast when action is clicked
+                                }}
+                                className="inline-flex items-center gap-1 mt-2 text-xs font-bold text-primary hover:text-primary/80 transition-colors cursor-pointer p-0 border-none bg-transparent"
+                            >
+                                {toast.action.label}
+                            </button>
+                        )}
+                    </>
                 )}
             </div>
             <button

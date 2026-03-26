@@ -7,6 +7,7 @@ import '../css/app.css';
 
 import { ApiMetaProvider } from '@/contexts/api-meta-context';
 import { ToastProvider } from '@/contexts/toast-context';
+import { TransactionTrackerProvider } from '@/contexts/transaction-tracker-context';
 import { UserActivityProvider } from '@/contexts/user-activity-context';
 import { Web3Provider } from '@/contexts/web3-context';
 import { initializeTheme } from '@/hooks/use-appearance';
@@ -29,9 +30,11 @@ createInertiaApp({
                     <ApiMetaProvider>
                         <UserActivityProvider>
                             <ToastProvider>
-                                <TooltipProvider delayDuration={120}>
-                                    <App {...props} />
-                                </TooltipProvider>
+                                <TransactionTrackerProvider>
+                                    <TooltipProvider delayDuration={120}>
+                                        <App {...props} />
+                                    </TooltipProvider>
+                                </TransactionTrackerProvider>
                             </ToastProvider>
                         </UserActivityProvider>
                     </ApiMetaProvider>

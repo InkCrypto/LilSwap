@@ -90,6 +90,29 @@ export const disconnectProxySession = async () => {
     }
 };
 
+/**
+ * Fetch a paginated list of the user's transaction history from the database
+ */
+export const getUserTransactionsHistory = async (walletAddress: string, limit = 20, offset = 0) => {
+    if (!walletAddress) {
+        throw new Error('Wallet address is required to fetch history');
+    }
+
+    try {
+        const response = await apiClient.post(`/transactions/history`, {
+            walletAddress,
+            limit,
+            offset
+        });
+        
+        return response.data;
+    } catch (error) {
+        logger.error('Failed to fetch user transaction history', error);
+        
+        return { transactions: [], count: 0 };
+    }
+};
+
 // Request Interceptor: Logging only
 // HMAC signing is now handled by the Laravel ApiController
 apiClient.interceptors.request.use(

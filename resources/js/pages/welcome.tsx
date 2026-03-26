@@ -1,6 +1,8 @@
-import { Head } from '@inertiajs/react';
-import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Lightbulb } from 'lucide-react';
+
+import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Lightbulb, Clock } from 'lucide-react';
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
+import { TransactionHistorySheet } from '@/components/transaction-history-sheet';
 import { useWeb3 } from '@/contexts/web3-context';
 import { useAppearance } from '@/hooks/use-appearance';
 import AppFooter from '../components/app-footer';
@@ -12,6 +14,7 @@ const Dashboard = lazy(() => import('../components/dashboard'));
 
 export default function Welcome() {
     const { account, connectWallet, disconnectWallet, isConnecting } = useWeb3();
+    const { activeCount, setSheetOpen } = useTransactionTracker();
 
     const { resolvedAppearance, updateAppearance } = useAppearance();
     const isDarkMode = resolvedAppearance === 'dark';
@@ -21,6 +24,7 @@ export default function Welcome() {
         const saved = typeof localStorage !== 'undefined'
             ? localStorage.getItem('lilswap_show_address')
             : 'false';
+
         return saved === 'true';
     });
 
@@ -39,6 +43,7 @@ export default function Welcome() {
             }
         };
         document.addEventListener('mousedown', handleClickOutside);
+
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
@@ -53,6 +58,7 @@ export default function Welcome() {
             // Clear the outgoing span after animation finishes
             setTimeout(() => setFlipState(fs => ({ ...fs, prev: null })), 380);
         }, 3500);
+
         return () => clearInterval(interval);
     }, []);
 
@@ -133,7 +139,7 @@ export default function Welcome() {
                 </div>
 
                 <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                    <InfoTooltip message={isDarkMode ? 'Turn lights on' : 'Turn lights off'}>
+                    <InfoTooltip message={isDarkMode ? 'Turn lights on' : 'Turn lights off'} disableClick={true}>
                         <button
                             onClick={toggleDarkMode}
                             className="p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer flex items-center group"
@@ -145,6 +151,24 @@ export default function Welcome() {
                                 }`} />
                         </button>
                     </InfoTooltip>
+
+                    {account && (
+                        <InfoTooltip message="Activity history" disableClick={true}>
+                            <button
+                                onClick={() => setSheetOpen(true)}
+                                className="p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer flex items-center group relative"
+                                aria-label="Activity"
+                            >
+                                <Clock className="w-5 h-5 transition-all duration-300" />
+                                {activeCount > 0 && (
+                                    <span className="absolute top-0 right-0 flex size-2">
+                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
+                                        <span className="relative inline-flex rounded-full size-2 bg-primary"></span>
+                                    </span>
+                                )}
+                            </button>
+                        </InfoTooltip>
+                    )}
 
                     {!account ? (
                         <Button
@@ -162,11 +186,13 @@ export default function Welcome() {
                     ) : (
                         <div className="relative" ref={menuRef}>
                             <div className="flex items-center gap-2">
-                                <InfoTooltip message="Protect your privacy by hiding your address">
+                                <InfoTooltip message="Protect your privacy by hiding your address" disableClick={true}>
                                     <button
                                         onClick={() => setShowAddress(prev => {
                                             const newValue = !prev;
+
                                             localStorage.setItem('lilswap_show_address', newValue.toString());
+
                                             return newValue;
                                         })}
                                         className="hidden sm:flex p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer"
@@ -241,6 +267,7 @@ export default function Welcome() {
                 )}
             </main>
 
+            <TransactionHistorySheet />
             <AppFooter />
         </div>
     );

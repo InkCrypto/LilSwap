@@ -15,6 +15,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 
 import { useWeb3 } from '@/contexts/web3-context';
 import { useToast } from '../contexts/toast-context';
+import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useDebtSwitchActions } from '../hooks/use-debt-switch-actions';
 import { useParaswapQuote } from '../hooks/use-paraswap-quote';
 import { useUserPosition } from '../hooks/use-user-position';
@@ -59,6 +60,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
     const { addToast } = useToast();
     const { marketAssets: fetchedMarketAssets, borrows, summary, refresh: refreshPositions } = useUserPosition();
+    const { addTransaction, setSheetOpen } = useTransactionTracker();
     const localMarketAssets = useMemo(() => externalMarketAssets || fetchedMarketAssets || [], [externalMarketAssets, fetchedMarketAssets]);
     const effectiveNetwork = selectedNetwork;
 
@@ -183,10 +185,22 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         selectedNetwork: effectiveNetwork,
         preferPermit,
         freezeQuote,
-        onTxSent: () => {
+        onTxSent: (hash: string) => {
+            const amountDisplay = isUSDMode ? (inputValue ? `$${inputValue}` : '') : (inputValue ? `${inputValue} ${fromToken.symbol}` : '');
+            
+            addTransaction({
+                hash,
+                chainId: effectiveNetwork.chainId,
+                description: `Swap Debt: ${fromToken.symbol} → ${toToken.symbol}`
+            });
+
             addToast({
                 message: 'Transaction submitted!',
                 type: 'success',
+                action: {
+                    label: 'View',
+                    onClick: () => setSheetOpen(true)
+                }
             });
             onClose();
         }
