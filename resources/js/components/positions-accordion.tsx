@@ -326,7 +326,13 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                 Updated {getLastFetchText()}
                             </span>
                         )}
-                        <Button variant="ghost" size="icon" onClick={() => refresh(true)} disabled={loading} className="h-8 w-8 text-slate-400 hover:text-white">
+                        <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            onClick={() => refresh(true)} 
+                            disabled={loading} 
+                            className="h-8 w-8 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-transparent transition-all group"
+                        >
                             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                         </Button>
                     </div>
