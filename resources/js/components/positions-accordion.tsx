@@ -401,7 +401,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                         <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-1">Supplies</h4>
                                         <div className="-mx-4 border-x border-t border-slate-200 dark:border-slate-700/80 divide-y divide-slate-200 dark:divide-slate-700/80">
                                             {chain.supplies.map((supply) => (
-                                                <div key={`mobile-supply-${supply.underlyingAsset}`} className="px-4 py-2.5 bg-white dark:bg-slate-800/60">
+                                                <div key={`mobile-supply-${supply.underlyingAsset}`} className="px-4 py-2.5 bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200">
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div className="flex items-center gap-3 min-w-0">
                                                             <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
@@ -426,7 +426,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                             <h4 className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 px-1">Borrows</h4>
                                             <div className="-mx-4 border-x border-t border-slate-200 dark:border-slate-700/80 divide-y divide-slate-200 dark:divide-slate-700/80">
                                                 {chain.borrows.map((borrow) => (
-                                                    <div key={`mobile-borrow-${borrow.underlyingAsset}`} className="px-4 py-2.5 bg-white dark:bg-slate-800/60">
+                                                    <div key={`mobile-borrow-${borrow.underlyingAsset}`} className="px-4 py-2.5 bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200">
                                                         <div className="flex items-center justify-between gap-3">
                                                             <div className="flex items-center gap-3 min-w-0">
                                                                 <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
@@ -463,7 +463,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
 
                                             return (
                                                 <div key={`${chain.chainId}-position-row-${index}`} className={`grid grid-cols-[1fr_auto_1fr] items-stretch ${isFirstRow ? 'border-t border-slate-200 dark:border-slate-700/80' : ''}`}>
-                                                    <div className={`px-4 py-2.5 transition-colors duration-300 ${supply ? 'bg-white dark:bg-slate-800/60' : ''} ${supply && !isLastRow ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
+                                                    <div className={`px-4 py-2.5 transition-colors duration-300 ${supply ? 'bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/80' : ''} ${supply && !isLastRow ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
                                                         {supply ? (
                                                             <div className="flex items-center justify-between gap-3">
                                                                 <div className="flex items-center gap-3 min-w-0">
@@ -486,7 +486,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
 
                                                     <div className={`w-px self-stretch ${(supply || borrow) ? 'bg-slate-200/60 dark:bg-slate-600/40' : 'bg-transparent'}`} />
 
-                                                    <div className={`px-4 py-2.5 transition-colors duration-300 ${borrow ? 'bg-white dark:bg-slate-800/60' : ''} ${borrow && !isLastRow ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
+                                                    <div className={`px-4 py-2.5 transition-colors duration-300 ${borrow ? 'bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800/80' : ''} ${borrow && !isLastRow ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
                                                         {borrow ? (
                                                             <div className="flex items-center justify-between gap-3">
                                                                 <div className="flex items-center gap-3 min-w-0">
