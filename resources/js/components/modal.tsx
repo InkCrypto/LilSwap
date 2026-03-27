@@ -27,8 +27,8 @@ export const Modal: React.FC<ModalProps> = ({
 }) => {
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-            <DialogContent 
-                className="sm:max-w-[calc(100vw-2rem)] p-0 gap-0 overflow-hidden bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-2xl shadow-2xl animate-in zoom-in-95 fade-in duration-200" 
+            <DialogContent
+                className="sm:max-w-[calc(100vw-2rem)] p-0 gap-0 overflow-hidden bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-2xl shadow-2xl animate-in zoom-in-95 fade-in duration-200 outline-none"
                 style={{ maxWidth }}
                 aria-describedby={undefined}
                 onPointerDownOutside={(e) => {

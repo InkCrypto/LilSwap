@@ -33,7 +33,7 @@ const TransactionTrackerContext = createContext<TransactionTrackerContextType | 
 
 export const useTransactionTracker = () => {
     const context = useContext(TransactionTrackerContext);
-    
+
     if (!context) {
         throw new Error('useTransactionTracker must be used within a TransactionTrackerProvider');
     }
@@ -54,7 +54,7 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             if (typeof window !== 'undefined' && window.localStorage) {
                 const storedKey = account ? `${STORAGE_KEY}_${account}` : STORAGE_KEY;
                 const stored = window.localStorage.getItem(storedKey);
-                
+
                 if (stored) {
                     return JSON.parse(stored);
                 }
@@ -65,7 +65,7 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
 
         return [];
     });
-    
+
     // API History States
     const [apiHistory, setApiHistory] = useState<any[]>([]);
     const [page, setPage] = useState(0);
@@ -73,7 +73,7 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
     const [isLoadingHistory, setIsLoadingHistory] = useState(false);
     const [isSyncingHistory, setIsSyncingHistory] = useState(false);
     const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
-    
+
     // Use refs to avoid loadHistory dependency loops
     const isFetchingRef = useRef(false);
     const [isSheetOpen, setSheetOpen] = useState(false);
@@ -87,7 +87,7 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             setApiHistory([]);
             setPage(0);
             setHasMore(true);
-            
+
             // Try load local pending for the new active wallet
             try {
                 if (typeof window !== 'undefined' && window.localStorage) {
@@ -115,13 +115,13 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             console.warn('Failed to save transaction history', e);
         }
     }, [transactions]);
-    
+
     // Auto-cleanup local records that are already confirmed in the API history
     useEffect(() => {
         if (apiHistory.length > 0 && transactions.length > 0) {
             const apiHashes = new Set(apiHistory.map(tx => tx.tx_hash.toLowerCase()));
             const toRemove = transactions.filter(t => apiHashes.has(t.hash.toLowerCase()));
-            
+
             if (toRemove.length > 0) {
                 setTransactions(prev => prev.filter(t => !apiHashes.has(t.hash.toLowerCase())));
                 // Also remove from toast tracking if they were there
@@ -194,26 +194,32 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
 
         const checkPendingTransactions = async () => {
             const pending = transactions.filter(t => t.status === 'pending');
-            
+
             for (const tx of pending) {
                 try {
                     const network = getNetworkByChainId(tx.chainId);
-                    
+
                     if (!network) {
                         continue;
                     }
-                    
+
                     const provider = createRpcProvider(network.rpcUrls);
                     const receipt = await provider.getTransactionReceipt(tx.hash);
-                    
+
                     if (receipt) {
                         const isSuccess = receipt.status === 1;
-                        
-                        setTransactions(prev => prev.map(t => 
+
+                        setTransactions(prev => prev.map(t =>
                             t.hash === tx.hash ? { ...t, status: isSuccess ? 'success' : 'error' } : t
                         ));
 
+                        if (isSuccess) {
+                            logger.info('[TransactionTracker] Transaction successful, triggering position refresh');
+                            window.dispatchEvent(new CustomEvent('lilswap:refresh-positions'));
+                        }
+
                         // Show/Update Toast Notification
+
                         const toastId = toastMap.current.get(tx.hash);
                         if (toastId) {
                             updateToast(toastId, {
@@ -237,7 +243,7 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
                         // Still pending — Check if it's taking too long (> 2 minutes)
                         const elapsed = Date.now() - tx.timestamp;
                         const toastId = toastMap.current.get(tx.hash);
-                        
+
                         if (toastId && elapsed > 120000) {
                             // Update the toast to be non-intrusive and allow it to clear
                             updateToast(toastId, {
@@ -257,7 +263,7 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
         };
 
         const intervalId = setInterval(checkPendingTransactions, 6000);
-        
+
         // Initial check immediately
         checkPendingTransactions();
 

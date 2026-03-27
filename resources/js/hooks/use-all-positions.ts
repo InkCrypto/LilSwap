@@ -42,8 +42,8 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
 
     const fetchPositions = useCallback(async (force = false) => {
         if (!walletAddress) {
-return;
-}
+            return;
+        }
 
         setLoading(true);
         setError(null);
@@ -92,8 +92,8 @@ return;
 
     useEffect(() => {
         if (!walletAddress) {
-return;
-}
+            return;
+        }
 
         const refreshInterval = opts.refreshIntervalMs || 90000;
         const interval = setInterval(() => {
@@ -115,6 +115,21 @@ return;
             }
         }
     }, [isTabVisible, isUserActive, lastFetch, fetchPositions, opts.refreshIntervalMs]);
+
+    // Handle global refresh events (e.g. from transaction tracker)
+    useEffect(() => {
+        const handleRefresh = () => {
+            if (isTabVisible && isUserActive) {
+                logger.debug('[useAllPositions] Global refresh event received, forcing fetch');
+                fetchPositions(true);
+            }
+        };
+
+        window.addEventListener('lilswap:refresh-positions', handleRefresh);
+
+        return () => window.removeEventListener('lilswap:refresh-positions', handleRefresh);
+    }, [fetchPositions, isTabVisible, isUserActive]);
+
 
     return {
         positionsByChain: data,

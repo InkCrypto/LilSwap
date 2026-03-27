@@ -1,5 +1,5 @@
 
-import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Lightbulb, Clock } from 'lucide-react';
+import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Lightbulb, History } from 'lucide-react';
 import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
 import { TransactionHistorySheet } from '@/components/transaction-history-sheet';
@@ -142,7 +142,7 @@ export default function Welcome() {
                     <InfoTooltip message={isDarkMode ? 'Turn lights on' : 'Turn lights off'} disableClick={true}>
                         <button
                             onClick={toggleDarkMode}
-                            className="p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer flex items-center group"
+                            className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer group rounded-full"
                             aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
                         >
                             <Lightbulb className={`w-5 h-5 transition-all duration-300 ${!isDarkMode
@@ -156,10 +156,10 @@ export default function Welcome() {
                         <InfoTooltip message="Activity history" disableClick={true}>
                             <button
                                 onClick={() => setSheetOpen(true)}
-                                className="p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer flex items-center group relative"
+                                className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer group relative rounded-full"
                                 aria-label="Activity"
                             >
-                                <Clock className="w-5 h-5 transition-all duration-300" />
+                                <History className="w-5 h-5 transition-all duration-300" />
                                 {activeCount > 0 && (
                                     <span className="absolute top-0 right-0 flex size-2">
                                         <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
@@ -195,7 +195,7 @@ export default function Welcome() {
 
                                             return newValue;
                                         })}
-                                        className="hidden sm:flex p-1 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer"
+                                        className="hidden sm:flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer rounded-full"
                                     >
                                         {showAddress ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
                                     </button>

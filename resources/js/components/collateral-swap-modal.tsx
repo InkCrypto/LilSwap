@@ -163,7 +163,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         selectedNetwork,
         onTxSent: (hash: string) => {
             const amountDisplay = inputValue ? `${inputValue} ${fromToken.symbol}` : '';
-            
+
             addTransaction({
                 hash,
                 chainId: selectedNetwork?.chainId || 1,
@@ -247,10 +247,10 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
     const toSecondaryValue = useMemo(() => {
         if (!toToken) return null;
-        
+
         const rawPrice = parseFloat(toToken.priceInUSD || '0');
         const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
-        
+
         if (isUSDMode) {
             // In USD mode, show Token units
             if (swapQuote?.destAmount) {
@@ -276,6 +276,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     const renderTokenStatus = (token: any) => {
         const reasons = [];
         let disabled = false;
+        let amount = undefined;
+        let amountUSD = undefined;
 
         const tokenAddr = (token.address || token.underlyingAsset || '').toLowerCase();
 
@@ -283,7 +285,13 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         if (selectingForFrom) {
             const supplyPos = activeSupplies.find(p => (p.address || p.underlyingAsset || '').toLowerCase() === tokenAddr);
             if (supplyPos) {
-                reasons.push(`${supplyPos.formattedAmount || supplyPos.formattedBalance || ''} ${token.symbol} position`);
+                amount = formatCompactNumber(supplyPos.formattedAmount || supplyPos.formattedBalance || '0');
+
+                // Calculate USD value for the second line
+                const usdValue = parseFloat(supplyPos.formattedAmount || supplyPos.formattedBalance || '0') * parseFloat(supplyPos.priceInUSD || '0');
+                if (usdValue > 0) {
+                    amountUSD = formatUSD(usdValue);
+                }
             } else {
                 // Not a position the user holds — apply standard checks
                 if (token.isFrozen) { reasons.push('Frozen'); disabled = true; }
@@ -318,7 +326,12 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             reasons.push('Checking availability...');
         }
 
-        return { disabled, reasons: reasons.filter(Boolean) };
+        return {
+            disabled,
+            reasons,
+            amount,
+            amountUSD
+        };
     };
 
     const selectorTokens = selectingForFrom
@@ -422,11 +435,11 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 setToToken(initialToToken);
             } else if (localMarketAssets && localMarketAssets.length > 0) {
                 const fromAddr = (initialFromToken?.address || initialFromToken?.underlyingAsset || '').toLowerCase();
-                
+
                 const isGoodDefault = (token: any) => {
                     const addr = (token.address || token.underlyingAsset || '').toLowerCase();
                     if (addr === fromAddr) return false;
-                    
+
                     // Basic health check for collateral swap destination
                     return !token.isFrozen && !token.isPaused && token.isActive !== false;
                 };
@@ -434,7 +447,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 // 1. Try saved selection for this network
                 const savedAddr = getSavedTokenSelection(selectedNetwork?.chainId || 0, 'collateral');
                 const savedMatch = savedAddr ? localMarketAssets.find(m => (m.address || m.underlyingAsset || '').toLowerCase() === savedAddr) : null;
-                
+
                 if (savedMatch && isGoodDefault(savedMatch)) {
                     setToToken(savedMatch);
                 } else {
@@ -957,7 +970,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                             if (invertRate) {
                                                 return (inputF / outputF).toLocaleString('en-US', { maximumFractionDigits: 6 }) + ' ' + getDisplaySymbol(fromToken, localMarketAssets);
                                             } else {
-                                               return (outputF / inputF).toLocaleString('en-US', { maximumFractionDigits: 6 }) + ' ' + getDisplaySymbol(toToken, localMarketAssets);
+                                                return (outputF / inputF).toLocaleString('en-US', { maximumFractionDigits: 6 }) + ' ' + getDisplaySymbol(toToken, localMarketAssets);
                                             }
                                         }
                                     }

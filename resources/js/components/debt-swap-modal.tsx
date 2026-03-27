@@ -187,7 +187,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         freezeQuote,
         onTxSent: (hash: string) => {
             const amountDisplay = isUSDMode ? (inputValue ? `$${inputValue}` : '') : (inputValue ? `${inputValue} ${fromToken.symbol}` : '');
-            
+
             addTransaction({
                 hash,
                 chainId: effectiveNetwork.chainId,
@@ -423,12 +423,12 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 setToToken(initialToToken);
             } else if (localMarketAssets && localMarketAssets.length > 0) {
                 const fromAddr = (initialFromToken?.address || initialFromToken?.underlyingAsset || '').toLowerCase();
-                
+
                 // Helper to check if a token is a good default candidate
                 const isGoodDefault = (token: any) => {
                     const addr = (token.address || token.underlyingAsset || '').toLowerCase();
                     if (addr === fromAddr) return false;
-                    
+
                     const status = getBorrowStatus(token);
                     return status.borrowable;
                 };
@@ -436,7 +436,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 // 1. Try saved selection for this network
                 const savedAddr = getSavedTokenSelection(effectiveNetwork?.chainId || 0, 'debt');
                 const savedMatch = savedAddr ? localMarketAssets.find(m => (m.address || m.underlyingAsset || '').toLowerCase() === savedAddr) : null;
-                
+
                 if (savedMatch && isGoodDefault(savedMatch)) {
                     setToToken(savedMatch);
                 } else {
@@ -682,6 +682,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const renderTokenStatus = (token: any) => {
         const reasons = [];
         let disabled = false;
+        let amount = undefined;
+        let amountUSD = undefined;
 
         const tokenAddr = (token.address || token.underlyingAsset || '').toLowerCase();
 
@@ -689,8 +691,14 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         if (selectingForFrom) {
             const borrowPos = activeDebtAssets.find(b => (b.underlyingAsset || '').toLowerCase() === tokenAddr);
             if (borrowPos) {
-                // Focus ONLY on balance for source positions
-                reasons.push(`${borrowPos.formattedAmount} ${token.symbol} position`);
+                // Return amount data directly for the column-based layout
+                amount = formatCompactNumber(borrowPos.formattedAmount);
+
+                // Calculate USD value for the second line
+                const usdValue = parseFloat(borrowPos.formattedAmount) * parseFloat(borrowPos.priceInUSD || '0');
+                if (usdValue > 0) {
+                    amountUSD = formatUSD(usdValue);
+                }
             } else {
                 // If not a position, we still want to suppress protocol errors here as user expects positions
                 disabled = true;
@@ -728,7 +736,12 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             reasons.push('Checking availability...');
         }
 
-        return { disabled, reasons: reasons.filter(Boolean) };
+        return {
+            disabled,
+            reasons: reasons.filter(Boolean),
+            amount,
+            amountUSD
+        };
     };
 
     const selectorTokens = selectingForFrom

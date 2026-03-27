@@ -35,7 +35,12 @@ interface TokenSelectorProps {
     description?: string;
     isLoading?: boolean;
     searchPlaceholder?: string;
-    renderStatus?: (token: Token) => { disabled: boolean; reasons: string[] };
+    renderStatus?: (token: Token) => {
+        disabled: boolean;
+        reasons: string[];
+        amount?: string;
+        amountUSD?: string;
+    };
     hideOverlay?: boolean;
     /** Which rate field to display in each token row. Defaults to variableBorrowRate (borrow APY). */
     rateField?: 'variableBorrowRate' | 'borrowRate' | 'supplyAPY';
@@ -180,7 +185,7 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                                             }`}
                                         title={status.reasons.join(', ')}
                                     >
-                                        <div className="flex items-center gap-3">
+                                        <div className="flex items-center gap-3 min-w-0">
                                             <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800/50 flex items-center justify-center overflow-hidden border border-slate-200/50 dark:border-slate-700/50 shrink-0 group-hover:border-purple-200 dark:group-hover:border-purple-800/50 transition-colors">
                                                 <img
                                                     src={getTokenLogo(token.symbol)}
@@ -229,20 +234,47 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                                                         return token.symbol;
                                                     })()}
                                                 </div>
-                                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate">
-                                                    {status.reasons.length > 0 ? status.reasons.join(', ') : tokenName}
+                                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate flex items-center gap-1.5 leading-none mt-1">
+                                                    {status.reasons.length > 0 ? (
+                                                        <span className="text-rose-500/80 font-medium">{status.reasons.join(', ')}</span>
+                                                    ) : (
+                                                        <>
+                                                            <span className="truncate">{tokenName}</span>
+                                                            {rate !== undefined && status.amount && (
+                                                                <>
+                                                                    <span className="text-slate-300 dark:text-slate-700">•</span>
+                                                                    <span className="font-medium text-slate-400">{(rate * 100).toFixed(2)}% APY</span>
+                                                                </>
+                                                            )}
+                                                        </>
+                                                    )}
                                                 </div>
                                             </div>
                                         </div>
 
-                                        {rate !== undefined && (
-                                            <div className="text-right shrink-0">
-                                                <div className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                                                    {(rate * 100).toFixed(2)}%
-                                                </div>
-                                                <div className="text-[10px] text-slate-500 uppercase">APY</div>
-                                            </div>
-                                        )}
+                                        <div className="text-right shrink-0 flex flex-col justify-center min-h-[40px]">
+                                            {status.amount ? (
+                                                <>
+                                                    <div className="font-bold text-slate-900 dark:text-white leading-none">
+                                                        {status.amount}
+                                                    </div>
+                                                    {status.amountUSD && (
+                                                        <div className="text-xs text-slate-500 font-medium mt-1 leading-none">
+                                                            {status.amountUSD}
+                                                        </div>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                rate !== undefined && (
+                                                    <>
+                                                        <div className="font-bold text-slate-700 dark:text-slate-300 leading-none">
+                                                            {(rate * 100).toFixed(2)}%
+                                                        </div>
+                                                        <div className="text-[10px] text-slate-500 uppercase mt-1 leading-none font-medium">APY</div>
+                                                    </>
+                                                )
+                                            )}
+                                        </div>
                                     </button>
                                 );
                             })}

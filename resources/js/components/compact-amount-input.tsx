@@ -171,7 +171,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                     type="button"
                     onClick={onToggleUSDMode}
                     disabled={disabled || !onToggleUSDMode}
-                    className="flex items-center gap-1 flex-1 min-h-5 text-left group/label p-0 bg-transparent border-none appearance-none cursor-pointer disabled:cursor-not-allowed"
+                    className="flex items-center gap-1 min-h-5 text-left group/label p-0 bg-transparent border-none appearance-none cursor-pointer disabled:cursor-not-allowed"
                     title={isUSDMode ? "Switch to Token" : "Switch to USD"}
                 >
                     {onToggleUSDMode && token && (

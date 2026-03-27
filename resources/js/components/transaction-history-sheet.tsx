@@ -1,4 +1,4 @@
-import { CheckCircle2, Clock, ExternalLink, RefreshCw, Trash2, X, AlertTriangle, Loader2 } from 'lucide-react';
+import { CheckCircle2, History, ExternalLink, RefreshCw, Trash2, X, AlertTriangle, Loader2 } from 'lucide-react';
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { getNetworkByChainId } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
@@ -179,7 +179,7 @@ export const TransactionHistorySheet: React.FC = () => {
                 <SheetHeader className="p-6 pb-2">
                     <div className="flex items-center justify-between">
                         <SheetTitle className="text-xl font-bold flex items-center gap-2">
-                            <Clock className="w-5 h-5 text-primary" />
+                            <History className="w-5 h-5 text-primary" />
                             Recent Activity
                         </SheetTitle>
                     </div>
@@ -258,8 +258,8 @@ export const TransactionHistorySheet: React.FC = () => {
 
                                                 <div className="flex items-center gap-3 mt-3">
                                                     <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${tx.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' :
-                                                            tx.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' :
-                                                                'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                                                        tx.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' :
+                                                            'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
                                                         }`}>
                                                         {tx.status === 'pending' ? 'Processing...' :
                                                             tx.status === 'success' ? 'Confirmed' :

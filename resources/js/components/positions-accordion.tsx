@@ -1,4 +1,4 @@
-import { AlertCircle, ArrowDownLeft, ArrowUpRight, CircleDashed, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, Gift, Network, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowDownRight, ArrowUpRight, CircleDashed, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, Gift, Network, RefreshCw } from 'lucide-react';
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
 import { getNetworkByChainId } from '../constants/networks';
@@ -59,6 +59,12 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
         void import('./debt-swap-modal');
         void import('./collateral-swap-modal');
     }, []);
+
+    // Reset accordion state when walletAddress changes
+    useEffect(() => {
+        setOpenChain(null);
+        setOpenEmptyChains(false);
+    }, [walletAddress]);
 
     const handleOpenSwap = (
         chainId: number,
@@ -280,7 +286,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                     </div>
                 )}
 
-                <div className="flex justify-between items-center w-full">
+                <div className="flex justify-between items-center w-full px-2">
                     <div className="flex items-center gap-2">
                         <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                             <Network className="w-5 h-5 text-primary shrink-0" />
@@ -326,15 +332,13 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                 Updated {getLastFetchText()}
                             </span>
                         )}
-                        <Button 
-                            variant="ghost" 
-                            size="icon" 
-                            onClick={() => refresh(true)} 
-                            disabled={loading} 
-                            className="h-8 w-8 text-slate-400 hover:text-slate-900 dark:hover:text-white hover:bg-transparent transition-all group"
+                        <button
+                            onClick={() => refresh(true)}
+                            disabled={loading}
+                            className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-all group rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
                         >
-                            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-                        </Button>
+                            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+                        </button>
                     </div>
                 </div>
             </div>
@@ -410,10 +414,10 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                                             <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
                                                                 <img src={getTokenLogo(supply.symbol)} alt={supply.symbol} className="w-full h-full object-cover" onError={(e) => onTokenImgError(supply.symbol)(e as any)} />
                                                             </div>
-                                                                 <div className="min-w-0">
-                                                                        <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || '0'))}</div>
-                                                                        <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(supply.formattedAmount, supply.symbol)}</div>
-                                                                    </div>
+                                                            <div className="min-w-0">
+                                                                <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || '0'))}</div>
+                                                                <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(supply.formattedAmount, supply.symbol)}</div>
+                                                            </div>
                                                         </div>
                                                         <Button size="sm" onClick={() => handleOpenSwap(chain.chainId, supply, chain.marketAssets, [], chain.supplies, true)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
                                                             <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
@@ -427,7 +431,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                     {chain.borrows.length > 0 && (
                                         <div>
                                             <div className="flex items-center gap-2 mb-2 ml-1">
-                                                <ArrowDownLeft className="w-3 h-3 text-primary" />
+                                                <ArrowDownRight className="w-3 h-3 text-primary" />
                                                 <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Borrows</h4>
                                             </div>
                                             <div className="-mx-4 border-x border-t border-slate-200 dark:border-slate-700/80 divide-y divide-slate-200 dark:divide-slate-700/80">
@@ -438,7 +442,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                                                 <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
                                                                     <img src={getTokenLogo(borrow.symbol)} alt={borrow.symbol} className="w-full h-full object-cover" onError={(e) => onTokenImgError(borrow.symbol)(e as any)} />
                                                                 </div>
-                                                                 <div className="min-w-0">
+                                                                <div className="min-w-0">
                                                                     <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || '0'))}</div>
                                                                     <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(borrow.formattedAmount, borrow.symbol)}</div>
                                                                 </div>
@@ -461,7 +465,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                             <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Supplies</h4>
                                         </div>
                                         <div className="flex items-center gap-2 px-1">
-                                            <ArrowDownLeft className="w-3 h-3 text-primary" />
+                                            <ArrowDownRight className="w-3 h-3 text-primary" />
                                             <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Borrows</h4>
                                         </div>
                                     </div>

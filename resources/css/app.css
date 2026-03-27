@@ -171,20 +171,40 @@
     }
 
     *::-webkit-scrollbar-thumb {
-        background: #e2e8f0; /* slate-200 */
+        background: #e2e8f0;
+        /* slate-200 */
         border-radius: 9999px;
     }
 
     .dark *::-webkit-scrollbar-thumb {
-        background: rgba(30, 41, 59, 0.6); /* slate-800/60 */
+        background: rgba(30, 41, 59, 0.6);
+        /* slate-800/60 */
     }
 
     *::-webkit-scrollbar-thumb:hover {
-        background: #cbd5e1; /* slate-300 */
+        background: #cbd5e1;
+        /* slate-300 */
     }
 
     .dark *::-webkit-scrollbar-thumb:hover {
         background: rgba(30, 41, 59, 0.8);
+    }
+
+    /* Global Focus Normalization */
+    :focus-visible:not(input):not(textarea) {
+        outline: none !important;
+        box-shadow: 0 0 0 1px var(--primary);
+    }
+
+    input:focus-visible,
+    textarea:focus-visible {
+        outline: none !important;
+    }
+
+    /* Suppress focus ring on mouse click for most elements to maintain clean look */
+    :focus:not(:focus-visible) {
+        outline: none !important;
+        box-shadow: none !important;
     }
 }
 
