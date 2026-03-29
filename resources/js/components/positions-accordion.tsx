@@ -66,6 +66,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
     useEffect(() => {
         setOpenMarket(null);
         setOpenEmptyChains(false);
+        setIsDonateOpen(false);
+        setModalState(prev => ({ ...prev, open: false }));
     }, [walletAddress]);
 
     const handleOpenSwap = (

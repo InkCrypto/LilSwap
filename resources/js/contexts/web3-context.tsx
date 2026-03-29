@@ -20,6 +20,7 @@ interface Web3ContextType {
     availableNetworks: MarketConfig[];
     networkRpcProvider: ethers.JsonRpcProvider | null;
     isConnecting: boolean;
+    isSettlingAccount: boolean;
     modal: any;
 }
 
@@ -84,6 +85,7 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const [account, setAccount] = useState<string | null>(null);
     const [selectedMarketKey, setSelectedMarketKey] = useState<string>(DEFAULT_MARKET.key);
     const [isConnecting, setIsConnecting] = useState(false);
+    const [isSettlingAccount, setIsSettlingAccount] = useState(false);
 
     const selectedNetwork = useMemo(() => MARKETS[selectedMarketKey] || DEFAULT_MARKET, [selectedMarketKey]);
     const allowedNetworks = useMemo(() => Object.values(MARKETS), []);
@@ -146,6 +148,41 @@ return null;
         });
     }, [isConnected, address, chainId]);
 
+    // Re-verify account on visibility change (wake-up from hibernation)
+    useEffect(() => {
+        const handleVisibilityChange = async () => {
+            if (document.visibilityState === 'visible' && isConnected && walletProvider) {
+                try {
+                    setIsSettlingAccount(true);
+                    logger.debug('[Web3Provider] Re-verifying account on visibility change...');
+
+                    const accounts = await (walletProvider as any).request({ method: 'eth_accounts' });
+
+                    if (accounts && accounts.length > 0) {
+                        const currentAccount = accounts[0].toLowerCase();
+
+                        if (currentAccount !== account?.toLowerCase()) {
+                            logger.info('[Web3Provider] Account mismatch detected on wakeup', {
+                                prev: account,
+                                current: currentAccount
+                            });
+                            setAccount(currentAccount);
+                        }
+                    }
+                } catch (error) {
+                    logger.warn('[Web3Provider] Account re-verification failed', error);
+                } finally {
+                    // Give a small extra buffer for downstream hooks to settle
+                    setTimeout(() => setIsSettlingAccount(false), 200);
+                }
+            }
+        };
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [isConnected, walletProvider, account]);
+
     const connectWallet = useCallback(async () => {
         try {
             setIsConnecting(true);
@@ -200,6 +237,7 @@ return;
                 availableNetworks: allowedNetworks,
                 networkRpcProvider,
                 isConnecting,
+                isSettlingAccount,
                 modal
             }}
         >

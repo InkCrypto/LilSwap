@@ -172,7 +172,9 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 hash,
                 chainId: selectedNetwork?.chainId || 1,
                 marketKey: initialMarketKey || selectedNetwork?.key,
-                description: `Swap Collateral: ${fromToken.symbol} → ${toToken.symbol}`
+                description: `Collateral Swap`,
+                fromTokenSymbol: fromToken.symbol,
+                toTokenSymbol: toToken.symbol
             });
 
             onClose();

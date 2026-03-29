@@ -4,7 +4,7 @@ import logger from '../utils/logger';
 
 // Axios instance configured to point to the Laravel BFF Proxy
 export const apiClient = axios.create({
-    baseURL: (import.meta as any).env.VITE_API_URL || '/api',
+    baseURL: (import.meta as any).env.VITE_API_URL || '/',
     headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest', // Standard for Laravel/Inertia
@@ -34,10 +34,9 @@ return false;
     const normalized = String(url).toLowerCase();
 
     return (
-        normalized.startsWith('/aave/v3/position') ||
-        normalized.startsWith('/aave/v3/quote/') ||
-        normalized.startsWith('/aave/v3/build/') ||
+        normalized.startsWith('/aave/') ||
         normalized.startsWith('/rpc/') ||
+        normalized.startsWith('/transactions/') ||
         normalized.startsWith('/api/')
     );
 };
@@ -254,7 +253,7 @@ export const buildDebtSwapTx = async (params: any) => {
 
 export const getUserPosition = async (walletAddress: string, marketKey?: string, chainId?: number) => {
     try {
-        const response = await apiClient.post('/aave/v3/position', {
+        const response = await apiClient.post('/aave/v3/positions', {
             walletAddress,
             marketKey,
             chainId

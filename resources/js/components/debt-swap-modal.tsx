@@ -197,7 +197,9 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 hash,
                 chainId: effectiveNetwork.chainId,
                 marketKey: initialMarketKey || effectiveNetwork?.key,
-                description: `Swap Debt: ${fromToken.symbol} → ${toToken.symbol}`
+                description: `Debt Swap`,
+                fromTokenSymbol: fromToken.symbol,
+                toTokenSymbol: toToken.symbol
             });
 
             onClose();

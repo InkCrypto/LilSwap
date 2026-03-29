@@ -1,10 +1,11 @@
-import { CheckCircle2, History, ExternalLink, RefreshCw, Trash2, X, AlertTriangle, Loader2 } from 'lucide-react';
+import { CheckCircle2, History, ExternalLink, RefreshCw, Trash2, X, AlertTriangle, Loader2, MoveRight } from 'lucide-react';
 import React, { useEffect, useRef, useMemo, useState } from 'react';
 import { getNetworkByChainId } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { Button } from './ui/button';
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from './ui/sheet';
 import { useWeb3 } from '../contexts/web3-context';
+import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 
 const LastSyncIndicator: React.FC<{ lastSyncTime: number }> = ({ lastSyncTime }) => {
     const [, setTick] = useState(0);
@@ -47,9 +48,10 @@ export const TransactionHistorySheet: React.FC = () => {
 
     const { account: address } = useWeb3();
     const observerTarget = useRef<HTMLDivElement>(null);
-    const [showAbsolute, setShowAbsolute] = React.useState(false);
-    const [touchStart, setTouchStart] = React.useState({ x: 0, y: 0 });
     const hasInitialLoaded = useRef(false);
+    const prevAccountRef = useRef(address);
+    const [showAbsolute, setShowAbsolute] = useState(false);
+    const [touchStart, setTouchStart] = React.useState({ x: 0, y: 0 });
 
 
     const handleTouchStart = (e: React.TouchEvent) => {
@@ -71,8 +73,9 @@ export const TransactionHistorySheet: React.FC = () => {
 
     // Initial load - Run only once when sheet opens or address changes
     useEffect(() => {
-        if (isSheetOpen && address && !hasInitialLoaded.current) {
+        if (isSheetOpen && address && (!hasInitialLoaded.current || prevAccountRef.current !== address)) {
             hasInitialLoaded.current = true;
+            prevAccountRef.current = address;
             loadHistory(address, false);
         }
     }, [isSheetOpen, address, loadHistory]);
@@ -112,9 +115,7 @@ export const TransactionHistorySheet: React.FC = () => {
             else if (['FAILED', 'REJECTED', 'EXPIRED'].includes(tx.tx_status)) mappedStatus = 'error';
 
             const isDebt = tx.swap_type === 'debt';
-            const desc = isDebt
-                ? `Swap Debt: ${tx.from_token_symbol} → ${tx.to_token_symbol}`
-                : `Swap Collateral: ${tx.from_token_symbol} → ${tx.to_token_symbol}`;
+            const desc = isDebt ? 'Debt Swap' : 'Collateral Swap';
 
             return {
                 hash: tx.tx_hash || `backend-id-${tx.id}`,
@@ -122,6 +123,8 @@ export const TransactionHistorySheet: React.FC = () => {
                 description: desc,
                 status: mappedStatus,
                 timestamp: new Date(tx.created_at).getTime(),
+                fromTokenSymbol: tx.from_token_symbol,
+                toTokenSymbol: tx.to_token_symbol,
                 isApi: true,
                 revertReason: tx.revert_reason
             };
@@ -243,20 +246,54 @@ export const TransactionHistorySheet: React.FC = () => {
                                             </div>
 
                                             <div className="flex-1 min-w-0">
-                                                <div className="flex justify-between items-start gap-2">
-                                                    <p className="font-semibold text-sm text-slate-900 dark:text-white wrap-break-word">
-                                                        {tx.description}
-                                                    </p>
+                                                <div className="flex justify-between items-center gap-3">
+                                                    <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                                                        <p className="font-semibold text-sm text-slate-900 dark:text-white truncate shrink-0">
+                                                            {tx.description}
+                                                        </p>
+
+                                                        {/* Token Flow with Icons - Single Line version */}
+                                                        {(tx.fromTokenSymbol || tx.toTokenSymbol) && (
+                                                            <div className="flex items-center gap-1.5 shrink-0 ml-1">
+                                                                <div className="flex items-center gap-1">
+                                                                    <div className="w-4 h-4 rounded-full overflow-hidden shrink-0">
+                                                                        <img
+                                                                            src={getTokenLogo(tx.fromTokenSymbol || '')}
+                                                                            alt={tx.fromTokenSymbol}
+                                                                            className="w-full h-full object-cover"
+                                                                            onError={(e) => onTokenImgError(tx.fromTokenSymbol || '')(e as any)}
+                                                                        />
+                                                                    </div>
+                                                                    <span className="text-[11px] font-semibold text-slate-900 dark:text-white uppercase">{tx.fromTokenSymbol}</span>
+                                                                </div>
+
+                                                                <MoveRight className="w-3.5 h-3.5 text-slate-400 dark:text-slate-500 opacity-60" strokeWidth={2.5} />
+
+                                                                <div className="flex items-center gap-1">
+                                                                    <div className="w-4 h-4 rounded-full overflow-hidden shrink-0">
+                                                                        <img
+                                                                            src={getTokenLogo(tx.toTokenSymbol || '')}
+                                                                            alt={tx.toTokenSymbol}
+                                                                            className="w-full h-full object-cover"
+                                                                            onError={(e) => onTokenImgError(tx.toTokenSymbol || '')(e as any)}
+                                                                        />
+                                                                    </div>
+                                                                    <span className="text-[11px] font-semibold text-slate-900 dark:text-white uppercase">{tx.toTokenSymbol}</span>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+
                                                     <button
                                                         onClick={() => setShowAbsolute(!showAbsolute)}
-                                                        className="text-xs text-slate-500 hover:text-primary transition-colors whitespace-nowrap shrink-0 focus:outline-hidden"
+                                                        className="text-[10px] text-slate-400 hover:text-primary transition-colors whitespace-nowrap shrink-0 focus:outline-hidden"
                                                         title={showAbsolute ? "Show relative time" : "Show full date"}
                                                     >
                                                         {formatTimestamp(tx.timestamp)}
                                                     </button>
                                                 </div>
 
-                                                <div className="flex items-center gap-3 mt-3">
+                                                <div className="flex items-center gap-3 mt-2">
                                                     <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-md ${tx.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' :
                                                         tx.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' :
                                                             'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'

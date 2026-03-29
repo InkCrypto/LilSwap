@@ -12,6 +12,8 @@ export interface PendingTransaction {
     status: 'pending' | 'success' | 'error';
     timestamp: number;
     marketKey: string; // Required for isolation
+    fromTokenSymbol?: string;
+    toTokenSymbol?: string;
     revertReason?: string;
 }
 
@@ -43,28 +45,45 @@ export const useTransactionTracker = () => {
 
 const STORAGE_KEY = 'lilswap.transactionHistory';
 
+/**
+ * Normalizes old transaction data for the new UI.
+ * - Extracts symbols from old description strings ("Swap Collateral: ETH → USDC")
+ * - Cleans up titles ("Swap Collateral" -> "Collateral Swap")
+ */
+const migrateTransactions = (txs: PendingTransaction[]): PendingTransaction[] => {
+    if (!txs || !Array.isArray(txs)) return [];
+
+    return txs.map(tx => {
+        let updated = { ...tx };
+
+        // 1. Handle legacy "Swap Collateral: A → B" format
+        if (!updated.fromTokenSymbol && updated.description) {
+            const match = updated.description.match(/Swap (Collateral|Debt):\s*([A-Za-z0-9.]+)\s*[→→]\s*([A-Za-z0-9.]+)/i);
+            if (match) {
+                updated.description = `${match[1]} Swap`;
+                updated.fromTokenSymbol = match[2];
+                updated.toTokenSymbol = match[3];
+            }
+        }
+
+        // 2. Handle intermediate "Collateral Swap: A → B" format
+        if (updated.description?.includes(':')) {
+            updated.description = updated.description.split(':')[0].trim();
+        }
+
+        // 3. Fix phrasing if it's the old "Swap Collateral"
+        if (updated.description === 'Swap Collateral') updated.description = 'Collateral Swap';
+        if (updated.description === 'Swap Debt') updated.description = 'Debt Swap';
+
+        return updated;
+    });
+};
+
 export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const { account } = useWeb3();
     const prevAccountRef = useRef(account);
-    const resolvedStorageKey = account ? `${STORAGE_KEY}_${account}` : STORAGE_KEY;
 
-    const [transactions, setTransactions] = useState<PendingTransaction[]>(() => {
-        try {
-            // Lazy load specific to current account, if available
-            if (typeof window !== 'undefined' && window.localStorage) {
-                const storedKey = account ? `${STORAGE_KEY}_${account}` : STORAGE_KEY;
-                const stored = window.localStorage.getItem(storedKey);
-
-                if (stored) {
-                    return JSON.parse(stored);
-                }
-            }
-        } catch (e) {
-            console.warn('Failed to load transaction history', e);
-        }
-
-        return [];
-    });
+    const [transactions, setTransactions] = useState<PendingTransaction[]>([]);
 
     // API History States
     const [apiHistory, setApiHistory] = useState<any[]>([]);
@@ -87,39 +106,20 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             setApiHistory([]);
             setPage(0);
             setHasMore(true);
+            setSheetOpen(false);
 
-            // Try load local pending for the new active wallet
-            try {
-                if (typeof window !== 'undefined' && window.localStorage) {
-                    const storedKey = account ? `${STORAGE_KEY}_${account}` : STORAGE_KEY;
-                    const stored = window.localStorage.getItem(storedKey);
-                    setTransactions(stored ? JSON.parse(stored) : []);
-                }
-            } catch (e) {
-                setTransactions([]);
-            }
+            // Clean local transactions on account switch if needed, 
+            // but we start empty now anyway.
+            setTransactions([]);
 
             prevAccountRef.current = account;
         }
     }, [account]);
 
-    // Persist to local storage
-    useEffect(() => {
-        try {
-            if (typeof window !== 'undefined' && window.localStorage) {
-                // Keep only last 50 transactions to avoid bloat
-                const toStore = transactions.slice(0, 50);
-                window.localStorage.setItem(resolvedStorageKey, JSON.stringify(toStore));
-            }
-        } catch (e) {
-            console.warn('Failed to save transaction history', e);
-        }
-    }, [transactions]);
-
     // Auto-cleanup local records that are already confirmed in the API history
     useEffect(() => {
         if (apiHistory.length > 0 && transactions.length > 0) {
-            const apiHashes = new Set(apiHistory.map(tx => tx.tx_hash.toLowerCase()));
+            const apiHashes = new Set(apiHistory.map(tx => tx.tx_hash?.toLowerCase()).filter(Boolean));
             const toRemove = transactions.filter(t => apiHashes.has(t.hash.toLowerCase()));
 
             if (toRemove.length > 0) {
@@ -271,7 +271,7 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
         checkPendingTransactions();
 
         return () => clearInterval(intervalId);
-    }, [transactions, activeCount, addToast]);
+    }, [transactions, activeCount, addToast, updateToast]);
 
     // Background history sync when sheet is open
     useEffect(() => {

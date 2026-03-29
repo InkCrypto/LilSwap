@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useUserActivity } from '../contexts/user-activity-context';
+import { useWeb3 } from '../contexts/web3-context';
 import { apiClient } from '../services/api';
 import logger from '../utils/logger';
 
@@ -38,6 +39,7 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
     const [error, setError] = useState<string | null>(null);
     const [lastFetch, setLastFetch] = useState<number | null>(null);
     const { isTabVisible, isUserActive } = useUserActivity();
+    const { isSettlingAccount } = useWeb3();
     const prevAddressRef = useRef<string | null>(walletAddress);
 
     const fetchPositions = useCallback(async (force = false) => {
@@ -49,7 +51,7 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
         setError(null);
 
         try {
-            const response = await apiClient.post('/aave/v3/position', {
+            const response = await apiClient.post('/aave/v3/positions', {
                 walletAddress,
                 ...(force && { force: true })
             }, {
@@ -106,7 +108,7 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
     }, [fetchPositions, walletAddress, opts.refreshIntervalMs, isTabVisible, isUserActive]);
 
     useEffect(() => {
-        if (isTabVisible && isUserActive && lastFetch) {
+        if (isTabVisible && isUserActive && lastFetch && !isSettlingAccount) {
             const refreshInterval = opts.refreshIntervalMs || 90000;
             const timeSinceLastFetch = Date.now() - lastFetch;
 
@@ -114,7 +116,7 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
                 fetchPositions();
             }
         }
-    }, [isTabVisible, isUserActive, lastFetch, fetchPositions, opts.refreshIntervalMs]);
+    }, [isTabVisible, isUserActive, lastFetch, fetchPositions, opts.refreshIntervalMs, isSettlingAccount]);
 
     // Handle global refresh events (e.g. from transaction tracker)
     useEffect(() => {
