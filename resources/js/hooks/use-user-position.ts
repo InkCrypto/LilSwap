@@ -23,12 +23,14 @@ const cacheRef = {
 
 /**
  * Hook to fetch and manage user's aggregated Aave position
+ * @param {string} [overrideMarketKey] - Optional market key to override the globally selected network
  * @returns {Object} { supplies, borrows, summary, marketAssets, loading, error, refresh }
  */
-export const useUserPosition = () => {
+export const useUserPosition = (overrideMarketKey?: string) => {
     const { account, selectedNetwork } = useWeb3();
 
-    const cacheKey = account && selectedNetwork?.chainId ? `${account}-${selectedNetwork.chainId}` : '';
+    const effectiveMarketKey = overrideMarketKey || selectedNetwork?.key;
+    const cacheKey = account && effectiveMarketKey ? `${account}-${effectiveMarketKey}` : '';
 
     const getInitialData = () => {
         if (cacheKey && cacheRef.current.key === cacheKey && cacheRef.current.data) {
@@ -44,30 +46,33 @@ export const useUserPosition = () => {
 
     const fetchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const prevAddressRef = useRef<string | null>(account);
+    const prevMarketRef = useRef<string | undefined>(effectiveMarketKey);
 
     const refresh = useCallback(async (force = false) => {
-        if (!account || !selectedNetwork?.chainId) {
+        if (!account || !effectiveMarketKey) {
             setData({ supplies: [], borrows: [], marketAssets: [], summary: null });
             prevAddressRef.current = null;
+            prevMarketRef.current = undefined;
 
             return;
         }
 
-        // Only clear data completely if the user actually changed their wallet
-        if (prevAddressRef.current !== account) {
+        // Clear data if wallet OR market changed
+        if (prevAddressRef.current !== account || prevMarketRef.current !== effectiveMarketKey) {
             setData({ supplies: [], borrows: [], marketAssets: [], summary: null });
             prevAddressRef.current = account;
+            prevMarketRef.current = effectiveMarketKey;
         }
 
-        const cacheKey = `${account}-${selectedNetwork.chainId}`;
+        const currentCacheKey = `${account}-${effectiveMarketKey}`;
         const now = Date.now();
 
         // Check cache first
         if (!force &&
-            cacheRef.current.key === cacheKey &&
+            cacheRef.current.key === currentCacheKey &&
             cacheRef.current.data &&
             (now - cacheRef.current.timestamp) < CACHE_TTL) {
-            logger.debug('[useUserPosition] Using cached data');
+            logger.debug(`[useUserPosition] Using cached data for ${effectiveMarketKey}`);
             setData(cacheRef.current.data);
 
             return;
@@ -77,7 +82,7 @@ export const useUserPosition = () => {
         setError(null);
 
         try {
-            const position = await getUserPosition(account, selectedNetwork.chainId);
+            const position = await getUserPosition(account, effectiveMarketKey, selectedNetwork?.chainId || 1);
             const newData: UserPositionData = {
                 supplies: position.supplies || [],
                 borrows: position.borrows || [],
@@ -89,13 +94,13 @@ export const useUserPosition = () => {
             cacheRef.current = {
                 data: newData,
                 timestamp: Date.now(),
-                key: cacheKey
+                key: currentCacheKey
             };
 
             setData(newData);
             setLastFetch(Date.now());
         } catch (err: any) {
-            logger.error('Error fetching user position:', err);
+            logger.error(`Error fetching user position for ${effectiveMarketKey}:`, err);
             const errorMsg = err.message || 'Failed to load Aave positions';
 
             // Provide more specific error messages
@@ -109,7 +114,7 @@ export const useUserPosition = () => {
         } finally {
             setLoading(false);
         }
-    }, [account, selectedNetwork?.chainId]);
+    }, [account, effectiveMarketKey, selectedNetwork?.chainId]);
 
     // Automatic refresh with debounce when account or network changes
     useEffect(() => {

@@ -83,6 +83,7 @@ interface UseParaswapQuoteProps {
     adapterAddress?: string | null;
     enabled?: boolean;
     freezeQuote?: boolean;
+    marketKey?: string | null;
     marketAssets?: any[];
 }
 
@@ -99,6 +100,7 @@ export const useParaswapQuote = ({
     adapterAddress = null,
     enabled = true,
     freezeQuote = false,
+    marketKey = null,
     marketAssets = []
 }: UseParaswapQuoteProps) => {
     const [swapQuote, setSwapQuote] = useState<any>(null);
@@ -235,6 +237,7 @@ export const useParaswapQuote = ({
                     srcAmount,
                     adapterAddress: adapterAddress || account,
                     walletAddress: account,
+                    marketKey: marketKey || selectedNetwork?.key,
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
                 }, signal);
 
@@ -304,6 +307,7 @@ export const useParaswapQuote = ({
                     adapterAddress: account,
                     walletAddress: account,
                     apyPercent: apyPercentToSend,
+                    marketKey: marketKey || selectedNetwork?.key,
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
                 }, signal);
 

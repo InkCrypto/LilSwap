@@ -26,6 +26,7 @@ const ALIAS: Record<string, string> = {
     'WETH.E': 'weth',
     'DAI.E': 'dai',
     'LINK.E': 'link',
+    'USDC.E': 'usdc',
     WAVAX: 'wavax',
     AUSD: 'ausd'
 };
@@ -37,7 +38,7 @@ export const getTokenLogo = (symbol: string): string => {
 return '';
 }
 
-    const key = ALIAS[symbol.toUpperCase()] ?? symbol.toLowerCase();
+    const key = ALIAS[symbol.toUpperCase().replace(/-/g, '_')] ?? symbol.toLowerCase();
 
     return `/icons/tokens/${key}.svg`;
 };
@@ -45,7 +46,7 @@ return '';
 export const onTokenImgError = (symbol: string) => (e: React.SyntheticEvent<HTMLImageElement, Event>) => {
     const target = e.target as HTMLImageElement;
     const src = target.src || '';
-    const key = symbol ? (ALIAS[symbol.toUpperCase()] ?? symbol.toLowerCase()) : null;
+    const key = symbol ? (ALIAS[symbol.toUpperCase().replace(/-/g, '_')] ?? symbol.toLowerCase()) : null;
 
     if (key && !src.includes('app.aave.com')) {
         if (DEV) {

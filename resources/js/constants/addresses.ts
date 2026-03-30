@@ -1,10 +1,10 @@
-import { DEFAULT_NETWORK, getNetworkByKey, getNetworkByChainId } from './networks';
+import { DEFAULT_MARKET, getMarketByKey, getMarketByChainId } from './networks';
 
 /**
  * Re-exports addresses from the network configuration for convenience and legacy compatibility.
  */
-export const ADDRESSES = DEFAULT_NETWORK.addresses;
+export const ADDRESSES = DEFAULT_MARKET.addresses;
 
-export const getAddressesByKey = (networkKey: string) => getNetworkByKey(networkKey).addresses;
+export const getAddressesByKey = (marketKey: string) => getMarketByKey(marketKey).addresses;
 
-export const getAddressesByChainId = (chainId: number | string) => getNetworkByChainId(Number(chainId)).addresses;
+export const getAddressesByChainId = (chainId: number | string) => getMarketByChainId(Number(chainId)).addresses;

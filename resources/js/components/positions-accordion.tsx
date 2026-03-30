@@ -1,9 +1,10 @@
 import { AlertCircle, ArrowDownRight, ArrowUpRight, CircleDashed, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, Gift, Network, RefreshCw } from 'lucide-react';
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
-import { getNetworkByChainId } from '../constants/networks';
+import { getMarketByKey } from '../constants/networks';
 import type { PositionInfo } from '../hooks/use-all-positions';
 import { useAllPositions } from '../hooks/use-all-positions';
+import { formatUSD, formatCompactToken, formatAPY, formatHF } from '../utils/formatters';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import logger from '../utils/logger';
 import { toHexChainId } from '../utils/wallet';
@@ -11,7 +12,6 @@ import { DonateModal } from './donate-modal';
 import { InfoTooltip } from './info-tooltip';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
-import { formatUSD, formatCompactNumber, formatCompactToken, formatAPY, formatHF } from '../utils/formatters';
 
 // Lazy load Swap Modals - Note: We'll migrate these next
 const DebtSwapModal = lazy(() => import('./debt-swap-modal').then(module => ({ default: module.DebtSwapModal })));
@@ -26,6 +26,7 @@ interface ModalState {
     marketAssets: any[];
     borrows: PositionInfo[];
     supplies: PositionInfo[];
+    marketKey: string | null;
     isCollateral: boolean;
 }
 
@@ -41,11 +42,12 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
     const { positionsByChain, donator, loading, error, lastFetch, refresh } = useAllPositions(walletAddress);
     const { provider, setSelectedNetwork } = useWeb3();
 
-    const [openChain, setOpenChain] = useState<number | null>(null);
+    const [openMarket, setOpenMarket] = useState<string | null>(null);
     const [openEmptyChains, setOpenEmptyChains] = useState(false);
     const [modalState, setModalState] = useState<ModalState>({
         open: false,
         chainId: null,
+        marketKey: null,
         initialFromToken: null,
         marketAssets: [],
         borrows: [],
@@ -62,23 +64,29 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
 
     // Reset accordion state when walletAddress changes
     useEffect(() => {
-        setOpenChain(null);
+        setOpenMarket(null);
         setOpenEmptyChains(false);
+        setIsDonateOpen(false);
+        setModalState(prev => ({ ...prev, open: false }));
     }, [walletAddress]);
 
     const handleOpenSwap = (
-        chainId: number,
+        marketKey: string,
         asset: PositionInfo,
         marketAssets: any[],
         borrows: PositionInfo[] = [],
         supplies: PositionInfo[] = [],
         isCollateral = false
     ) => {
-        logger.debug('Opening swap modal', { chainId, asset: asset.symbol, isCollateral });
+        const market = getMarketByKey(marketKey);
+        const chainIdNum = market?.chainId || 0;
+
+        logger.debug('Opening swap modal', { chainId: chainIdNum, asset: asset.symbol, isCollateral });
 
         setModalState({
             open: true,
-            chainId,
+            chainId: chainIdNum,
+            marketKey,
             initialFromToken: asset,
             marketAssets: marketAssets || [],
             borrows: borrows || [],
@@ -86,10 +94,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
             isCollateral
         });
 
-        const network = getNetworkByChainId(chainId);
-
-        if (network) {
-            setSelectedNetwork?.(network.key);
+        if (market) {
+            setSelectedNetwork?.(market.key);
         }
 
         void (async () => {
@@ -97,14 +103,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                 if (provider) {
                     const currentChainId = (await provider.getNetwork()).chainId;
 
-                    if (Number(currentChainId) !== chainId) {
-                        const chainHex = toHexChainId(chainId);
-                        logger.debug('Requesting chain switch', { chainId, chainHex });
+                    if (Number(currentChainId) !== chainIdNum) {
+                        const chainHex = toHexChainId(chainIdNum);
+                        logger.debug('Requesting chain switch', { chainId: chainIdNum, chainHex });
                         await provider.send('wallet_switchEthereumChain', [{ chainId: chainHex }]);
                     }
                 }
             } catch (err: any) {
-                logger.error('Failed to switch chain', { chainId, error: err.message });
+                logger.error('Failed to switch chain', { chainId: chainIdNum, error: err.message });
 
                 const errorMessage = err?.message || String(err);
                 const errorCode = err?.code;
@@ -115,8 +121,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                     try {
                         const updatedChainId = (await provider.getNetwork()).chainId;
 
-                        if (Number(updatedChainId) === chainId) {
-                            logger.debug('Network switched successfully after transient NETWORK_ERROR', { chainId });
+                        if (Number(updatedChainId) === chainIdNum) {
+                            logger.debug('Network switched successfully after transient NETWORK_ERROR', { chainId: chainIdNum });
 
                             return;
                         }
@@ -126,7 +132,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                 }
 
                 // Keep network switch feedback delegated to wallet UI.
-                logger.debug('Chain switch did not complete during modal open', { chainId, errorCode, errorMessage });
+                logger.debug('Chain switch did not complete during modal open', { chainId: chainIdNum, errorCode, errorMessage });
             }
         })();
     };
@@ -162,9 +168,9 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
             return [];
         }
 
-        const entries = Object.entries(positionsByChain).map(([chainId, info]) => {
-            const chainIdNum = parseInt(chainId);
-            const network = getNetworkByChainId(chainIdNum);
+        const entries = Object.entries(positionsByChain).map(([marketKey, info]) => {
+            const network = getMarketByKey(marketKey);
+            const chainIdNum = network?.chainId || (isNaN(parseInt(marketKey)) ? 0 : parseInt(marketKey));
 
             const suppliesCount = info?.supplies?.length || 0;
             const borrowsCount = info?.borrows?.length || 0;
@@ -194,8 +200,9 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
             });
 
             return {
+                marketKey,
                 chainId: chainIdNum,
-                label: network?.shortLabel || network?.label || `Chain ${chainId}`,
+                label: network?.shortLabel || network?.label || `Chain ${chainIdNum}`,
                 icon: network?.icon,
                 suppliesCount,
                 borrowsCount,
@@ -210,6 +217,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                 supplies: sortedSupplies,
                 borrows: sortedBorrows,
                 marketAssets: info?.marketAssets || [],
+                eModeCategoryId: info?.summary?.eModeCategoryId,
+                eModes: info?.summary?.eModes,
                 error: info?.error
             };
         });
@@ -262,7 +271,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                     <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                                     <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                                 </span>
-                                {donator.type?.toLowerCase().includes('partner') ? 'PARTNER Detected!' : 'DONATOR Detected!'}
+                                {donator.type?.toLowerCase().includes('partner') ? 'PARTNER' : 'DONATOR'}
                             </span>
                         </InfoTooltip>
                     </div>
@@ -301,7 +310,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                             <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
                                             <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
                                         </span>
-                                        {donator.type?.toLowerCase().includes('partner') ? 'PARTNER Detected!' : 'DONATOR Detected!'}
+                                        {donator.type?.toLowerCase().includes('partner') ? 'PARTNER' : 'DONATOR'}
                                     </span>
                                 </InfoTooltip>
                             </div>
@@ -344,8 +353,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
             </div>
 
             {activeChains.map((chain) => (
-                <Card key={chain.chainId} className="bg-white dark:bg-slate-800/60 border-border-light dark:border-border-dark overflow-hidden transition-all hover:border-slate-300 dark:hover:border-slate-600">
-                    <div className="flex flex-col sm:flex-row p-4 w-full sm:items-center cursor-pointer" onClick={() => setOpenChain(openChain === chain.chainId ? null : chain.chainId)}>
+                <Card key={chain.marketKey} className="bg-white dark:bg-slate-800/60 border-border-light dark:border-border-dark overflow-hidden transition-all hover:border-slate-300 dark:hover:border-slate-600">
+                    <div className="flex flex-col sm:flex-row p-4 w-full sm:items-center cursor-pointer" onClick={() => setOpenMarket(openMarket === chain.marketKey ? null : chain.marketKey)}>
                         <div className="flex justify-between items-center w-full sm:w-40 shrink-0">
                             <div className="flex items-center gap-2">
                                 {chain.icon && (
@@ -354,7 +363,18 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                 <div className="flex items-center gap-1.5 mt-0.5">
                                     <span className="text-base font-bold text-slate-900 dark:text-white leading-none">{chain.label}</span>
                                     <a
-                                        href={`https://app.aave.com/dashboard/?marketName=${({ 1: 'proto_mainnet_v3', 8453: 'proto_base_v3', 56: 'proto_bnb_v3', 137: 'proto_polygon_v3', 42161: 'proto_arbitrum_v3' } as any)[chain.chainId] || 'proto_mainnet_v3'}`}
+                                        href={`https://app.aave.com/dashboard/?marketName=${({
+                                            'AaveV3Ethereum': 'proto_mainnet_v3',
+                                            'AaveV3EthereumLido': 'proto_lido_v3',
+                                            'AaveV3Base': 'proto_base_v3',
+                                            'AaveV3BNB': 'proto_bnb_v3',
+                                            'AaveV3Polygon': 'proto_polygon_v3',
+                                            'AaveV3Arbitrum': 'proto_arbitrum_v3',
+                                            'AaveV3Optimism': 'proto_optimism_v3',
+                                            'AaveV3Avalanche': 'proto_avalanche_v3',
+                                            'AaveV3Gnosis': 'proto_gnosis_v3',
+                                            'AaveV3Sonic': 'proto_sonic_v3'
+                                        } as any)[chain.marketKey] || 'proto_mainnet_v3'}`}
                                         target="_blank" rel="noopener noreferrer"
                                         onClick={(e) => e.stopPropagation()}
                                         className="text-slate-400 hover:text-primary transition-colors"
@@ -365,40 +385,50 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                 {chain.hasError && <AlertCircle className="w-4 h-4 text-yellow-500" />}
                             </div>
                             <div className="flex sm:hidden">
-                                {openChain === chain.chainId ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+                                {openMarket === chain.marketKey ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
                             </div>
                         </div>
 
-                        <div className="mt-4 sm:mt-0 flex-1 flex justify-start items-center">
-                            <div className="grid grid-cols-3 gap-2 sm:flex sm:items-center sm:gap-6 w-full">
+                        <div className="mt-3 sm:mt-0 flex-1 flex items-center justify-between">
+                            <div className="flex items-center gap-3 sm:gap-6">
                                 <div className="flex flex-col items-start">
-                                    <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net worth</span>
-                                    <span className="text-base font-mono font-bold text-slate-900 dark:text-white leading-none mt-1">
+                                    <span className="text-[10px] sm:text-xs text-slate-400 leading-none mb-1">Net worth</span>
+                                    <span className="text-sm sm:text-base font-mono font-bold text-slate-900 dark:text-white leading-none">
                                         {formatUSD(chain.netWorthUSD)}
                                     </span>
                                 </div>
-                                <div className="flex flex-col items-start">
-                                    <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Net APY</span>
-                                    <span className="text-base font-mono font-bold text-slate-900 dark:text-white leading-none mt-1">
+                                <div className="flex flex-col items-start border-l border-slate-200 dark:border-slate-700/50 pl-3 sm:border-0 sm:pl-0">
+                                    <span className="text-[10px] sm:text-xs text-slate-400 leading-none mb-1">Net APY</span>
+                                    <span className="text-sm sm:text-base font-mono font-bold text-slate-900 dark:text-white leading-none">
                                         {formatAPY(chain.netAPY)}
                                     </span>
                                 </div>
-                                <div className="flex flex-col items-start">
-                                    <span className="text-[11px] sm:text-xs text-slate-400 mb-0.5">Health factor</span>
-                                    <span className={`text-lg font-mono font-bold leading-none mt-1 ${(!chain.healthFactor || chain.healthFactor >= 3 || chain.healthFactor === -1) ? 'text-green-400' : chain.healthFactor >= 1.1 ? 'text-orange-400' : 'text-red-500'}`}>
-                                        {formatHF(chain.healthFactor)}
-                                    </span>
+                                <div className="flex flex-col items-start border-l border-slate-200 dark:border-slate-700/50 pl-3 sm:border-0 sm:pl-0">
+                                    <span className="text-[10px] sm:text-xs text-slate-400 leading-none mb-1">Health factor</span>
+                                    <div className="flex items-center gap-3">
+                                        <span className={`text-base sm:text-lg font-mono font-bold leading-none ${(!chain.healthFactor || chain.healthFactor >= 3 || chain.healthFactor === -1) ? 'text-green-400' : chain.healthFactor >= 1.1 ? 'text-orange-400' : 'text-red-500'}`}>
+                                            {formatHF(chain.healthFactor)}
+                                        </span>
+                                        {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
+                                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-500/5 dark:bg-sky-400/5 border border-sky-500/20 dark:border-sky-400/20 shrink-0">
+                                                <div className="w-1 h-1 rounded-full bg-sky-500/60 dark:bg-sky-400/60 shadow-[0_0_5px_rgba(14,165,233,0.3)] animate-pulse" />
+                                                <span className="text-[10px] font-bold text-sky-600/80 dark:text-sky-400/80 uppercase tracking-wide leading-none">
+                                                    E-Mode
+                                                </span>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
 
                         <div className="hidden sm:flex pl-4">
-                            {openChain === chain.chainId ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
+                            {openMarket === chain.marketKey ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
                         </div>
                     </div>
 
-                    {openChain === chain.chainId && (
-                        <div className="border-t border-border-light dark:border-border-dark px-4 pt-4 pb-0 bg-slate-50/80 dark:bg-slate-950/40 flex flex-col md:flex-row gap-6 transition-colors duration-300">
+                    {openMarket === chain.marketKey && (
+                        <div className="border-t border-border-light dark:border-border-dark px-4 pt-3 pb-0 bg-slate-50/80 dark:bg-slate-950/40 flex flex-col md:flex-row gap-6 transition-colors duration-300">
                             <div className="w-full">
                                 <div className="md:hidden space-y-4">
                                     <div>
@@ -419,7 +449,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                                                 <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(supply.formattedAmount, supply.symbol)}</div>
                                                             </div>
                                                         </div>
-                                                        <Button size="sm" onClick={() => handleOpenSwap(chain.chainId, supply, chain.marketAssets, [], chain.supplies, true)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
+                                                        <Button size="sm" onClick={() => handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
                                                             <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
                                                         </Button>
                                                     </div>
@@ -433,33 +463,70 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                             <div className="flex items-center gap-2 mb-2 ml-1">
                                                 <ArrowDownRight className="w-3 h-3 text-primary" />
                                                 <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Borrows</h4>
+                                                {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
+                                                    <div className="flex items-center gap-1 px-1.5 py-0 rounded bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800">
+                                                        <div className="w-1 h-1 rounded-full bg-sky-500 animate-pulse" />
+                                                        <span className="text-[9px] font-black text-sky-700 dark:text-sky-400 uppercase tracking-wider">
+                                                            E-Mode: {chain.eModes?.find((m: any) => m.id === chain.eModeCategoryId)?.label || 'Active'}
+                                                        </span>
+                                                    </div>
+                                                )}
                                             </div>
                                             <div className="-mx-4 border-x border-t border-slate-200 dark:border-slate-700/80 divide-y divide-slate-200 dark:divide-slate-700/80">
-                                                {chain.borrows.map((borrow) => (
-                                                    <div key={`mobile-borrow-${borrow.underlyingAsset}`} className="px-4 py-2.5 bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200">
-                                                        <div className="flex items-center justify-between gap-3">
-                                                            <div className="flex items-center gap-3 min-w-0">
-                                                                <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
-                                                                    <img src={getTokenLogo(borrow.symbol)} alt={borrow.symbol} className="w-full h-full object-cover" onError={(e) => onTokenImgError(borrow.symbol)(e as any)} />
+                                                {chain.borrows.map((borrow) => {
+                                                    const borrowAddr = borrow.underlyingAsset.toLowerCase();
+                                                    const hasAlternatives = (chain.marketAssets || []).some(
+                                                        (a: any) => a.canBeDebtSwapDestination &&
+                                                            (a.address || a.underlyingAsset || '').toLowerCase() !== borrowAddr
+                                                    );
+
+                                                    return (
+                                                        <div key={`mobile-borrow-${borrow.underlyingAsset}`} className="px-4 py-2.5 bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200">
+                                                            <div className="flex items-center justify-between gap-3">
+                                                                <div className="flex items-center gap-3 min-w-0">
+                                                                    <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
+                                                                        <img src={getTokenLogo(borrow.symbol)} alt={borrow.symbol} className="w-full h-full object-cover" onError={(e) => onTokenImgError(borrow.symbol)(e as any)} />
+                                                                    </div>
+                                                                    <div className="min-w-0">
+                                                                        <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || '0'))}</div>
+                                                                        <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(borrow.formattedAmount, borrow.symbol)}</div>
+                                                                    </div>
                                                                 </div>
-                                                                <div className="min-w-0">
-                                                                    <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || '0'))}</div>
-                                                                    <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(borrow.formattedAmount, borrow.symbol)}</div>
-                                                                </div>
+                                                                {hasAlternatives ? (
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="default"
+                                                                        onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
+                                                                        className="gap-2 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-sm"
+                                                                    >
+                                                                        <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                                    </Button>
+                                                                ) : (
+                                                                    <InfoTooltip message="No alternative tokens available in your E-Mode category" disableClick={true}>
+                                                                        <div className="cursor-not-allowed flex">
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant="secondary"
+                                                                                tabIndex={-1}
+                                                                                className="gap-2 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none"
+                                                                            >
+                                                                                <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                                            </Button>
+                                                                        </div>
+                                                                    </InfoTooltip>
+                                                                )}
                                                             </div>
-                                                            <Button size="sm" onClick={() => handleOpenSwap(chain.chainId, borrow, chain.marketAssets, chain.borrows, [], false)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
-                                                                <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                            </Button>
                                                         </div>
-                                                    </div>
-                                                ))}
+                                                    );
+                                                })}
+
                                             </div>
                                         </div>
                                     )}
                                 </div>
 
                                 <div className="hidden md:block">
-                                    <div className="grid grid-cols-2 gap-6 mb-3">
+                                    <div className="grid grid-cols-2 gap-6 mb-2">
                                         <div className="flex items-center gap-2 px-1">
                                             <ArrowUpRight className="w-3 h-3 text-emerald-500" />
                                             <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Supplies</h4>
@@ -467,6 +534,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                         <div className="flex items-center gap-2 px-1">
                                             <ArrowDownRight className="w-3 h-3 text-primary" />
                                             <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Borrows</h4>
+                                            {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
+                                                <div className="flex items-center gap-1 px-1.5 py-0 rounded bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800">
+                                                    <div className="w-1 h-1 rounded-full bg-sky-500 animate-pulse" />
+                                                    <span className="text-[9px] font-black text-sky-700 dark:text-sky-400 uppercase tracking-wider">
+                                                        E-Mode: {chain.eModes?.find((m: any) => m.id === chain.eModeCategoryId)?.label || 'Active'}
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                     {(() => {
@@ -480,7 +555,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                                         const isAtBottom = index === maxLen - 1;
 
                                                         return (
-                                                            <div key={`${chain.chainId}-supply-${index}`} className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
+                                                            <div key={`${chain.marketKey}-supply-${index}`} className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
                                                                 <div className="flex items-center justify-between gap-3">
                                                                     <div className="flex items-center gap-3 min-w-0">
                                                                         <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
@@ -491,7 +566,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                                                             <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(parseFloat(supply.formattedAmount), supply.symbol)}</div>
                                                                         </div>
                                                                     </div>
-                                                                    <Button size="sm" onClick={() => handleOpenSwap(chain.chainId, supply, chain.marketAssets, [], chain.supplies, true)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
+                                                                    <Button size="sm" onClick={() => handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
                                                                         <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
                                                                     </Button>
                                                                 </div>
@@ -512,9 +587,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                                     {chain.borrows.length > 0 ? (
                                                         chain.borrows.map((borrow, index) => {
                                                             const isAtBottom = index === maxLen - 1;
+                                                            const borrowAddr = borrow.underlyingAsset.toLowerCase();
+                                                            const hasAlternatives = (chain.marketAssets || []).some(
+                                                                (a: any) => a.canBeDebtSwapDestination &&
+                                                                    (a.address || a.underlyingAsset || '').toLowerCase() !== borrowAddr
+                                                            );
 
                                                             return (
-                                                                <div key={`${chain.chainId}-borrow-${index}`} className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
+                                                                <div key={`${chain.marketKey}-borrow-${index}`} className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
                                                                     <div className="flex items-center justify-between gap-3">
                                                                         <div className="flex items-center gap-3 min-w-0">
                                                                             <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
@@ -525,16 +605,36 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                                                                 <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(parseFloat(borrow.formattedAmount), borrow.symbol)}</div>
                                                                             </div>
                                                                         </div>
-                                                                        <Button size="sm" onClick={() => handleOpenSwap(chain.chainId, borrow, chain.marketAssets, chain.borrows, [], false)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
-                                                                            <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                                        </Button>
+                                                                        {hasAlternatives ? (
+                                                                            <Button
+                                                                                size="sm"
+                                                                                variant="default"
+                                                                                onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
+                                                                                className="gap-2 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-sm"
+                                                                            >
+                                                                                <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                                            </Button>
+                                                                        ) : (
+                                                                            <InfoTooltip message="No alternative tokens available in your E-Mode category" disableClick={true}>
+                                                                                <div className="cursor-not-allowed flex">
+                                                                                    <Button
+                                                                                        size="sm"
+                                                                                        variant="secondary"
+                                                                                        tabIndex={-1}
+                                                                                        className="gap-2 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none"
+                                                                                    >
+                                                                                        <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                                                    </Button>
+                                                                                </div>
+                                                                            </InfoTooltip>
+                                                                        )}
                                                                     </div>
                                                                 </div>
                                                             );
                                                         })
                                                     ) : (
-                                                        chain.supplies.length <= 1 ? (
-                                                            <div className="flex items-center gap-3 px-6 h-full min-h-[54px] opacity-60">
+                                                        chain.supplies.length <= 2 ? (
+                                                            <div className="flex items-center gap-3 px-6 h-full min-h-13.5 opacity-60">
                                                                 <CircleDashed className="w-4 h-4 text-slate-300 dark:text-slate-600" />
                                                                 <div className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">No active borrows</div>
                                                             </div>
@@ -544,7 +644,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                                                                     <CircleDashed className="w-5 h-5 text-slate-300 dark:text-slate-500" />
                                                                 </div>
                                                                 <div className="text-sm font-bold text-slate-900 dark:text-white mb-1.5 leading-none">No active borrows</div>
-                                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[180px] leading-tight">Assets you borrow on this network will appear here.</div>
+                                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 max-w-45 leading-tight">Assets you borrow on this network will appear here.</div>
                                                             </div>
                                                         )
                                                     )}
@@ -570,7 +670,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                             <div className="flex items-center gap-3">
                                 <div className="flex -space-x-2">
                                     {emptyChains.slice(0, 5).map((chain) => (
-                                        chain.icon && <img key={chain.chainId} src={chain.icon} alt={chain.label} className="w-6 h-6 rounded-full border-2 border-white dark:border-card-dark opacity-50 grayscale" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                                        chain.icon && <img key={chain.marketKey} src={chain.icon} alt={chain.label} className="w-6 h-6 rounded-full border-2 border-white dark:border-card-dark opacity-50 grayscale" onError={(e) => (e.currentTarget.style.display = 'none')} />
                                     ))}
                                     {emptyChains.length > 5 && (
                                         <div className="w-6 h-6 rounded-full border-2 border-white dark:border-card-dark bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-500">+{emptyChains.length - 5}</div>
@@ -581,11 +681,10 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                             {openEmptyChains ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
                         </div>
                     </div>
-
                     {openEmptyChains && (
                         <div className="border-t border-border-light dark:border-border-dark p-4 flex flex-wrap gap-4">
                             {emptyChains.map((chain) => (
-                                <div key={chain.chainId} className="flex items-center gap-1.5 opacity-60">
+                                <div key={chain.marketKey} className="flex items-center gap-1.5 opacity-60">
                                     {chain.icon && <img src={chain.icon} alt={chain.label} className="w-4 h-4 rounded-full" />}
                                     <span className="text-xs font-medium text-slate-500">{chain.label}</span>
                                 </div>
@@ -602,6 +701,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                             isOpen={modalState.open}
                             onClose={handleCloseModal}
                             initialFromToken={modalState.initialFromToken}
+                            marketKey={modalState.marketKey}
                             chainId={modalState.chainId!}
                             marketAssets={modalState.marketAssets}
                             providedSupplies={modalState.supplies}
@@ -612,6 +712,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                             isOpen={modalState.open}
                             onClose={handleCloseModal}
                             initialFromToken={modalState.initialFromToken}
+                            marketKey={modalState.marketKey}
                             chainId={modalState.chainId!}
                             marketAssets={modalState.marketAssets}
                             providedBorrows={modalState.borrows}

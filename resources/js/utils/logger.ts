@@ -88,8 +88,6 @@ const relayLogToBackend = async (level: LogLevel, message: string, data: any) =>
     }
 
     try {
-        const apiUrl = (import.meta as any).env.VITE_API_URL || '/api';
-
         let stack = null;
         let meta: any = {};
 
@@ -125,7 +123,7 @@ const relayLogToBackend = async (level: LogLevel, message: string, data: any) =>
             headers['X-Log-Timestamp'] = signingData.timestamp;
         }
 
-        fetch(`${apiUrl}/logs`, {
+        fetch('/logs', {
             method: 'POST',
             headers,
             credentials: 'same-origin',

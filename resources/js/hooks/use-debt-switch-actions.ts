@@ -31,6 +31,7 @@ interface UseDebtSwitchActionsProps {
     simulateError?: boolean;
     preferPermit?: boolean;
     freezeQuote?: boolean;
+    marketKey?: string | null;
     onTxSent?: (hash: string) => void;
 }
 
@@ -51,6 +52,7 @@ export const useDebtSwitchActions = ({
     clearQuoteError,
     selectedNetwork,
     preferPermit = true,
+    marketKey = null,
     onTxSent,
 }: UseDebtSwitchActionsProps) => {
     const [isActionLoading, setIsActionLoading] = useState(false);
@@ -329,6 +331,7 @@ export const useDebtSwitchActions = ({
                 srcAmount: srcAmount.toString(),
                 apyPercent: activeQuote?.apyPercent ?? null,
                 slippageBps: slippage,
+                marketKey: marketKey || targetNetwork.key,
                 chainId,
                 walletAddress: account,
             });

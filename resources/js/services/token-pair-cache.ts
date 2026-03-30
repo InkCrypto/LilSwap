@@ -12,20 +12,20 @@ interface CacheEntry {
 /**
  * Generate cache key from token pair and chain ID
  */
-function getCacheKey(fromAddress: string, toAddress: string, chainId: number): string {
-    return `${CACHE_KEY_PREFIX}${chainId}:${fromAddress.toLowerCase()}:${toAddress.toLowerCase()}`;
+function getCacheKey(fromAddress: string, toAddress: string, marketKey: string): string {
+    return `${CACHE_KEY_PREFIX}${marketKey}:${fromAddress.toLowerCase()}:${toAddress.toLowerCase()}`;
 }
 
 /**
  * Get cached pair status without validation
  */
-export function getPairStatus(fromAddress: string | undefined, toAddress: string | undefined, chainId: number): { swappable: boolean, timestamp: number } | null {
+export function getPairStatus(fromAddress: string | undefined, toAddress: string | undefined, marketKey: string): { swappable: boolean, timestamp: number } | null {
     if (!fromAddress || !toAddress) {
         return null;
     }
 
     try {
-        const key = getCacheKey(fromAddress, toAddress, chainId);
+        const key = getCacheKey(fromAddress, toAddress, marketKey);
         const cached = localStorage.getItem(key);
 
         if (!cached) {
@@ -40,7 +40,7 @@ export function getPairStatus(fromAddress: string | undefined, toAddress: string
 
         if (now - entry.timestamp > ttl) {
             localStorage.removeItem(key);
-            logger.debug('[tokenPairCache] Cache expired for:', { fromAddress, toAddress, chainId });
+            logger.debug('[tokenPairCache] Cache expired for:', { fromAddress, toAddress, marketKey });
 
             return null;
         }
@@ -56,9 +56,9 @@ export function getPairStatus(fromAddress: string | undefined, toAddress: string
 /**
  * Set pair swappability status in cache
  */
-function setPairStatus(fromAddress: string, toAddress: string, chainId: number, swappable: boolean): CacheEntry | null {
+function setPairStatus(fromAddress: string, toAddress: string, marketKey: string, swappable: boolean): CacheEntry | null {
     try {
-        const key = getCacheKey(fromAddress, toAddress, chainId);
+        const key = getCacheKey(fromAddress, toAddress, marketKey);
         const entry: CacheEntry = {
             swappable,
             timestamp: Date.now()
@@ -68,7 +68,7 @@ function setPairStatus(fromAddress: string, toAddress: string, chainId: number, 
         logger.debug('[tokenPairCache] Cached pair status:', {
             fromAddress,
             toAddress,
-            chainId,
+            marketKey,
             swappable
         });
 
@@ -87,7 +87,7 @@ function setPairStatus(fromAddress: string, toAddress: string, chainId: number, 
 export async function checkPairSwappable(
     fromToken: any,
     toToken: any,
-    chainId: number,
+    marketKey: string,
     quoteFunction: (params: any) => Promise<any>,
     validationParams: any = {}
 ): Promise<boolean> {
@@ -107,7 +107,7 @@ export async function checkPairSwappable(
     } = validationParams;
 
     // Check cache first
-    const cached = getPairStatus(fromAddress, toAddress, chainId);
+    const cached = getPairStatus(fromAddress, toAddress, marketKey);
 
     if (cached !== null) {
         return cached.swappable;
@@ -117,7 +117,7 @@ export async function checkPairSwappable(
     logger.debug('[tokenPairCache] Validating token pair:', {
         fromToken: fromToken.symbol,
         toToken: toToken.symbol,
-        chainId
+        marketKey
     });
 
     try {
@@ -140,12 +140,12 @@ export async function checkPairSwappable(
         });
 
         // If we get here, there's a route available
-        setPairStatus(fromAddress, toAddress, chainId, true);
+        setPairStatus(fromAddress, toAddress, marketKey, true);
 
         return true;
     } catch {
         // Quote failed: not swappable
-        setPairStatus(fromAddress, toAddress, chainId, false);
+        setPairStatus(fromAddress, toAddress, marketKey, false);
 
         return false;
     }

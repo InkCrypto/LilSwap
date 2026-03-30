@@ -4,7 +4,7 @@ import logger from '../utils/logger';
 
 // Axios instance configured to point to the Laravel BFF Proxy
 export const apiClient = axios.create({
-    baseURL: (import.meta as any).env.VITE_API_URL || '/api',
+    baseURL: '/',
     headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': 'XMLHttpRequest', // Standard for Laravel/Inertia
@@ -34,10 +34,9 @@ return false;
     const normalized = String(url).toLowerCase();
 
     return (
-        normalized.startsWith('/position') ||
-        normalized.startsWith('/quote/') ||
-        normalized.startsWith('/build/') ||
+        normalized.startsWith('/aave/') ||
         normalized.startsWith('/rpc/') ||
+        normalized.startsWith('/transactions/') ||
         normalized.startsWith('/api/')
     );
 };
@@ -223,7 +222,7 @@ apiClient.interceptors.response.use(
 
 export const getDebtQuote = async (params: any, signal?: AbortSignal) => {
     try {
-        const response = await apiClient.post('/quote/debt', params, { signal });
+        const response = await apiClient.post('/aave/v3/quote/debt', params, { signal });
         logger.debug('Debt quote received', { srcAmount: response.data.srcAmount });
 
         return response.data;
@@ -241,7 +240,7 @@ throw error;
 
 export const buildDebtSwapTx = async (params: any) => {
     try {
-        const response = await apiClient.post('/build/debt/paraswap', params);
+        const response = await apiClient.post('/aave/v3/build/debt/paraswap', params);
 
         return response.data;
     } catch (error: any) {
@@ -252,14 +251,23 @@ export const buildDebtSwapTx = async (params: any) => {
     }
 };
 
-export const getUserPosition = async (walletAddress: string, chainId: number) => {
+export const getUserPosition = async (walletAddress: string, marketKey?: string, chainId?: number) => {
     try {
-        const response = await apiClient.post('/position', {
+        const response = await apiClient.post('/aave/v3/positions', {
             walletAddress,
+            marketKey,
             chainId
         });
 
-        return response.data[chainId] || response.data;
+        if (marketKey) {
+            return response.data[marketKey] || response.data;
+        }
+
+        if (chainId) {
+            return response.data[chainId] || response.data;
+        }
+
+        return response.data;
     } catch (error: any) {
         const errorMessage = error.response?.data?.error || error.message || 'Error fetching position';
 
@@ -269,7 +277,7 @@ export const getUserPosition = async (walletAddress: string, chainId: number) =>
 
 export const getCollateralQuote = async (params: any, signal?: AbortSignal) => {
     try {
-        const response = await apiClient.post('/quote/collateral', params, { signal });
+        const response = await apiClient.post('/aave/v3/quote/collateral', params, { signal });
 
         return response.data;
     } catch (error: any) {
@@ -286,7 +294,7 @@ throw error;
 
 export const buildCollateralSwapTx = async (params: any) => {
     try {
-        const response = await apiClient.post('/build/collateral/paraswap', params);
+        const response = await apiClient.post('/aave/v3/build/collateral/paraswap', params);
 
         return response.data;
     } catch (error: any) {

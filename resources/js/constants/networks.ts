@@ -1,4 +1,15 @@
-import { AaveV3Ethereum, AaveV3Base, AaveV3Polygon, AaveV3BNB, AaveV3Arbitrum, AaveV3Avalanche } from '@bgd-labs/aave-address-book';
+import { 
+    AaveV3Ethereum, 
+    AaveV3EthereumLido, 
+    AaveV3Base, 
+    AaveV3Polygon, 
+    AaveV3BNB, 
+    AaveV3Arbitrum, 
+    AaveV3Avalanche,
+    AaveV3Optimism,
+    AaveV3Gnosis,
+    AaveV3Sonic
+} from '@bgd-labs/aave-address-book';
 import { ethers } from 'ethers';
 import logger from '../utils/logger';
 
@@ -19,17 +30,21 @@ return null;
     }
 };
 
-const getOfficialAddressBook = (chainId: number) => {
-    const bookMap: Record<number, any> = {
-        1: AaveV3Ethereum,
-        56: AaveV3BNB,
-        137: AaveV3Polygon,
-        8453: AaveV3Base,
-        42161: AaveV3Arbitrum,
-        43114: AaveV3Avalanche,
+const getOfficialAddressBook = (marketKey: string) => {
+    const bookMap: Record<string, any> = {
+        AaveV3Ethereum,
+        AaveV3EthereumLido,
+        AaveV3BNB,
+        AaveV3Polygon,
+        AaveV3Base,
+        AaveV3Arbitrum,
+        AaveV3Avalanche,
+        AaveV3Optimism,
+        AaveV3Gnosis,
+        AaveV3Sonic,
     };
 
-    return bookMap[chainId] || null;
+    return bookMap[marketKey] || null;
 };
 
 const AUGUSTUS_ADDRESSES = {
@@ -40,7 +55,7 @@ const AUGUSTUS_ADDRESSES = {
 
 const getAlchemyRpcUrl = (slug: string) => `${window.location.origin}/rpc/${slug}`;
 
-export interface NetworkConfig {
+export interface MarketConfig {
     key: string;
     label: string;
     shortLabel: string;
@@ -62,14 +77,20 @@ export interface NetworkConfig {
     };
 }
 
-export const NETWORKS: Record<string, NetworkConfig> = {
-    ETHEREUM: (() => {
-        const book = getOfficialAddressBook(1);
+/**
+ * @deprecated Use MarketConfig instead
+ */
+export type NetworkConfig = MarketConfig;
+
+export const MARKETS: Record<string, MarketConfig> = {
+    AaveV3Ethereum: (() => {
+        const key = 'AaveV3Ethereum';
+        const book = getOfficialAddressBook(key);
         const alchemyUrl = getAlchemyRpcUrl('eth-mainnet');
 
         return {
-            key: 'ETHEREUM',
-            label: 'Ethereum Mainnet',
+            key,
+            label: 'Ethereum Core',
             shortLabel: 'Ethereum',
             chainId: 1,
             hexChainId: '0x1',
@@ -78,11 +99,8 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             explorer: 'https://etherscan.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
-                'https://mainnet.gateway.tenderly.co',
-                'https://rpc.flashbots.net',
-                'https://eth.llamarpc.com',
-                'https://eth-mainnet.public.blastapi.io',
-                'https://ethereum-rpc.publicnode.com'
+                'https://eth.drpc.org',
+                'https://eth.llamarpc.com'
             ],
             addresses: {
                 POOL: normalizeAddress(book?.POOL),
@@ -96,12 +114,74 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             },
         };
     })(),
-    BNB: (() => {
-        const book = getOfficialAddressBook(56);
+    AaveV3EthereumLido: (() => {
+        const key = 'AaveV3EthereumLido';
+        const book = getOfficialAddressBook(key);
+        const alchemyUrl = getAlchemyRpcUrl('eth-mainnet');
+
+        return {
+            key,
+            label: 'Ethereum Lido',
+            shortLabel: 'Lido',
+            chainId: 1,
+            hexChainId: '0x1',
+            icon: '/icons/networks/lido.svg',
+            alchemySlug: 'eth-mainnet',
+            explorer: 'https://etherscan.io',
+            rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
+                'https://eth.drpc.org'
+            ],
+            addresses: {
+                POOL: normalizeAddress(book?.POOL),
+                DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
+                SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
+                DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                AUGUSTUS: {
+                    V5: AUGUSTUS_ADDRESSES.V5,
+                    V6_2: AUGUSTUS_ADDRESSES.V6_2,
+                },
+            },
+        };
+    })(),
+    AaveV3Optimism: (() => {
+        const key = 'AaveV3Optimism';
+        const book = getOfficialAddressBook(key);
+        const alchemyUrl = getAlchemyRpcUrl('opt-mainnet');
+
+        return {
+            key,
+            label: 'Optimism',
+            shortLabel: 'Optimism',
+            chainId: 10,
+            hexChainId: '0xa',
+            icon: '/icons/networks/optimism.svg',
+            alchemySlug: 'opt-mainnet',
+            explorer: 'https://optimistic.etherscan.io',
+            rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
+                'https://mainnet.optimism.io',
+                'https://optimism.drpc.org'
+            ],
+            addresses: {
+                POOL: normalizeAddress(book?.POOL),
+                DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
+                SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
+                DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                AUGUSTUS: {
+                    V5: AUGUSTUS_ADDRESSES.V5,
+                    V6_2: AUGUSTUS_ADDRESSES.V6_2,
+                },
+            },
+        };
+    })(),
+    AaveV3BNB: (() => {
+        const key = 'AaveV3BNB';
+        const book = getOfficialAddressBook(key);
         const alchemyUrl = getAlchemyRpcUrl('bnb-mainnet');
 
         return {
-            key: 'BNB',
+            key,
             label: 'BNB Chain',
             shortLabel: 'BNB',
             chainId: 56,
@@ -111,9 +191,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             explorer: 'https://bscscan.com',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
-                'https://bsc.publicnode.com',
-                'https://bsc-dataseed.binance.org',
-                'https://bsc-dataseed1.binance.org'
+                'https://bsc-dataseed.binance.org'
             ],
             addresses: {
                 POOL: normalizeAddress(book?.POOL),
@@ -127,12 +205,43 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             },
         };
     })(),
-    POLYGON: (() => {
-        const book = getOfficialAddressBook(137);
+    AaveV3Gnosis: (() => {
+        const key = 'AaveV3Gnosis';
+        const book = getOfficialAddressBook(key);
+        const alchemyUrl = getAlchemyRpcUrl('gnosis-mainnet');
+
+        return {
+            key,
+            label: 'Gnosis Chain',
+            shortLabel: 'Gnosis',
+            chainId: 100,
+            hexChainId: '0x64',
+            icon: '/icons/networks/gnosis.svg',
+            alchemySlug: 'gnosis-mainnet',
+            explorer: 'https://gnosisscan.io',
+            rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
+                'https://rpc.gnosischain.com'
+            ],
+            addresses: {
+                POOL: normalizeAddress(book?.POOL),
+                DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
+                SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
+                DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                AUGUSTUS: {
+                    V5: AUGUSTUS_ADDRESSES.V5,
+                    V6_2: AUGUSTUS_ADDRESSES.V6_2,
+                },
+            },
+        };
+    })(),
+    AaveV3Polygon: (() => {
+        const key = 'AaveV3Polygon';
+        const book = getOfficialAddressBook(key);
         const alchemyUrl = getAlchemyRpcUrl('polygon-mainnet');
 
         return {
-            key: 'POLYGON',
+            key,
             label: 'Polygon',
             shortLabel: 'Polygon',
             chainId: 137,
@@ -142,11 +251,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             explorer: 'https://polygonscan.com',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
-                'https://gateway.tenderly.co/public/polygon',
-                'https://polygon-pokt.nodies.app',
-                'https://polygon-bor-rpc.publicnode.com',
-                'https://polygon-rpc.com',
-                'https://polygon-mainnet.public.blastapi.io'
+                'https://polygon-rpc.com'
             ],
             addresses: {
                 POOL: normalizeAddress(book?.POOL),
@@ -160,12 +265,43 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             },
         };
     })(),
-    BASE: (() => {
-        const book = getOfficialAddressBook(8453);
+    AaveV3Sonic: (() => {
+        const key = 'AaveV3Sonic';
+        const book = getOfficialAddressBook(key);
+        const alchemyUrl = getAlchemyRpcUrl('sonic-mainnet');
+
+        return {
+            key,
+            label: 'Sonic',
+            shortLabel: 'Sonic',
+            chainId: 146,
+            hexChainId: '0x92',
+            icon: '/icons/networks/sonic.svg',
+            alchemySlug: 'sonic-mainnet',
+            explorer: 'https://sonicscan.org',
+            rpcUrls: [
+                ...(alchemyUrl ? [alchemyUrl] : []),
+                'https://rpc.soniclabs.com'
+            ],
+            addresses: {
+                POOL: normalizeAddress(book?.POOL),
+                DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
+                SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
+                DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                AUGUSTUS: {
+                    V5: AUGUSTUS_ADDRESSES.V5,
+                    V6_2: AUGUSTUS_ADDRESSES.V6_2,
+                },
+            },
+        };
+    })(),
+    AaveV3Base: (() => {
+        const key = 'AaveV3Base';
+        const book = getOfficialAddressBook(key);
         const alchemyUrl = getAlchemyRpcUrl('base-mainnet');
 
         return {
-            key: 'BASE',
+            key,
             label: 'Base',
             shortLabel: 'Base',
             chainId: 8453,
@@ -175,12 +311,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             explorer: 'https://basescan.org',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
-                'https://base.gateway.tenderly.co',
-                'https://base.llamarpc.com',
-                'https://base.publicnode.com',
-                'https://mainnet.base.org',
-                'https://base-mainnet.public.blastapi.io',
-                'https://1rpc.io/base'
+                'https://mainnet.base.org'
             ],
             addresses: {
                 POOL: normalizeAddress(book?.POOL),
@@ -194,12 +325,13 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             },
         };
     })(),
-    ARBITRUM: (() => {
-        const book = getOfficialAddressBook(42161);
+    AaveV3Arbitrum: (() => {
+        const key = 'AaveV3Arbitrum';
+        const book = getOfficialAddressBook(key);
         const alchemyUrl = getAlchemyRpcUrl('arb-mainnet');
 
         return {
-            key: 'ARBITRUM',
+            key,
             label: 'Arbitrum One',
             shortLabel: 'Arbitrum',
             chainId: 42161,
@@ -209,11 +341,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             explorer: 'https://arbiscan.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
-                'https://arb1.arbitrum.io/rpc',
-                'https://arbitrum.llamarpc.com',
-                'https://arbitrum-one.public.blastapi.io',
-                'https://arbitrum.publicnode.com',
-                'https://1rpc.io/arb'
+                'https://arb1.arbitrum.io/rpc'
             ],
             addresses: {
                 POOL: normalizeAddress(book?.POOL),
@@ -227,12 +355,13 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             },
         };
     })(),
-    AVALANCHE: (() => {
-        const book = getOfficialAddressBook(43114);
+    AaveV3Avalanche: (() => {
+        const key = 'AaveV3Avalanche';
+        const book = getOfficialAddressBook(key);
         const alchemyUrl = getAlchemyRpcUrl('avax-mainnet');
 
         return {
-            key: 'AVALANCHE',
+            key,
             label: 'Avalanche C-Chain',
             shortLabel: 'Avalanche',
             chainId: 43114,
@@ -242,9 +371,7 @@ export const NETWORKS: Record<string, NetworkConfig> = {
             explorer: 'https://snowtrace.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
-                'https://api.avax.network/ext/bc/C/rpc',
-                'https://avalanche.drpc.org',
-                'https://avax.meowrpc.com'
+                'https://api.avax.network/ext/bc/C/rpc'
             ],
             addresses: {
                 POOL: normalizeAddress(book?.POOL),
@@ -260,18 +387,38 @@ export const NETWORKS: Record<string, NetworkConfig> = {
     })(),
 };
 
-export const DEFAULT_NETWORK = NETWORKS.ETHEREUM;
+/**
+ * Legacy alias for backward compatibility
+ */
+export const NETWORKS = MARKETS;
 
-export const getNetworkByChainId = (chainId: number | string | undefined): NetworkConfig => {
+export const DEFAULT_MARKET = MARKETS.AaveV3Ethereum;
+export const DEFAULT_NETWORK = DEFAULT_MARKET;
+
+/**
+ * @deprecated Use getMarketByChainId instead
+ */
+export const getNetworkByChainId = (chainId: number | string | undefined): MarketConfig => {
     if (!chainId && chainId !== 0) {
-        return DEFAULT_NETWORK;
+        return DEFAULT_MARKET;
     }
 
     const numericId = typeof chainId === 'string' ? Number(chainId) : chainId;
 
-    return (
-        Object.values(NETWORKS).find((network) => network.chainId === numericId) || DEFAULT_NETWORK
-    );
+    // Return the "Core" market for this chain (the one whose key ends with just the chain name, or specify priority)
+    const marketsOnChain = Object.values(MARKETS).filter((m) => m.chainId === numericId);
+    if (marketsOnChain.length === 0) return DEFAULT_MARKET;
+    
+    // Priority: Core market (AaveV3Ethereum, AaveV3Base, etc)
+    const coreMarket = marketsOnChain.find(m => m.key === `AaveV3${m.shortLabel}`);
+    return coreMarket || marketsOnChain[0];
 };
 
-export const getNetworkByKey = (key: string): NetworkConfig => NETWORKS[key] || DEFAULT_NETWORK;
+export const getMarketByChainId = getNetworkByChainId;
+
+/**
+ * @deprecated Use getMarketByKey instead
+ */
+export const getNetworkByKey = (key: string): MarketConfig => MARKETS[key] || DEFAULT_MARKET;
+
+export const getMarketByKey = (key: string): MarketConfig => MARKETS[key] || DEFAULT_MARKET;

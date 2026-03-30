@@ -7,23 +7,23 @@ interface SelectionEntry {
 }
 
 interface SelectionMemory {
-    [chainId: number]: {
+    [marketKey: string]: {
         [modalType: string]: SelectionEntry;
     }
 }
 
-export const saveTokenSelection = (chainId: number, modalType: string, address: string) => {
-    if (!chainId || !modalType || !address) return;
+export const saveTokenSelection = (marketKey: string, modalType: string, address: string) => {
+    if (!marketKey || !modalType || !address) return;
 
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         const data: SelectionMemory = raw ? JSON.parse(raw) : {};
         
-        if (!data[chainId]) {
-            data[chainId] = {};
+        if (!data[marketKey]) {
+            data[marketKey] = {};
         }
         
-        data[chainId][modalType] = {
+        data[marketKey][modalType] = {
             address: address.toLowerCase(),
             timestamp: Date.now()
         };
@@ -33,15 +33,15 @@ export const saveTokenSelection = (chainId: number, modalType: string, address: 
     }
 };
 
-export const getSavedTokenSelection = (chainId: number, modalType: string): string | null => {
-    if (!chainId || !modalType) return null;
+export const getSavedTokenSelection = (marketKey: string, modalType: string): string | null => {
+    if (!marketKey || !modalType) return null;
 
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
         if (!raw) return null;
         
         const data: SelectionMemory = JSON.parse(raw);
-        const entry = data[chainId]?.[modalType];
+        const entry = data[marketKey]?.[modalType];
         
         if (!entry) return null;
 

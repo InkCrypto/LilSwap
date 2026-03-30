@@ -28,6 +28,7 @@ interface UseCollateralSwapActionsProps {
     simulateError?: boolean;
     preferPermit?: boolean;
     forceRequirePermitOverride?: boolean;
+    marketKey?: string | null;
     onTxSent?: (hash: string) => void;
 }
 
@@ -51,6 +52,7 @@ export const useCollateralSwapActions = ({
     selectedNetwork,
     simulateError,
     preferPermit = true,
+    marketKey = null,
     onTxSent,
 }: UseCollateralSwapActionsProps) => {
     const [isActionLoading, setIsActionLoading] = useState(false);
@@ -421,6 +423,7 @@ export const useCollateralSwapActions = ({
                 srcAmount: srcAmount.toString(),
                 isMaxSwap,
                 slippageBps: slippage,
+                marketKey: marketKey || targetNetwork.key,
                 chainId,
                 walletAddress: account,
             });
