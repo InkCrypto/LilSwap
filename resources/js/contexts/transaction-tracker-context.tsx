@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
-import { getMarketByChainId } from '../constants/networks';
+import { getMarketByChainId, getMarketByKey } from '../constants/networks';
+import { getUserTransactionsHistory } from '../services/api';
 import { createRpcProvider } from '../helpers/rpc-helper';
 import logger from '../utils/logger';
 import { useToast } from './toast-context';
@@ -165,7 +166,6 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             setIsLoadingHistory(true);
         }
         try {
-            const { getUserTransactionsHistory } = await import('../services/api');
             const limit = 20;
             const currentPage = isLoadMore ? page + 1 : 0;
             const offset = currentPage * limit;
@@ -198,7 +198,6 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             for (const tx of pending) {
                 try {
                     // FIX: Always prefer marketKey for accurate RPC/config lookup
-                    const { getMarketByKey } = await import('../constants/networks');
                     const market = getMarketByKey(tx.marketKey);
 
                     if (!market) {
