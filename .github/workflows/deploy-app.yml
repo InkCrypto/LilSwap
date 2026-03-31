@@ -19,6 +19,13 @@ jobs:
       REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
       ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
       API_SECRET: ${{ secrets.API_SECRET }}
+
+      # Database Secrets (Matched with Engine)
+      DB_HOST: ${{ secrets.MYSQL_HOST || '127.0.0.1' }}
+      DB_PORT: ${{ secrets.MYSQL_PORT || '3306' }}
+      DB_NAME: ${{ secrets.MYSQL_DATABASE }}
+      DB_USER: ${{ secrets.MYSQL_USER }}
+      DB_PASS: ${{ secrets.MYSQL_PASSWORD }}
     steps:
       - name: Setup SSH
         uses: webfactory/ssh-agent@v0.9.0
@@ -43,6 +50,12 @@ jobs:
             ALCHEMY_KEY='$ALCHEMY_API_KEY'
             API_SEC='$API_SECRET'
 
+            DB_HOST='$DB_HOST'
+            DB_PORT='$DB_PORT'
+            DB_NAME='$DB_NAME'
+            DB_USER='$DB_USER'
+            DB_PASS='$DB_PASS'
+
             TARGET=\"\$ROOT/releases/\$TAG\"
 
             echo \"Deploying \$TAG to \$TARGET...\"
@@ -56,22 +69,24 @@ jobs:
             # 2. Structure
             mkdir -p \$ROOT/shared/storage/framework/{cache/data,sessions,testing,views}
             mkdir -p \$ROOT/shared/storage/{app/public,logs}
-            mkdir -p \$ROOT/shared/database
-            touch \$ROOT/shared/database/database.sqlite
             chmod -R 775 \$ROOT/shared/storage
 
             # Links
             rm -rf storage
             ln -sfn \$ROOT/shared/storage storage
-            mkdir -p database
-            ln -sfn \$ROOT/shared/database/database.sqlite database/database.sqlite
 
             # 3. Setup .env (Usando os nomes EXATOS fornecidos)
             cp .env.example .env
             sed -i \"s|^VITE_REOWN_PROJECT_ID=.*|VITE_REOWN_PROJECT_ID=\$REOWN_ID|g\" .env
             sed -i \"s|^ALCHEMY_API_KEY=.*|ALCHEMY_API_KEY=\$ALCHEMY_KEY|g\" .env
             sed -i \"s|^API_SECRET=.*|API_SECRET=\$API_SEC|g\" .env
-            sed -i \"s|DB_DATABASE=.*|DB_DATABASE=\$ROOT/shared/database/database.sqlite|g\" .env
+
+            # DB Injection (MySQL)
+            sed -i \"s|^DB_HOST=.*|DB_HOST=\$DB_HOST|g\" .env
+            sed -i \"s|^DB_PORT=.*|DB_PORT=\$DB_PORT|g\" .env
+            sed -i \"s|^DB_DATABASE=.*|DB_DATABASE=\$DB_NAME|g\" .env
+            sed -i \"s|^DB_USERNAME=.*|DB_USERNAME=\$DB_USER|g\" .env
+            sed -i \"s|^DB_PASSWORD=.*|DB_PASSWORD=\$DB_PASS|g\" .env
 
             # 4. Hostinger Node Path
             NODE_BIN=\"/opt/alt/alt-nodejs22/root/bin\"

@@ -95,7 +95,7 @@ class RequireProxySessionAuth
 
     private function extractWalletAddress(Request $request): ?string
     {
-        $wallet = $request->input('walletAddress');
+        $wallet = $request->input('walletAddress') ?? $request->input('userAddress');
         if (!is_string($wallet)) {
             return null;
         }
