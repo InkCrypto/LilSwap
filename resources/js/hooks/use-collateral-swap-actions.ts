@@ -1,5 +1,16 @@
-import { ethers } from 'ethers';
+import {
+    getAddress,
+    formatUnits,
+    parseAbi,
+    zeroAddress,
+    encodeAbiParameters,
+    decodeEventLog,
+    Hex,
+    zeroHash,
+    parseUnits
+} from 'viem';
 import { useCallback, useEffect, useState, useMemo } from 'react';
+import { usePublicClient, useWalletClient } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
@@ -9,8 +20,6 @@ import logger, { isUserRejectedError } from '../utils/logger';
 
 interface UseCollateralSwapActionsProps {
     account: string | null;
-    provider: any;
-    networkRpcProvider: any;
     fromToken: any;
     toToken: any;
     allowance: bigint;
@@ -34,8 +43,6 @@ interface UseCollateralSwapActionsProps {
 
 export const useCollateralSwapActions = ({
     account,
-    provider,
-    networkRpcProvider,
     fromToken,
     toToken,
     allowance,
@@ -55,6 +62,9 @@ export const useCollateralSwapActions = ({
     marketKey = null,
     onTxSent,
 }: UseCollateralSwapActionsProps) => {
+    const publicClient = usePublicClient();
+    const { data: walletClient } = useWalletClient();
+
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isSigning, setIsSigning] = useState(false);
     const [signedPermit, setSignedPermit] = useState<any>(null);
@@ -64,9 +74,8 @@ export const useCollateralSwapActions = ({
                 return window.localStorage.getItem('lilswap.forceRequirePermitCol') === '1';
             }
         } catch {
-            // Ignore localStorage unavailability.
+            return false;
         }
-
         return false;
     });
     const [txError, setTxError] = useState<string | null>(null);
@@ -82,26 +91,22 @@ export const useCollateralSwapActions = ({
                 }
             }
         } catch {
-            // Ignore localStorage unavailability.
+            // Ignore
         }
     };
 
     const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
     const adapterAddress = useMemo(() => {
-        if (!networkAddresses?.SWAP_COLLATERAL_ADAPTER) {
-            return null;
-        }
-
+        if (!networkAddresses?.SWAP_COLLATERAL_ADAPTER) return null;
         try {
-            return ethers.getAddress(networkAddresses.SWAP_COLLATERAL_ADAPTER);
+            return getAddress(networkAddresses.SWAP_COLLATERAL_ADAPTER);
         } catch {
             return null;
         }
     }, [networkAddresses?.SWAP_COLLATERAL_ADAPTER]);
 
     const chainId = targetNetwork.chainId;
-    const targetHexChainId = targetNetwork.hexChainId;
 
     useEffect(() => {
         setSignedPermit(null);
@@ -112,79 +117,52 @@ export const useCollateralSwapActions = ({
     }, [fromToken?.symbol, fromToken?.address, toToken?.symbol, toToken?.address]);
 
     const ensureWalletNetwork = useCallback(async () => {
-        if (!provider) {
-            addLog?.('Provider unavailable. Please reconnect your wallet.', 'error');
-
-            return null;
-        }
-
-        try {
-            const currentNetwork = await provider.getNetwork();
-
-            if (Number(currentNetwork.chainId) === chainId) {
-                return provider;
-            }
-        } catch (error: any) {
-            addLog?.('Error reading current network: ' + error.message, 'error');
-
-            return null;
-        }
-
-        if (!targetHexChainId) {
-            addLog?.(`Target network chain ID not properly configured.`, 'error');
-
-            return null;
-        }
-
-        try {
-            await provider.send('wallet_switchEthereumChain', [{ chainId: targetHexChainId }]);
-            addLog?.(`Network updated to ${targetNetwork.label}.`, 'success');
-
-            return provider;
-        } catch (error: any) {
-            addLog?.(`Error switching to ${targetNetwork.label}: ${error?.message || error}`, 'error');
-
-            return null;
-        }
-    }, [provider, chainId, targetHexChainId, targetNetwork.label, addLog]);
-
-    const isValidATokenAddress = (addr: string) => {
-        if (!addr || addr === ethers.ZeroAddress) {
+        if (!walletClient) {
+            addLog?.('Wallet not connected.', 'error');
             return false;
         }
+        const currentChainId = await walletClient.getChainId();
+        if (currentChainId !== chainId) {
+            try {
+                await walletClient.switchChain({ id: chainId });
+                return true;
+            } catch (error: any) {
+                addLog?.(`Error switching network: ${error.message}`, 'error');
+                return false;
+            }
+        }
+        return true;
+    }, [walletClient, chainId, addLog]);
 
+    const isValidATokenAddress = (addr: string) => {
+        if (!addr || addr === zeroAddress) return false;
         try {
-            const val = BigInt(addr);
-
-            return val > BigInt(0xff);
+            return BigInt(addr) > BigInt(0xff);
         } catch {
             return false;
         }
     };
 
-    const generateAndCachePermit = useCallback(async (aTokenAddr: string, signer: any, exactAmount?: bigint) => {
+    const generateAndCachePermit = useCallback(async (aTokenAddr: string, exactAmount?: bigint) => {
+        if (!walletClient || !account) return null;
         try {
-            const aTokenContract = new ethers.Contract(aTokenAddr, ABIS.DEBT_TOKEN, signer);
-            let nonce;
+            const nonce = await publicClient?.readContract({
+                address: getAddress(aTokenAddr),
+                abi: parseAbi(ABIS.DEBT_TOKEN),
+                functionName: 'nonces',
+                args: [getAddress(account)],
+            }) as bigint;
 
-            try {
-                nonce = await aTokenContract.nonces(account);
-            } catch (err: any) {
-                if (err?.code === 'BAD_DATA' || err?.code === 'CALL_EXCEPTION') {
-                    const noPermitErr: any = new Error('Token does not support EIP-2612 permit; use on-chain approve');
-                    noPermitErr.code = 'NO_PERMIT';
+            const name = await publicClient?.readContract({
+                address: getAddress(aTokenAddr),
+                abi: parseAbi(ABIS.DEBT_TOKEN),
+                functionName: 'name',
+            }) as string;
 
-                    throw noPermitErr;
-                }
+            const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+            const value = exactAmount || BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
-                throw err;
-            }
-
-            const name = await aTokenContract.name();
-            const deadline = Math.floor(Date.now() / 1000) + 3600;
-            const value = exactAmount || ethers.MaxUint256;
-
-            const domain = { name, version: '1', chainId, verifyingContract: aTokenAddr };
+            const domain = { name, version: '1', chainId, verifyingContract: getAddress(aTokenAddr) };
             const types = {
                 Permit: [
                     { name: 'owner', type: 'address' },
@@ -194,98 +172,91 @@ export const useCollateralSwapActions = ({
                     { name: 'deadline', type: 'uint256' },
                 ],
             };
-            const message = { owner: account, spender: adapterAddress, value, nonce, deadline };
+            const message = { owner: getAddress(account), spender: getAddress(adapterAddress!), value, nonce, deadline };
 
-            addLog?.('Requesting EIP-2612 signature for aToken...', 'warning');
-            const signature = await signer.signTypedData(domain, types, message);
-            const sig = ethers.Signature.from(signature);
+            addLog?.('Requesting signature for aToken (Permit)...', 'warning');
+            const signature = await walletClient.signTypedData({
+                account: getAddress(account),
+                domain,
+                types,
+                primaryType: 'Permit',
+                message,
+            });
 
-            const permitParams = { amount: value, deadline, v: sig.v, r: sig.r, s: sig.s };
-            setSignedPermit({ params: permitParams, token: aTokenAddr, deadline, value });
+            // Parse signature (v, r, s)
+            const r = `0x${signature.substring(2, 66)}` as Hex;
+            const s = `0x${signature.substring(66, 130)}` as Hex;
+            const v = parseInt(signature.substring(130, 132), 16);
+
+            const permitParams = { amount: value, deadline: Number(deadline), v, r, s };
+            setSignedPermit({ params: permitParams, token: aTokenAddr, deadline: Number(deadline), value });
             setForceRequirePermit(false);
 
-            try {
-                if (typeof window !== 'undefined' && window.localStorage) {
-                    window.localStorage.removeItem('lilswap.forceRequirePermitCol');
-                }
-            } catch {
-                // Ignore localStorage unavailability.
-            }
-
             addLog?.('Signature received and cached', 'success');
-
             return permitParams;
         } catch (err: any) {
-            if (err?.code !== 'NO_PERMIT') {
-                if (isUserRejectedError(err)) {
-                    addLog?.('Signature request cancelled by user.', 'warning');
-                } else {
-                    addLog?.('Signature failed: ' + (err?.message || err), 'error');
-                }
+            if (isUserRejectedError(err)) {
+                addLog?.('Signature request cancelled.', 'warning');
+            } else {
+                addLog?.('Signature failed: ' + (err?.message || err), 'error');
             }
-
             throw err;
         }
-    }, [account, adapterAddress, addLog, chainId]);
+    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog]);
 
     const handleApprove = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
-
-        if (!provider || !fromToken) {
-            return;
-        }
-
-        if (!adapterAddress) {
-            addLog?.(`Invalid COLLATERAL_ADAPTER for ${targetNetwork.label}.`, 'error');
-
-            return;
-        }
+        if (!walletClient || !fromToken || !adapterAddress || !account) return;
 
         try {
             setIsActionLoading(true);
             setIsSigning(true);
-            const signer = await provider.getSigner();
 
             let aTokenAddress = fromToken.aTokenAddress;
-
             if (!isValidATokenAddress(aTokenAddress)) {
-                const dataProvider = new ethers.Contract(networkAddresses.DATA_PROVIDER, ABIS.DATA_PROVIDER, networkRpcProvider || signer);
-                const underlyingAsset = fromToken.address || fromToken.underlyingAsset;
-                const tokenAddresses = await dataProvider.getReserveTokensAddresses(underlyingAsset);
-                aTokenAddress = tokenAddresses.aTokenAddress;
+                const tokenAddresses = await publicClient?.readContract({
+                    address: getAddress(networkAddresses.DATA_PROVIDER),
+                    abi: parseAbi(ABIS.DATA_PROVIDER),
+                    functionName: 'getReserveTokensAddresses',
+                    args: [getAddress(fromToken.address || fromToken.underlyingAsset)],
+                }) as any;
+                aTokenAddress = tokenAddresses[0] || tokenAddresses.aTokenAddress;
             }
 
             if (preferPermitFinal) {
-                addLog?.('Requesting signature (permit)...', 'info');
-                const permit = await generateAndCachePermit(aTokenAddress, signer, exactAmount);
-
+                const permit = await generateAndCachePermit(aTokenAddress, exactAmount);
                 return { type: 'permit', permit };
             }
 
-            const aTokenContract = new ethers.Contract(aTokenAddress, ABIS.ERC20, signer);
-            addLog?.('Sending Approval Tx...');
-            const approveAmount = exactAmount || ethers.MaxUint256;
-            const tx = await aTokenContract.approve(adapterAddress, approveAmount);
-            addLog?.(`Tx sent: ${tx.hash}. Waiting...`, 'warning');
-            await tx.wait();
+            addLog?.('Sending Approval Transaction...');
+            const approveAmount = exactAmount || BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
+            const hash = await walletClient.writeContract({
+                account: getAddress(account),
+                address: getAddress(aTokenAddress),
+                abi: parseAbi(ABIS.ERC20),
+                functionName: 'approve',
+                args: [getAddress(adapterAddress), approveAmount],
+            });
+
+            addLog?.(`Transaction sent: ${hash}. Waiting for confirmation...`, 'warning');
+            await publicClient?.waitForTransactionReceipt({ hash });
 
             addLog?.('Approval confirmed!', 'success');
             fetchPositionData();
-
-            return { type: 'tx', tx };
+            return { type: 'tx', hash };
         } catch (error: any) {
             if (isUserRejectedError(error)) {
                 addLog?.('Approval cancelled by user.', 'warning');
             } else {
-                addLog?.('Approval error: ' + (error?.message || error), 'error');
+                addLog?.('Approval error: ' + error.message, 'error');
             }
-
             throw error;
         } finally {
             setIsSigning(false);
             setIsActionLoading(false);
         }
-    }, [provider, fromToken, addLog, fetchPositionData, networkAddresses, adapterAddress, targetNetwork.label, preferPermit, generateAndCachePermit, networkRpcProvider]);
+    }, [walletClient, publicClient, account, fromToken, adapterAddress, networkAddresses, addLog, fetchPositionData, preferPermit, generateAndCachePermit]);
 
     const handleSwap = useCallback(async () => {
         setTxError(null);
@@ -293,245 +264,149 @@ export const useCollateralSwapActions = ({
         setUserRejected(false);
 
         if (supplyBalance !== null && swapAmount > supplyBalance) {
-            addLog?.('Insufficient balance to perform this swap.', 'error');
             setTxError('Insufficient balance');
-
+            addLog?.('Insufficient balance for swap.', 'error');
             return;
         }
 
-        if (!adapterAddress) {
-            addLog?.(`Invalid COLLATERAL_ADAPTER for ${targetNetwork.label}.`, 'error');
-
-            return;
-        }
+        if (!adapterAddress || !account || !walletClient) return;
 
         let localTxId: string | null = null;
         let activeQuote = swapQuote;
 
         if (!activeQuote) {
-            addLog?.('Fetching quote...', 'info');
+            addLog?.('Fetching latest quote...', 'info');
             activeQuote = await fetchQuote();
-
-            if (!activeQuote) {
-                return;
-            }
-        }
-
-        const now = Math.floor(Date.now() / 1000);
-        const quoteAge = now - (activeQuote.timestamp || 0);
-
-        if (quoteAge > 300) {
-            addLog?.(`⚠️ Quote is too old (${quoteAge}s). Updating...`, 'warning');
-            activeQuote = await fetchQuote();
-
-            if (!activeQuote) {
-                return;
-            }
+            if (!activeQuote) return;
         }
 
         setIsActionLoading(true);
 
         try {
-            const activeProvider = await ensureWalletNetwork();
-
-            if (!activeProvider) {
-                return;
-            }
-
-            const signer = await activeProvider.getSigner();
+            const hasCorrectNetwork = await ensureWalletNetwork();
+            if (!hasCorrectNetwork) return;
 
             const { priceRoute, srcAmount, fromToken: quoteFrom, toToken: quoteTo } = activeQuote;
             const srcAmountBigInt = BigInt(srcAmount);
-            let permitParams = { amount: 0n, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
+            let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
 
             let aTokenAddr = quoteFrom.aTokenAddress;
-
             if (!isValidATokenAddress(aTokenAddr)) {
-                const dataProvider = new ethers.Contract(networkAddresses.DATA_PROVIDER, ABIS.DATA_PROVIDER, networkRpcProvider || signer);
-                const tokenAddresses = await dataProvider.getReserveTokensAddresses(quoteFrom.address || quoteFrom.underlyingAsset);
-                aTokenAddr = tokenAddresses.aTokenAddress;
-            }
-
-            if (signedPermit && signedPermit.token !== aTokenAddr) {
-                setSignedPermit(null);
+                const tokenAddresses = await publicClient?.readContract({
+                    address: getAddress(networkAddresses.DATA_PROVIDER),
+                    abi: parseAbi(ABIS.DATA_PROVIDER),
+                    functionName: 'getReserveTokensAddresses',
+                    args: [getAddress(quoteFrom.address || quoteFrom.underlyingAsset)],
+                }) as any;
+                aTokenAddr = tokenAddresses[0] || tokenAddresses.aTokenAddress;
             }
 
             const effectivePreferPermit = forceRequirePermit || preferPermit;
-
             if (allowance < srcAmountBigInt || forceRequirePermit) {
-                const currentTs = Math.floor(Date.now() / 1000);
-
                 if (effectivePreferPermit) {
-                    if (signedPermit && !forceRequirePermit && signedPermit.token === aTokenAddr && signedPermit.deadline > currentTs && signedPermit.value >= srcAmountBigInt) {
-                        addLog?.('Using cached signature...', 'info');
+                    if (signedPermit && !forceRequirePermit && signedPermit.token === aTokenAddr && signedPermit.deadline > Math.floor(Date.now() / 1000) && signedPermit.value >= srcAmountBigInt) {
                         permitParams = signedPermit.params;
                     } else {
-                        addLog?.('Requesting Signature (permit)...', 'warning');
                         const permitAmount = srcAmountBigInt + (srcAmountBigInt * 100n / 10000n) + 1n;
-                        let permitResult;
-
-                        try {
-                            permitResult = await handleApprove(true, permitAmount);
-                        } catch (permitErr: any) {
-                            if (permitErr?.code === 'NO_PERMIT') {
-                                addLog?.('Permit not supported for this token, using on-chain approve...', 'info');
-                                await handleApprove(false);
-                                setIsActionLoading(true);
-                                await new Promise(resolve => setTimeout(resolve, 1000));
-                                fetchPositionData();
-                                permitResult = null;
-                            } else {
-                                throw permitErr;
-                            }
-                        }
-
+                        const permitResult = await handleApprove(true, permitAmount);
                         setIsActionLoading(true);
-
-                        if (permitResult && permitResult.permit) {
-                            permitParams = permitResult.permit;
-                        } else if (permitResult !== null) {
-                            throw new Error('Signature cancelled');
-                        }
+                        if (permitResult?.permit) permitParams = permitResult.permit;
                     }
                 } else {
-                    addLog?.('Sending on-chain approval...', 'info');
                     await handleApprove(false);
                     setIsActionLoading(true);
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+                    await new Promise(r => setTimeout(r, 1500));
                     fetchPositionData();
                 }
             }
 
-            addLog?.('Building calldata...', 'warning');
-
-            const isMaxSwap = !!supplyBalance && swapAmount >= supplyBalance;
-
-            const normalizedFromToken = {
-                ...quoteFrom,
-                address: ethers.getAddress(quoteFrom.address || quoteFrom.underlyingAsset),
-            };
-            const normalizedToToken = {
-                ...quoteTo,
-                address: ethers.getAddress(quoteTo.address || quoteTo.underlyingAsset),
-            };
-
+            addLog?.('Building secure transaction calldata...', 'warning');
             const txResult = await buildCollateralSwapTx({
-                fromToken: normalizedFromToken,
-                toToken: normalizedToToken,
+                fromToken: { ...quoteFrom, address: getAddress(quoteFrom.address || quoteFrom.underlyingAsset) },
+                toToken: { ...quoteTo, address: getAddress(quoteTo.address || quoteTo.underlyingAsset) },
                 priceRoute,
-                adapterAddress: adapterAddress,
+                adapterAddress,
                 srcAmount: srcAmount.toString(),
-                isMaxSwap,
+                isMaxSwap: !!supplyBalance && swapAmount >= supplyBalance,
                 slippageBps: slippage,
                 marketKey: marketKey || targetNetwork.key,
                 chainId,
                 walletAddress: account,
             });
 
-            const { transactionId, swapCallData, augustus, swapAllBalanceOffset, minAmountToReceive } = txResult;
-            localTxId = transactionId;
-            updateCurrentTransactionId(transactionId);
+            localTxId = txResult.transactionId;
+            updateCurrentTransactionId(localTxId);
 
-            const encodedParams = ethers.AbiCoder.defaultAbiCoder().encode(
-                ['address', 'uint256', 'uint256', 'bytes', 'address', 'tuple(uint256,uint256,uint8,bytes32,bytes32)'],
+            // Use explicit params definition to avoid abitype inference errors
+            const encodedParams = encodeAbiParameters(
                 [
-                    quoteTo.address || quoteTo.underlyingAsset,
-                    minAmountToReceive,
-                    swapAllBalanceOffset || 0,
-                    swapCallData,
-                    augustus,
-                    [permitParams.amount, permitParams.deadline, permitParams.v, permitParams.r, permitParams.s]
+                    { name: 'assetToReceive', type: 'address' },
+                    { name: 'minAmountToReceive', type: 'uint256' },
+                    { name: 'swapAllBalanceOffset', type: 'uint256' },
+                    { name: 'swapCallData', type: 'bytes' },
+                    { name: 'augustus', type: 'address' },
+                    {
+                        name: 'permitParams',
+                        type: 'tuple',
+                        components: [
+                            { name: 'amount', type: 'uint256' },
+                            { name: 'deadline', type: 'uint256' },
+                            { name: 'v', type: 'uint8' },
+                            { name: 'r', type: 'bytes32' },
+                            { name: 's', type: 'bytes32' }
+                        ]
+                    }
+                ],
+                [
+                    getAddress(quoteTo.address || quoteTo.underlyingAsset),
+                    BigInt(txResult.minAmountToReceive || 0),
+                    BigInt(txResult.swapAllBalanceOffset || 0),
+                    (txResult.swapCallData || '0x') as Hex,
+                    getAddress(txResult.augustus || zeroAddress),
+                    {
+                        amount: permitParams.amount,
+                        deadline: BigInt(permitParams.deadline),
+                        v: permitParams.v,
+                        r: permitParams.r,
+                        s: permitParams.s
+                    }
                 ]
             );
 
-            const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
-
-            if (simulateError) {
-                throw new Error('Simulation test failure.');
-            }
+            if (simulateError) throw new Error('Simulation Failure');
 
             const flashLoanArgs = [
-                adapterAddress,
-                quoteFrom.address || quoteFrom.underlyingAsset,
+                getAddress(adapterAddress),
+                getAddress(quoteFrom.address || quoteFrom.underlyingAsset),
                 srcAmountBigInt,
                 encodedParams,
                 0
-            ];
+            ] as const;
 
-            let gasLimit;
+            addLog?.('Confirm in your wallet...', 'warning');
 
-            try {
-                const estimatedGas = await poolContract.flashLoanSimple.estimateGas(...flashLoanArgs);
-                gasLimit = (estimatedGas * BigInt(150)) / BigInt(100);
-            } catch (err: any) {
-                const diagnosticReason = err?.reason || err?.data || err?.message;
+            const hash = await walletClient.writeContract({
+                account: getAddress(account),
+                address: getAddress(networkAddresses.POOL),
+                abi: parseAbi(ABIS.POOL),
+                functionName: 'flashLoanSimple',
+                args: flashLoanArgs,
+            });
 
-                if (!String(diagnosticReason).match(/invalid character|could not coalesce error/i)) {
-                    setTxError(String(diagnosticReason).substring(0, 500));
-                    fetchQuote();
+            addLog?.(`Transaction broadcasted: ${hash}`, 'success');
+            if (localTxId) recordTransactionHash(localTxId, hash).catch(() => { });
+            onTxSent?.(hash);
 
-                    return;
-                }
+            const receipt = await publicClient?.waitForTransactionReceipt({ hash });
 
-                gasLimit = BigInt(3000000);
-            }
+            if (receipt?.status === 'reverted') throw new Error('Transaction reverted on-chain.');
 
-            addLog?.('Sending Transaction...', 'warning');
-
-            const tx = await poolContract.flashLoanSimple(...flashLoanArgs, { gasLimit });
-            addLog?.(`Tx sent! Hash: ${tx.hash}`, 'success');
-            
-            // EARLY HASH PULSE: Record hash immediately in the background
+            addLog?.('🚀 Swap Complete!', 'success');
             if (localTxId) {
-                recordTransactionHash(localTxId, tx.hash).catch(err => {
-                    console.warn('[handleSwap] Early hash report failed, will retry or wait for poller:', err.message);
-                });
-            }
-
-            onTxSent?.(tx.hash);
-
-            let receipt;
-
-            try {
-                receipt = await tx.wait();
-            } catch (waitErr: any) {
-                const waitMessage = String(waitErr?.message || '');
-                const isTransientReceiptIssue =
-                    waitErr?.code === 'BAD_DATA' ||
-                    waitMessage.includes('invalid value for value.index') ||
-                    waitMessage.includes('"result": null');
-
-                if (!isTransientReceiptIssue) {
-                    throw waitErr;
-                }
-
-                addLog?.('Submitted successfully. Confirmation in background.', 'warning');
-                clearQuote();
-                updateCurrentTransactionId(null);
-                fetchPositionData();
-
-                return;
-            }
-
-            if (receipt.status === 0) {
-                throw new Error('Transaction reverted on-chain.');
-            }
-
-            addLog?.('🚀 SUCCESS! Collateral Swap complete.', 'success');
-
-            if (localTxId) {
-                try {
-                    await confirmTransactionOnChain(localTxId, {
-                        gasUsed: receipt.gasUsed.toString(),
-                        gasPrice: (receipt.gasPrice || receipt.effectiveGasPrice)?.toString(),
-                        actualPaid: srcAmount.toString(),
-                        // Additional rich metadata for instant backend rehydration
-                        srcActualAmount: srcAmount.toString(),
-                        priceImplicitUsd: activeQuote.priceImplicitUsd || null 
-                    });
-                } catch (confirmErr: any) {
-                    logger.warn('[handleSwap] Backend confirm failed:', confirmErr?.message);
-                }
+                confirmTransactionOnChain(localTxId, {
+                    gasUsed: receipt?.gasUsed ? receipt.gasUsed.toString() : '0',
+                    actualPaid: srcAmount.toString(),
+                }).catch(() => { });
             }
 
             clearQuote();
@@ -541,31 +416,18 @@ export const useCollateralSwapActions = ({
         } catch (error: any) {
             if (isUserRejectedError(error)) {
                 setUserRejected(true);
-                addLog?.('User rejected transaction.', 'warning');
-
-                if (localTxId) {
-                    try {
-                        await rejectTransaction(localTxId, 'wallet_rejected');
-                    } catch {
-                        // Best-effort telemetry only.
-                    }
-                }
+                addLog?.('User rejected swap.', 'warning');
+                if (localTxId) rejectTransaction(localTxId, 'wallet_rejected').catch(() => { });
             } else {
-                setTxError(error.message || 'Swap failed.');
-                addLog?.('FAILURE: ' + error.message, 'error');
+                setTxError(error.message);
+                addLog?.('Swap Failed: ' + error.message, 'error');
             }
-
             resetRefreshCountdown();
         } finally {
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
-    }, [
-        account, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, slippage, clearQuote, fetchPositionData,
-        resetRefreshCountdown, signedPermit, adapterAddress, networkAddresses, chainId, ensureWalletNetwork,
-        targetNetwork.label, preferPermit, forceRequirePermit, handleApprove, onTxSent,
-        networkRpcProvider, clearQuoteError, simulateError
-    ]);
+    }, [account, walletClient, publicClient, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, slippage, adapterAddress, networkAddresses, chainId, ensureWalletNetwork, targetNetwork?.key || '', preferPermit, forceRequirePermit, handleApprove, onTxSent, clearQuote, fetchPositionData, resetRefreshCountdown, signedPermit, marketKey, clearQuoteError, simulateError]);
 
     return {
         isActionLoading, isSigning, signedPermit, forceRequirePermit, txError, userRejected,

@@ -27,7 +27,7 @@ const cacheRef = {
  * @returns {Object} { supplies, borrows, summary, marketAssets, loading, error, refresh }
  */
 export const useUserPosition = (overrideMarketKey?: string) => {
-    const { account, selectedNetwork } = useWeb3();
+    const { account, selectedNetwork, isProxyReady } = useWeb3();
 
     const effectiveMarketKey = overrideMarketKey || selectedNetwork?.key;
     const cacheKey = account && effectiveMarketKey ? `${account}-${effectiveMarketKey}` : '';
@@ -49,7 +49,7 @@ export const useUserPosition = (overrideMarketKey?: string) => {
     const prevMarketRef = useRef<string | undefined>(effectiveMarketKey);
 
     const refresh = useCallback(async (force = false) => {
-        if (!account || !effectiveMarketKey) {
+        if (!account || !effectiveMarketKey || !isProxyReady) {
             setData({ supplies: [], borrows: [], marketAssets: [], summary: null });
             prevAddressRef.current = null;
             prevMarketRef.current = undefined;
@@ -114,7 +114,7 @@ export const useUserPosition = (overrideMarketKey?: string) => {
         } finally {
             setLoading(false);
         }
-    }, [account, effectiveMarketKey, selectedNetwork?.chainId]);
+    }, [account, effectiveMarketKey, selectedNetwork?.chainId, isProxyReady]);
 
     // Automatic refresh with debounce when account or network changes
     useEffect(() => {
@@ -131,11 +131,11 @@ export const useUserPosition = (overrideMarketKey?: string) => {
                 clearTimeout(fetchTimeoutRef.current);
             }
         };
-    }, [refresh]);
+    }, [refresh, isProxyReady]);
 
     return {
         ...data,
-        loading,
+        loading: loading || (!!account && !isProxyReady),
         error,
         lastFetch,
         refresh

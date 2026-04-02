@@ -1,6 +1,7 @@
 import { Search } from 'lucide-react';
 import React, { useState, useMemo, useRef } from 'react';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
+import { formatAPY } from '../utils/formatters';
 import {
     Dialog,
     DialogContent,
@@ -194,8 +195,8 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                                                     onError={onTokenImgError(token.symbol)}
                                                 />
                                             </div>
-                                            <div className="min-w-0">
-                                                <div className="font-bold text-slate-900 dark:text-white truncate">
+                                            <div className="flex flex-col gap-y-1 min-w-0">
+                                                <div className="font-bold text-slate-900 dark:text-white truncate leading-tight">
                                                     {(() => {
                                                         const addr = (token.address || token.underlyingAsset || '').toLowerCase();
 
@@ -234,7 +235,7 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                                                         return token.symbol;
                                                     })()}
                                                 </div>
-                                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate flex items-center gap-1.5 leading-none mt-1">
+                                                <div className="text-xs text-slate-500 dark:text-slate-400 truncate flex items-center gap-1.5 leading-tight">
                                                     {status.reasons.length > 0 ? (
                                                         <span className="text-rose-500/80 font-medium">{status.reasons.join(', ')}</span>
                                                     ) : (
@@ -243,7 +244,7 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                                                             {rate !== undefined && status.amount && (
                                                                 <>
                                                                     <span className="text-slate-300 dark:text-slate-700">•</span>
-                                                                    <span className="font-medium text-slate-400">{(rate * 100).toFixed(2)}% APY</span>
+                                                                    <span className="font-medium text-slate-400">{formatAPY(rate * 100)} APY</span>
                                                                 </>
                                                             )}
                                                         </>
@@ -252,14 +253,14 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                                             </div>
                                         </div>
 
-                                        <div className="text-right shrink-0 flex flex-col justify-center min-h-[40px]">
+                                        <div className="flex flex-col items-end gap-y-1 shrink-0 text-right min-w-0">
                                             {status.amount ? (
                                                 <>
-                                                    <div className="font-bold text-slate-900 dark:text-white leading-none">
+                                                    <div className="font-bold text-slate-900 dark:text-white leading-tight">
                                                         {status.amount}
                                                     </div>
                                                     {status.amountUSD && (
-                                                        <div className="text-xs text-slate-500 font-medium mt-1 leading-none">
+                                                        <div className="text-xs text-slate-500 font-medium leading-tight">
                                                             {status.amountUSD}
                                                         </div>
                                                     )}
@@ -267,10 +268,10 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                                             ) : (
                                                 rate !== undefined && (
                                                     <>
-                                                        <div className="font-bold text-slate-700 dark:text-slate-300 leading-none">
-                                                            {(rate * 100).toFixed(2)}%
+                                                        <div className="font-bold text-slate-700 dark:text-slate-300 leading-tight">
+                                                            {formatAPY(rate * 100)}
                                                         </div>
-                                                        <div className="text-[10px] text-slate-500 uppercase mt-1 leading-none font-medium">APY</div>
+                                                        <div className="text-[10px] text-slate-500 uppercase leading-none font-medium">APY</div>
                                                     </>
                                                 )
                                             )}

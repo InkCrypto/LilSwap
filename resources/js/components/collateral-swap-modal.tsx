@@ -1,5 +1,5 @@
 import clsx from 'clsx';
-import { ethers } from 'ethers';
+import { formatUnits, parseUnits } from 'viem';
 import {
     ArrowRightLeft,
     RefreshCw,
@@ -62,7 +62,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     marketKey: initialMarketKey = null,
     donator = null,
 }) => {
-    const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
+    const { account, selectedNetwork } = useWeb3();
     const { addToast } = useToast();
     const { marketAssets: fetchedMarketAssets, supplies, summary } = useUserPosition(initialMarketKey || '');
     const { addTransaction, setSheetOpen } = useTransactionTracker();
@@ -82,8 +82,6 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         fetchPositionData: refreshPositions,
     } = useCollateralPositions({
         account,
-        provider,
-        networkRpcProvider,
         fromToken,
         addLog: modalLog,
         selectedNetwork
@@ -135,6 +133,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         account,
         enabled: isOpen,
         freezeQuote,
+        marketAssets: localMarketAssets,
     });
 
     const {
@@ -149,8 +148,6 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         clearUserRejected,
     } = useCollateralSwapActions({
         account,
-        provider,
-        networkRpcProvider,
         fromToken,
         toToken,
         allowance: localAllowance,
@@ -242,7 +239,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         if (isUSDMode) {
             if (swapAmount === BigInt(0)) return `0 ${fromToken.symbol}`;
             try {
-                const tokenAmount = ethers.formatUnits(swapAmount, fromToken.decimals || 18);
+                const tokenAmount = formatUnits(swapAmount, fromToken.decimals || 18);
                 return formatCompactToken(tokenAmount, fromToken.symbol);
             } catch { return null; }
         } else {
@@ -263,7 +260,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             // In USD mode, show Token units
             if (swapQuote?.destAmount) {
                 try {
-                    const tokenAmount = ethers.formatUnits(swapQuote.destAmount, toToken.decimals || 18);
+                    const tokenAmount = formatUnits(swapQuote.destAmount, toToken.decimals || 18);
                     return formatCompactToken(tokenAmount, toToken.symbol);
                 } catch { return null; }
             }
@@ -273,7 +270,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             if (swapQuote?.priceRoute?.destUSD) return formatUSD(parseFloat(swapQuote.priceRoute.destUSD));
             if (swapQuote?.destAmount) {
                 try {
-                    const tokenAmount = parseFloat(ethers.formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+                    const tokenAmount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
                     return formatUSD(tokenAmount * price);
                 } catch { return null; }
             }
@@ -820,12 +817,12 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                 const price = parseFloat(fromToken?.priceInUSD || '0');
                                 if (price > 0) {
                                     const tokenAmountNum = parseFloat(normalized) / price;
-                                    amountBI = ethers.parseUnits(tokenAmountNum.toFixed(fromToken?.decimals || 18), fromToken?.decimals || 18);
+                                    amountBI = parseUnits(tokenAmountNum.toFixed(fromToken?.decimals || 18), fromToken?.decimals || 18);
                                 } else {
                                     amountBI = BigInt(0);
                                 }
                             } else {
-                                amountBI = ethers.parseUnits(normalized, fromToken.decimals || 18);
+                                amountBI = parseUnits(normalized, fromToken.decimals || 18);
                             }
 
                             // NO CAPPING — allow above-balance quoting
@@ -836,7 +833,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                     }}
                     onApplyMax={() => {
                         if (!availableBalance || availableBalance === BigInt(0)) return;
-                        const maxTokenAmount = ethers.formatUnits(availableBalance, fromToken.decimals || 18);
+                        const maxTokenAmount = formatUnits(availableBalance, fromToken.decimals || 18);
                         if (isUSDMode) {
                             const price = parseFloat(fromToken.priceInUSD || '0');
                             setInputValue((parseFloat(maxTokenAmount) * price).toFixed(2));
@@ -848,7 +845,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                     onApplyPct={(pct) => {
                         if (!availableBalance || availableBalance === BigInt(0)) return;
                         const amountBI = (availableBalance * BigInt(pct)) / BigInt(100);
-                        const tokenAmount = ethers.formatUnits(amountBI, fromToken.decimals || 18);
+                        const tokenAmount = formatUnits(amountBI, fromToken.decimals || 18);
                         if (isUSDMode) {
                             const price = parseFloat(fromToken.priceInUSD || '0');
                             setInputValue((parseFloat(tokenAmount) * price).toFixed(2));
@@ -923,7 +920,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                 const usdVal = parseFloat(swapQuote.priceRoute.destUSD || '0');
                                                 return usdVal.toFixed(2);
                                             }
-                                            return ethers.formatUnits(swapQuote.destAmount, toToken.decimals || 18);
+                                            return formatUnits(swapQuote.destAmount, toToken.decimals || 18);
                                         })()}
                                         className="text-2xl font-mono font-bold bg-transparent border-none text-slate-900 dark:text-white block w-full py-0.5 leading-none focus:outline-none cursor-text select-all"
                                     />
@@ -988,8 +985,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                             <span>
                                 {(() => {
                                     if (swapQuote && swapAmount > BigInt(0)) {
-                                        const inputF = parseFloat(ethers.formatUnits(swapAmount, fromToken.decimals || 18));
-                                        const outputF = parseFloat(ethers.formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+                                        const inputF = parseFloat(formatUnits(swapAmount, fromToken.decimals || 18));
+                                        const outputF = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
 
                                         if (inputF > 0 && outputF > 0) {
                                             if (invertRate) {
@@ -1085,7 +1082,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                             // Add platform fee estimate from backend quote (already discount-aware)
                                             if (swapQuote) {
                                                 const feeBps = swapQuote?.feeBps || 0;
-                                                const amount = parseFloat(ethers.formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+                                                const amount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
                                                 totalUsd += amount * (feeBps / 10000) * parseFloat(toToken.priceInUSD || '0');
                                             }
 
@@ -1146,7 +1143,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                         return 'Free';
                                                     }
 
-                                                    const amount = parseFloat(ethers.formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+                                                    const amount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
                                                     const fee = amount * (feeBps / 10000);
 
                                                     return fee < 0.00001 ? '< 0.00001' : fee.toLocaleString('en-US', { maximumFractionDigits: 6 });
@@ -1185,8 +1182,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
                                             if (swapQuote && swapQuote.srcAmount && swapQuote.destAmount) {
                                                 try {
-                                                    const withdrawnAmountF = parseFloat(ethers.formatUnits(swapQuote.srcAmount, fromToken.decimals || 18));
-                                                    const newAmountF = parseFloat(ethers.formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+                                                    const withdrawnAmountF = parseFloat(formatUnits(swapQuote.srcAmount, fromToken.decimals || 18));
+                                                    const newAmountF = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
 
                                                     const userEmodeId = summary.eModeCategoryId || 0;
                                                     const activeEMode = userEmodeId > 0 ? summary.eModes?.find((m: any) => m.id === userEmodeId) : null;
@@ -1293,8 +1290,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
                                                 if (swapQuote && swapQuote.srcAmount && swapQuote.destAmount) {
                                                     try {
-                                                        const withdrawnAmountF = parseFloat(ethers.formatUnits(swapQuote.srcAmount, fromToken.decimals || 18));
-                                                        const newAmountF = parseFloat(ethers.formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+                                                        const withdrawnAmountF = parseFloat(formatUnits(swapQuote.srcAmount, fromToken.decimals || 18));
+                                                        const newAmountF = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
 
                                                          const fromAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
                                                          const fromMarketToken = (localMarketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === fromAddr);
@@ -1431,7 +1428,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                 const fromAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
                                                 const existingFromSupply = activeSupplies.find(s => (s.underlyingAsset || '').toLowerCase() === fromAddr);
                                                 const existingFromBalance = existingFromSupply ? parseFloat(existingFromSupply.formattedAmount || '0') : 0;
-                                                const withdrawnAmount = parseFloat(ethers.formatUnits(swapQuote.srcAmount || "0", fromToken.decimals || 18));
+                                                const withdrawnAmount = parseFloat(formatUnits(swapQuote.srcAmount || "0", fromToken.decimals || 18));
                                                 fromRemaining = Math.max(0, existingFromBalance - withdrawnAmount);
                                             } catch {
                                                 // Ignore malformed balances from upstream data.
@@ -1449,7 +1446,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                 toTotal = existingToBalance;
 
                                                 if (swapQuote) {
-                                                    const grossReceived = parseFloat(ethers.formatUnits(swapQuote.destAmount || "0", toToken.decimals || 18));
+                                                    const grossReceived = parseFloat(formatUnits(swapQuote.destAmount || "0", toToken.decimals || 18));
                                                     // Deduct fee and slippage for conservative estimate
                                                     const netReceived = grossReceived * (1 - ((swapQuote.feeBps || 0) / 10000)) * (1 - (slippage / 10000));
                                                     toTotal = existingToBalance + netReceived;
@@ -1514,7 +1511,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                     if (simulatedHf !== -1 && simulatedHf < 1.05 && currentTotalBorrowsUSD > 0 && !isInsufficientBalance) {
                         alerts.push({
                             label: 'Danger:',
-                            message: `This swap will leave your Health Factor very low (${simulatedHf.toFixed(2)}).`,
+                            message: `This swap will leave your Health Factor very low (${formatHF(simulatedHf)}).`,
                             isDanger: true,
                         });
                     }

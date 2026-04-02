@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import { Hex } from 'viem';
 import { getMarketByChainId, getMarketByKey } from '../constants/networks';
 import { getUserTransactionsHistory } from '../services/api';
 import { createRpcProvider } from '../helpers/rpc-helper';
@@ -205,11 +206,11 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
                         continue;
                     }
 
-                    const provider = createRpcProvider(market.rpcUrls);
-                    const receipt = await provider.getTransactionReceipt(tx.hash);
+                    const provider = createRpcProvider(market.rpcUrls, tx.chainId);
+                    const receipt = await provider.getTransactionReceipt({ hash: tx.hash as Hex });
 
                     if (receipt) {
-                        const isSuccess = receipt.status === 1;
+                        const isSuccess = receipt.status === 'success';
 
                         setTransactions(prev => prev.map(t =>
                             t.hash === tx.hash ? { ...t, status: isSuccess ? 'success' : 'error' } : t

@@ -10,19 +10,45 @@ import {
     AaveV3Gnosis,
     AaveV3Sonic
 } from '@bgd-labs/aave-address-book';
-import { ethers } from 'ethers';
+import { getAddress } from 'viem';
+import { 
+    mainnet, 
+    bsc, 
+    polygon, 
+    base, 
+    arbitrum, 
+    avalanche, 
+    optimism, 
+    gnosis,
+    sonic
+} from 'viem/chains';
 import logger from '../utils/logger';
 
 /**
- * Helper: Normalize address checksum using ethers v6
+ * Single Source of Truth for Wagmi/Viem chains
+ */
+export const SUPPORTED_CHAINS = [
+    mainnet, 
+    bsc, 
+    polygon, 
+    base, 
+    arbitrum, 
+    avalanche, 
+    optimism, 
+    gnosis,
+    sonic
+] as const;
+
+/**
+ * Helper: Normalize address checksum using viem
  */
 const normalizeAddress = (address: string | undefined): string | null => {
     if (!address) {
-return null;
-}
+        return null;
+    }
 
     try {
-        return ethers.getAddress(address);
+        return getAddress(address);
     } catch (error: any) {
         logger.warn(`[networks.ts] Failed to normalize address ${address}:`, error.message);
 
@@ -53,7 +79,7 @@ const AUGUSTUS_ADDRESSES = {
     V5_BASE: normalizeAddress('0x59C7C832e96D2568bea6db468C1aAdcbbDa08A52')!,
 };
 
-const getAlchemyRpcUrl = (slug: string) => `${window.location.origin}/rpc/${slug}`;
+export const getAlchemyRpcUrl = (slug: string) => `${window.location.origin}/rpc/${slug}`;
 
 export interface MarketConfig {
     key: string;

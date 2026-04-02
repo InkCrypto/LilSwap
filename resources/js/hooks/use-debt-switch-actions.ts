@@ -1,19 +1,24 @@
-import { ethers } from 'ethers';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { 
+    getAddress, 
+    formatUnits, 
+    parseAbi, 
+    zeroAddress, 
+    encodeAbiParameters, 
+    Hex,
+    zeroHash,
+} from 'viem';
+import { useCallback, useEffect, useState, useMemo } from 'react';
+import { usePublicClient, useWalletClient } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
 import { buildDebtSwapTx } from '../services/api';
-// Assuming these exist in transactionsApi.ts which will be migrated or is already present
 import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } from '../services/transactions-api';
-
 import { isUserRejectedError } from '../utils/logger';
 import { calcApprovalAmount } from '../utils/swap-math';
 
 interface UseDebtSwitchActionsProps {
     account: string | null;
-    provider: any;
-    networkRpcProvider: any;
     fromToken: any;
     toToken: any;
     allowance: bigint;
@@ -30,14 +35,13 @@ interface UseDebtSwitchActionsProps {
     selectedNetwork: any;
     simulateError?: boolean;
     preferPermit?: boolean;
-    freezeQuote?: boolean;
     marketKey?: string | null;
     onTxSent?: (hash: string) => void;
+    freezeQuote?: boolean;
 }
 
 export const useDebtSwitchActions = ({
     account,
-    provider,
     fromToken,
     toToken,
     allowance,
@@ -54,7 +58,11 @@ export const useDebtSwitchActions = ({
     preferPermit = true,
     marketKey = null,
     onTxSent,
+    freezeQuote = false,
 }: UseDebtSwitchActionsProps) => {
+    const publicClient = usePublicClient();
+    const { data: walletClient } = useWalletClient();
+
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isSigning, setIsSigning] = useState(false);
     const [signedPermit, setSignedPermit] = useState<any>(null);
@@ -64,13 +72,11 @@ export const useDebtSwitchActions = ({
                 return window.localStorage.getItem('lilswap.forceRequirePermit') === '1';
             }
         } catch {
-            // Ignore localStorage unavailability.
+            return false;
         }
-
         return false;
     });
     const [txError, setTxError] = useState<string | null>(null);
-    const [pendingTxParams] = useState<any>(null);
     const [lastAttemptedQuote, setLastAttemptedQuote] = useState<any>(null);
     const [userRejected, setUserRejected] = useState(false);
     const [currentTransactionId, setCurrentTransactionId] = useState<string | null>(() => {
@@ -79,15 +85,13 @@ export const useDebtSwitchActions = ({
                 return window.localStorage.getItem('lilswap.txId');
             }
         } catch {
-            // Ignore localStorage unavailability.
+            return null;
         }
-
         return null;
     });
 
     const updateCurrentTransactionId = (id: string | null) => {
         setCurrentTransactionId(id);
-
         try {
             if (typeof window !== 'undefined' && window.localStorage) {
                 if (id) {
@@ -97,26 +101,22 @@ export const useDebtSwitchActions = ({
                 }
             }
         } catch {
-            // Ignore localStorage unavailability.
+            // Ignore
         }
     };
 
     const targetNetwork = selectedNetwork || DEFAULT_NETWORK;
     const networkAddresses = targetNetwork.addresses || ADDRESSES;
     const adapterAddress = useMemo(() => {
-        if (!networkAddresses?.DEBT_SWAP_ADAPTER) {
-            return null;
-        }
-
+        if (!networkAddresses?.DEBT_SWAP_ADAPTER) return null;
         try {
-            return ethers.getAddress(networkAddresses.DEBT_SWAP_ADAPTER);
+            return getAddress(networkAddresses.DEBT_SWAP_ADAPTER);
         } catch {
             return null;
         }
     }, [networkAddresses?.DEBT_SWAP_ADAPTER]);
 
     const chainId = targetNetwork.chainId;
-    const targetHexChainId = targetNetwork.hexChainId;
 
     useEffect(() => {
         setSignedPermit(null);
@@ -127,39 +127,43 @@ export const useDebtSwitchActions = ({
     }, [fromToken?.symbol, fromToken?.address, toToken?.symbol, toToken?.address]);
 
     const ensureWalletNetwork = useCallback(async () => {
-        if (!provider) {
-            addLog?.('Provider unavailable.', 'error');
-
-            return null;
+        if (!walletClient) {
+            addLog?.('Wallet not connected.', 'error');
+            return false;
         }
-
-        try {
-            const currentNetwork = await provider.getNetwork();
-
-            if (Number(currentNetwork.chainId) === chainId) {
-                return provider;
+        const currentChainId = await walletClient.getChainId();
+        if (currentChainId !== chainId) {
+            try {
+                await walletClient.switchChain({ id: chainId });
+                return true;
+            } catch (error: any) {
+                addLog?.(`Error switching network: ${error.message}`, 'error');
+                return false;
             }
-        } catch {
-            return null;
         }
+        return true;
+    }, [walletClient, chainId, addLog]);
 
+    const generateAndCachePermit = useCallback(async (debtTokenAddr: string) => {
+        if (!walletClient || !account) return null;
         try {
-            await provider.send('wallet_switchEthereumChain', [{ chainId: targetHexChainId }]);
+            const nonce = await publicClient?.readContract({
+                address: getAddress(debtTokenAddr),
+                abi: parseAbi(ABIS.DEBT_TOKEN),
+                functionName: 'nonces',
+                args: [getAddress(account)],
+            }) as bigint;
 
-            return provider;
-        } catch {
-            return null;
-        }
-    }, [provider, chainId, targetHexChainId, addLog]);
+            const name = await publicClient?.readContract({
+                address: getAddress(debtTokenAddr),
+                abi: parseAbi(ABIS.DEBT_TOKEN),
+                functionName: 'name',
+            }) as string;
 
-    const generateAndCachePermit = useCallback(async (debtTokenAddr: string, signer: any) => {
-        try {
-            const debtContract = new ethers.Contract(debtTokenAddr, ABIS.DEBT_TOKEN, signer);
-            const [nonce, name] = await Promise.all([debtContract.nonces(account), debtContract.name()]);
-            const deadline = Math.floor(Date.now() / 1000) + 3600;
-            const value = ethers.MaxUint256;
+            const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+            const value = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
-            const domain = { name, version: '1', chainId, verifyingContract: debtTokenAddr };
+            const domain = { name, version: '1', chainId, verifyingContract: getAddress(debtTokenAddr) };
             const types = {
                 DelegationWithSig: [
                     { name: 'delegatee', type: 'address' },
@@ -168,119 +172,108 @@ export const useDebtSwitchActions = ({
                     { name: 'deadline', type: 'uint256' },
                 ],
             };
-            const message = { delegatee: adapterAddress, value, nonce, deadline };
+            const message = { delegatee: getAddress(adapterAddress!), value, nonce, deadline };
 
-            addLog?.('Requesting signature...', 'warning');
-            const signature = await signer.signTypedData(domain, types, message);
-            const sig = ethers.Signature.from(signature);
+            addLog?.('Requesting delegation signature...', 'warning');
+            const signature = await walletClient.signTypedData({
+                account: getAddress(account),
+                domain,
+                types,
+                primaryType: 'DelegationWithSig',
+                message,
+            });
 
-            const permitParams = { amount: value, deadline, v: sig.v, r: sig.r, s: sig.s };
-            setSignedPermit({ params: permitParams, token: debtTokenAddr, deadline, value });
+            const r = `0x${signature.substring(2, 66)}` as Hex;
+            const s = `0x${signature.substring(66, 130)}` as Hex;
+            const v = parseInt(signature.substring(130, 132), 16);
+
+            const permitParams = { amount: value, deadline: Number(deadline), v, r, s };
+            setSignedPermit({ params: permitParams, token: debtTokenAddr, deadline: Number(deadline), value });
             setForceRequirePermit(false);
-            window.localStorage.removeItem('lilswap.forceRequirePermit');
 
             return permitParams;
         } catch (err: any) {
             if (!isUserRejectedError(err)) {
                 addLog?.('Signature failed: ' + err.message, 'error');
             }
-
             throw err;
         }
-    }, [account, adapterAddress, addLog, chainId]);
+    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog]);
 
     const handleApproveDelegation = useCallback(async (preferPermitOverride?: boolean) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
-
-        if (!provider || !toToken || !adapterAddress) {
-            return;
-        }
+        if (!walletClient || !toToken || !adapterAddress || !account) return;
 
         try {
             setIsActionLoading(true);
             setIsSigning(true);
-            const signer = await provider.getSigner();
+            
             let debtTokenAddress = toToken.variableDebtTokenAddress;
-
-            if (!debtTokenAddress || debtTokenAddress === ethers.ZeroAddress) {
-                const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
-                const toReserveData = await poolContract.getReserveData(toToken.address || toToken.underlyingAsset);
-                debtTokenAddress = toReserveData.variableDebtTokenAddress;
+            if (!debtTokenAddress || debtTokenAddress === zeroAddress) {
+                const toReserveData = await publicClient?.readContract({
+                    address: getAddress(networkAddresses.POOL),
+                    abi: parseAbi(ABIS.POOL_GETTER),
+                    functionName: 'getReserveData',
+                    args: [getAddress(toToken.address || toToken.underlyingAsset)],
+                }) as any;
+                debtTokenAddress = toReserveData.variableDebtTokenAddress || toReserveData[11];
             }
 
             if (preferPermitFinal) {
-                const permit = await generateAndCachePermit(debtTokenAddress, signer);
-
+                const permit = await generateAndCachePermit(debtTokenAddress);
                 return { type: 'permit', permit };
             }
 
-            const debtContract = new ethers.Contract(debtTokenAddress, ABIS.DEBT_TOKEN, signer);
-            const tx = await debtContract.approveDelegation(adapterAddress, ethers.MaxUint256);
-            await tx.wait();
+            addLog?.('Sending Approval Transaction...');
+            const hash = await walletClient.writeContract({
+                account: getAddress(account),
+                address: getAddress(debtTokenAddress),
+                abi: parseAbi(ABIS.DEBT_TOKEN),
+                functionName: 'approveDelegation',
+                args: [getAddress(adapterAddress), BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")],
+            });
+
+            await publicClient?.waitForTransactionReceipt({ hash });
             fetchDebtData();
 
-            return { type: 'tx', tx };
+            return { type: 'tx', hash };
         } catch (error: any) {
             if (!isUserRejectedError(error)) {
                 addLog?.('Approval error: ' + error.message, 'error');
             }
-
             throw error;
         } finally {
             setIsSigning(false);
             setIsActionLoading(false);
         }
-    }, [provider, toToken, adapterAddress, networkAddresses, preferPermit, generateAndCachePermit, fetchDebtData, addLog]);
+    }, [walletClient, publicClient, account, toToken, adapterAddress, networkAddresses, preferPermit, generateAndCachePermit, fetchDebtData, addLog]);
 
     const handleSwap = useCallback(async () => {
-        if (!adapterAddress) {
-            return;
-        }
+        if (!adapterAddress || !account || !walletClient) return;
 
         setTxError(null);
         clearQuoteError?.();
         setUserRejected(false);
 
         if (debtBalance !== null && swapAmount > debtBalance) {
-            addLog?.('Insufficient balance to perform this swap.', 'error');
+            addLog?.('Insufficient debt balance.', 'error');
             setTxError('Insufficient balance');
-
             return;
         }
 
         let activeQuote = swapQuote;
-
         if (!activeQuote) {
             addLog?.('Fetching quote...', 'info');
             activeQuote = await fetchQuote();
-
-            if (!activeQuote) {
-                return;
-            }
-        }
-
-        const quoteAge = Math.floor(Date.now() / 1000) - (activeQuote.timestamp || 0);
-
-        if (quoteAge > 300) {
-            addLog?.('Quote expired, updating...', 'warning');
-            activeQuote = await fetchQuote();
-
-            if (!activeQuote) {
-                return;
-            }
+            if (!activeQuote) return;
         }
 
         setLastAttemptedQuote(activeQuote);
         setIsActionLoading(true);
 
         try {
-            const activeProvider = await ensureWalletNetwork();
-
-            if (!activeProvider) {
-                return;
-            }
-
-            const signer = await activeProvider.getSigner();
+            const hasCorrectNetwork = await ensureWalletNetwork();
+            if (!hasCorrectNetwork) return;
 
             const { priceRoute, srcAmount, fromToken: qFrom, toToken: qTo } = activeQuote;
             const srcAmountBigInt = BigInt(srcAmount);
@@ -288,27 +281,28 @@ export const useDebtSwitchActions = ({
             const maxNewDebt = calcApprovalAmount(srcAmountBigInt, bufferBps);
             const exactDebtRepayAmount = activeQuote.destAmount;
 
-            let permitParams = { amount: 0n, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
+            let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
             let newDebtTokenAddr = qTo.variableDebtTokenAddress;
 
-            if (!newDebtTokenAddr || newDebtTokenAddr === ethers.ZeroAddress) {
-                const poolContract = new ethers.Contract(networkAddresses.POOL, ABIS.POOL, signer);
-                const toReserveData = await poolContract.getReserveData(qTo.address || qTo.underlyingAsset);
-                newDebtTokenAddr = toReserveData.variableDebtTokenAddress;
+            if (!newDebtTokenAddr || newDebtTokenAddr === zeroAddress) {
+                const toReserveData = await publicClient?.readContract({
+                    address: getAddress(networkAddresses.POOL),
+                    abi: parseAbi(ABIS.POOL_GETTER),
+                    functionName: 'getReserveData',
+                    args: [getAddress(qTo.address || qTo.underlyingAsset)],
+                }) as any;
+                newDebtTokenAddr = toReserveData.variableDebtTokenAddress || toReserveData[11];
             }
 
             if (allowance < maxNewDebt || forceRequirePermit) {
                 if (forceRequirePermit || preferPermit) {
-                    if (signedPermit && !forceRequirePermit && signedPermit.token === newDebtTokenAddr && signedPermit.deadline > Date.now() / 1000 && signedPermit.value >= maxNewDebt) {
+                    if (signedPermit && !forceRequirePermit && signedPermit.token === newDebtTokenAddr && signedPermit.deadline > Math.floor(Date.now() / 1000) && signedPermit.value >= maxNewDebt) {
                         permitParams = signedPermit.params;
                     } else {
                         const res = await handleApproveDelegation(true);
                         setIsActionLoading(true);
-
                         if (res?.permit) {
                             permitParams = res.permit;
-                            setForceRequirePermit(false);
-                            window.localStorage.removeItem('lilswap.forceRequirePermit');
                         } else {
                             throw new Error('Signature failed');
                         }
@@ -316,15 +310,15 @@ export const useDebtSwitchActions = ({
                 } else {
                     await handleApproveDelegation(false);
                     setIsActionLoading(true);
-                    await new Promise(r => setTimeout(r, 1000));
+                    await new Promise(r => setTimeout(r, 1500));
                     fetchDebtData();
                 }
             }
 
-            addLog?.('2/3 Building transaction...', 'info');
+            addLog?.('Building secure transaction calldata...', 'info');
             const txResult = await buildDebtSwapTx({
-                fromToken: { address: qFrom.address || qFrom.underlyingAsset, decimals: qFrom.decimals, symbol: qFrom.symbol },
-                toToken: { address: qTo.address || qTo.underlyingAsset, decimals: qTo.decimals, symbol: qTo.symbol },
+                fromToken: { address: getAddress(qFrom.address || qFrom.underlyingAsset), decimals: qFrom.decimals, symbol: qFrom.symbol },
+                toToken: { address: getAddress(qTo.address || qTo.underlyingAsset), decimals: qTo.decimals, symbol: qTo.symbol },
                 priceRoute,
                 adapterAddress,
                 destAmount: exactDebtRepayAmount.toString(),
@@ -336,94 +330,67 @@ export const useDebtSwitchActions = ({
                 walletAddress: account,
             });
 
-            const { transactionId, swapCallData, augustus, dynamicOffset } = txResult;
-            updateCurrentTransactionId(transactionId);
+            const encodedParaswapData = encodeAbiParameters(
+                [{ type: 'bytes' }, { type: 'address' }],
+                [txResult.swapCallData as Hex, getAddress(txResult.augustus)]
+            );
 
-            const encodedParaswapData = ethers.AbiCoder.defaultAbiCoder().encode(['bytes', 'address'], [swapCallData, augustus]);
             const swapParams = {
-                debtAsset: qFrom.address || qFrom.underlyingAsset,
-                debtRepayAmount: exactDebtRepayAmount,
-                debtRateMode: 2,
-                newDebtAsset: qTo.address || qTo.underlyingAsset,
+                debtAsset: getAddress(qFrom.address || qFrom.underlyingAsset),
+                debtRepayAmount: BigInt(exactDebtRepayAmount),
+                debtRateMode: 2n,
+                newDebtAsset: getAddress(qTo.address || qTo.underlyingAsset),
                 maxNewDebtAmount: maxNewDebt,
-                extraCollateralAsset: ethers.ZeroAddress,
+                extraCollateralAsset: zeroAddress,
                 extraCollateralAmount: 0n,
-                offset: dynamicOffset || 0,
+                offset: BigInt(txResult.dynamicOffset || 0),
                 paraswapData: encodedParaswapData,
             };
 
             const creditPermit = {
-                debtToken: permitParams.amount === 0n ? ethers.ZeroAddress : newDebtTokenAddr,
+                debtToken: permitParams.amount === 0n ? zeroAddress : getAddress(newDebtTokenAddr),
                 value: permitParams.amount,
-                deadline: permitParams.deadline,
+                deadline: BigInt(permitParams.deadline),
                 v: permitParams.v,
                 r: permitParams.r,
                 s: permitParams.s,
             };
 
-            const collateralPermit = { aToken: ethers.ZeroAddress, value: 0n, deadline: 0, v: 0, r: ethers.ZeroHash, s: ethers.ZeroHash };
+            const collateralPermit = { aToken: zeroAddress, value: 0n, deadline: 0n, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
 
-            addLog?.('3/3 Confirming in wallet...', 'warning');
-            const adapterContract = new ethers.Contract(adapterAddress, ABIS.ADAPTER, signer);
-
-            let gasLimit;
-
-            try {
-                const est = await adapterContract.swapDebt.estimateGas(swapParams, creditPermit, collateralPermit);
-                gasLimit = (est * 150n) / 100n;
-
-                if (gasLimit < 2000000n) {
-                    gasLimit = 2000000n;
-                }
-            } catch {
-                addLog?.('Gas estimation failed, using fallback.', 'warning');
-                gasLimit = 4000000n;
-            }
-
-            const tx = await adapterContract.swapDebt(swapParams, creditPermit, collateralPermit, { gasLimit });
-            addLog?.(`Tx sent: ${tx.hash}`, 'success');
+            addLog?.('Confirm in your wallet...', 'warning');
             
-            // EARLY HASH PULSE: Record hash immediately in the background
-            if (transactionId) {
-                recordTransactionHash(transactionId, tx.hash).catch(err => {
-                    console.warn('[handleSwap] Early hash report failed:', err.message);
-                });
+            const hash = await walletClient.writeContract({
+                account: getAddress(account),
+                address: getAddress(adapterAddress),
+                abi: parseAbi(ABIS.ADAPTER),
+                functionName: 'swapDebt',
+                args: [swapParams, creditPermit, collateralPermit],
+            });
+
+            addLog?.(`Transaction broadcasted: ${hash}`, 'success');
+            if (txResult.transactionId) recordTransactionHash(txResult.transactionId, hash).catch(() => {});
+            onTxSent?.(hash);
+
+            const receipt = await publicClient?.waitForTransactionReceipt({ hash });
+            
+            if (receipt?.status === 'reverted') throw new Error('Transaction reverted on-chain.');
+
+            addLog?.('🚀 Swap Complete!', 'success');
+            if (txResult.transactionId) {
+                confirmTransactionOnChain(txResult.transactionId.toString(), {
+                    gasUsed: receipt?.gasUsed ? receipt.gasUsed.toString() : '0',
+                    actualPaid: exactDebtRepayAmount ? exactDebtRepayAmount.toString() : '0',
+                }).catch(() => {});
             }
 
-            onTxSent?.(tx.hash);
-
-            const receipt = await tx.wait();
-
-            if (receipt.status === 0) {
-                throw new Error('Transaction reverted');
-            }
-
-            if (transactionId) {
-                try {
-                    await confirmTransactionOnChain(transactionId, {
-                        gasUsed: receipt.gasUsed.toString(),
-                        gasPrice: (receipt.gasPrice || receipt.effectiveGasPrice)?.toString(),
-                        actualPaid: exactDebtRepayAmount.toString(),
-                        // Rich metadata for instant sync
-                        srcActualAmount: srcAmount.toString(),
-                        priceImplicitUsd: activeQuote?.priceImplicitUsd || null
-                    });
-                } catch (confirmErr: any) {
-                    console.warn('[handleSwap] Backend confirm failed:', confirmErr?.message);
-                }
-            }
-
-            addLog?.('SUCCESS! Swap complete.', 'success');
             clearQuote();
             fetchDebtData();
         } catch (error: any) {
             if (isUserRejectedError(error)) {
                 setUserRejected(true);
                 addLog?.('Cancelled by user.', 'warning');
-
-                if (currentTransactionId) {
-                    await rejectTransaction(currentTransactionId, 'wallet_rejected');
-                }
+                if (currentTransactionId) rejectTransaction(currentTransactionId, 'wallet_rejected').catch(() => {});
             } else {
                 setTxError(error.message);
                 addLog?.('Error: ' + error.message, 'error');
@@ -432,11 +399,11 @@ export const useDebtSwitchActions = ({
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
-    }, [account, allowance, swapQuote, fetchQuote, addLog, slippage, clearQuote, fetchDebtData, signedPermit, adapterAddress, networkAddresses, chainId, ensureWalletNetwork, preferPermit, forceRequirePermit, handleApproveDelegation, onTxSent, currentTransactionId, clearQuoteError]);
+    }, [account, walletClient, publicClient, allowance, swapAmount, debtBalance, swapQuote, fetchQuote, addLog, slippage, adapterAddress, networkAddresses, chainId, ensureWalletNetwork, preferPermit, forceRequirePermit, handleApproveDelegation, onTxSent, currentTransactionId, clearQuoteError, clearQuote, fetchDebtData, marketKey || '', targetNetwork?.key || '']);
 
     return {
-        isActionLoading, isSigning, signedPermit, forceRequirePermit, txError, pendingTxParams,
-        lastAttemptedQuote, userRejected, handleApproveDelegation, handleSwap, clearTxError: () => setTxError(null),
-        clearUserRejected: () => setUserRejected(false), clearCachedPermit: () => { }, setTxError
+        isActionLoading, isSigning, signedPermit, forceRequirePermit, txError, lastAttemptedQuote, userRejected,
+        handleApproveDelegation, handleSwap, clearTxError: () => setTxError(null),
+        clearUserRejected: () => setUserRejected(false), clearCachedPermit: () => {}, setTxError
     };
 };

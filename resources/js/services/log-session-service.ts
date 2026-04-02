@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { keccak256, toBytes, toHex } from 'viem';
 
 /**
  * LogSessionService
@@ -28,12 +28,27 @@ class LogSessionService {
         const bodyString = JSON.stringify(body);
 
         try {
-            // Compute HMAC using ethers v6
-            const signature = ethers.computeHmac(
-                'sha256',
-                ethers.getBytes(ethers.id(secret)), // Adjusting for ethers v6 if needed, but legacy used hexlify(utf8)
-                ethers.toUtf8Bytes(timestamp + bodyString)
+            // Compute HMAC using native Web Crypto API + Viem utilities
+            // 1. Create the key from the secret (matching ethers.id which is keccak256)
+            const keyData = new Uint8Array(toBytes(keccak256(toBytes(secret))));
+            const cryptoKey = await window.crypto.subtle.importKey(
+                'raw',
+                keyData,
+                { name: 'HMAC', hash: 'SHA-256' },
+                false,
+                ['sign']
             );
+
+            // 2. Sign the payload
+            const messageData = new Uint8Array(toBytes(timestamp + bodyString));
+            const signatureBuffer = await window.crypto.subtle.sign(
+                'HMAC',
+                cryptoKey,
+                messageData
+            );
+
+            // 3. Convert to hex (toHex adds 0x prefix by default, matching ethers behavior)
+            const signature = toHex(new Uint8Array(signatureBuffer));
 
             return {
                 signature,

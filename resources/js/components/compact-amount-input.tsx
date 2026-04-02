@@ -86,12 +86,6 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
         if (!maxAmount || maxAmount === BigInt(0)) {
             return;
         }
-
-        // ethers is no longer imported, so we expect the parent to handle this if they want to be precise,
-        // but for backward compatibility if we had ethers, we'd use it.
-        // Actually, let's just make onApplyMax/Pct required or handle them in parent.
-        // I'll re-add ethers just in case or better, force the parent to provide handlers.
-        // I'll be explicit here: this component doesn't need ethers anymore as parents handle calculations.
     };
 
     const handleApplyMax = () => {

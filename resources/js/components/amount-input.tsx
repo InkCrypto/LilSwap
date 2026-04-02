@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { formatUnits, parseUnits } from 'viem';
 import React, { useState, useEffect, useRef } from 'react';
 import logger from '../utils/logger';
 import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
@@ -39,7 +39,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
         }
 
         if (maxAmount && maxAmount > BigInt(0)) {
-            const formatted = ethers.formatUnits(maxAmount, decimals);
+            const formatted = formatUnits(maxAmount, decimals);
             setInputValue(formatted);
             setSelectedPercentage(100);
             onAmountChange(maxAmount);
@@ -71,7 +71,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
 
         setSelectedPercentage(percentage);
         const calculatedAmount = (maxAmount * BigInt(percentage)) / BigInt(100);
-        const formatted = ethers.formatUnits(calculatedAmount, decimals);
+        const formatted = formatUnits(calculatedAmount, decimals);
         setInputValue(formatted);
         onAmountChange(calculatedAmount);
     };
@@ -97,7 +97,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
                 onAmountChange(BigInt(0));
             } else {
                 const parsable = normalized.endsWith('.') ? `${normalized.slice(0, -1) || '0'}` : normalized;
-                const parsedAmount = ethers.parseUnits(parsable, decimals);
+                const parsedAmount = parseUnits(parsable, decimals);
 
                 if (parsedAmount > maxAmount) {
                     onAmountChange(maxAmount);
@@ -125,7 +125,7 @@ export const AmountInput: React.FC<AmountInputProps> = ({
     ];
 
     const formattedMax = maxAmount > BigInt(0)
-        ? Number(ethers.formatUnits(maxAmount, decimals)).toLocaleString('en-US', { maximumFractionDigits: 6 })
+        ? Number(formatUnits(maxAmount, decimals)).toLocaleString('en-US', { maximumFractionDigits: 6 })
         : '0';
 
     return (

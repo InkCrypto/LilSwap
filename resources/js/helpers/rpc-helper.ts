@@ -1,99 +1,86 @@
-import { ethers } from 'ethers';
+import { createPublicClient, http, fallback, PublicClient } from 'viem';
+import { SUPPORTED_CHAINS, getMarketByChainId } from '../constants/networks';
 import logger from '../utils/logger';
 
-function getCsrfToken(): string | null {
-    if (typeof document === 'undefined') {
-return null;
-}
-
+export function getCsrfToken(): string | null {
+    if (typeof document === 'undefined') return null;
     return document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') || null;
 }
 
-function isSameOriginRpcUrl(rpcUrl: string): boolean {
-    if (rpcUrl.startsWith('/rpc/')) {
-return true;
-}
-
-    if (typeof window === 'undefined') {
-return false;
-}
-
+export function isSameOriginRpcUrl(rpcUrl: string): boolean {
+    if (rpcUrl.startsWith('/rpc/')) return true;
+    if (typeof window === 'undefined') return false;
     try {
         const url = new URL(rpcUrl, window.location.origin);
-
         return url.origin === window.location.origin && url.pathname.startsWith('/rpc/');
     } catch {
         return false;
     }
 }
 
-function buildProviderConnection(rpcUrl: string): string | ethers.FetchRequest {
-    if (!isSameOriginRpcUrl(rpcUrl)) {
-        return rpcUrl;
+export function buildTransportHeaders(rpcUrl: string): Record<string, string> {
+    const headers: Record<string, string> = {
+        'X-Requested-With': 'XMLHttpRequest',
+    };
+    if (isSameOriginRpcUrl(rpcUrl)) {
+        const csrfToken = getCsrfToken();
+        if (csrfToken) headers['X-CSRF-TOKEN'] = csrfToken;
     }
-
-    const request = new ethers.FetchRequest(rpcUrl);
-    request.setHeader('X-Requested-With', 'XMLHttpRequest');
-
-    const csrfToken = getCsrfToken();
-
-    if (csrfToken) {
-        request.setHeader('X-CSRF-TOKEN', csrfToken);
-    }
-
-    return request;
+    return headers;
 }
 
 /**
- * Attempts to create a working RPC provider by trying multiple RPC URLs in order.
+ * Attempts to create a working PublicClient by trying multiple RPC URLs in order.
+ * Automatically prepends local proxy URL for better reliability.
  */
-export async function createRpcProviderWithFallback(rpcUrls: string[], timeout: number = 5000): Promise<ethers.JsonRpcProvider> {
-    if (!rpcUrls || rpcUrls.length === 0) {
-        throw new Error('No RPC URLs provided');
+export async function createRpcProviderWithFallback(rpcUrls: string[], chainId: number): Promise<PublicClient> {
+    if (!rpcUrls || rpcUrls.length === 0) throw new Error('No RPC URLs provided');
+
+    // Simple chain lookup
+    const chain = SUPPORTED_CHAINS.find(c => c.id === chainId) || SUPPORTED_CHAINS[0];
+    const market = getMarketByChainId(chainId);
+    const slug = market?.alchemySlug;
+
+    // Prepend local proxy URL to the list if we have a slug
+    const augmentedUrls = slug ? [`/rpc/${slug}`, ...rpcUrls] : rpcUrls;
+    const uniqueUrls = Array.from(new Set(augmentedUrls));
+
+    const transports = uniqueUrls.map(url => http(url, { fetchOptions: { headers: buildTransportHeaders(url) } }));
+
+    const client = createPublicClient({
+        chain,
+        transport: fallback(transports, { rank: true }),
+    });
+
+    try {
+        await client.getBlockNumber();
+        return client as any;
+    } catch (error) {
+        logger.error('All RPCs failed for fallbacked client:', error);
+        // Return anyway as a fallback client
+        return client as any;
     }
-
-    const errors: string[] = [];
-
-    for (const rpcUrl of rpcUrls) {
-        try {
-            const provider = new ethers.JsonRpcProvider(buildProviderConnection(rpcUrl), undefined, { staticNetwork: true });
-
-            const blockNumberPromise = provider.getBlockNumber();
-            const timeoutPromise = new Promise<never>((_, reject) =>
-                setTimeout(() => reject(new Error('Timeout')), timeout)
-            );
-
-            await Promise.race([blockNumberPromise, timeoutPromise]);
-
-            return provider;
-        } catch (error: any) {
-            const errorMsg = `${rpcUrl}: ${error.message}`;
-            errors.push(errorMsg);
-            logger.warn(`❌ RPC failed: ${errorMsg}`);
-        }
-    }
-
-    logger.error('All RPCs failed. Using first URL as fallback:', rpcUrls[0]);
-    logger.error('Errors:', errors);
-
-    return new ethers.JsonRpcProvider(rpcUrls[0], undefined, { staticNetwork: true });
 }
 
 /**
- * Creates a synchronous RPC provider (doesn't test connection)
+ * Creates a synchronous RPC client.
+ * Automatically prepends local proxy URL.
  */
-export function createRpcProvider(rpcUrls: string[]): ethers.JsonRpcProvider {
-    if (!rpcUrls || rpcUrls.length === 0) {
-        throw new Error('No RPC URLs provided');
-    }
+export function createRpcProvider(rpcUrls: string[], chainId: number): PublicClient {
+    if (!rpcUrls || rpcUrls.length === 0) throw new Error('No RPC URLs provided');
+    
+    const chain = SUPPORTED_CHAINS.find(c => c.id === chainId) || SUPPORTED_CHAINS[0];
+    const market = getMarketByChainId(chainId);
+    const slug = market?.alchemySlug;
+    
+    // Prepend local proxy URL to the list if we have a slug
+    const augmentedUrls = slug ? [`/rpc/${slug}`, ...rpcUrls] : rpcUrls;
+    const uniqueUrls = Array.from(new Set(augmentedUrls));
 
-    for (const rpcUrl of rpcUrls) {
-        try {
-            return new ethers.JsonRpcProvider(buildProviderConnection(rpcUrl), undefined, { staticNetwork: true });
-        } catch (error: any) {
-            logger.warn(`Failed to create provider for ${rpcUrl}:`, error.message);
-        }
-    }
+    const transports = uniqueUrls.map(url => http(url, { fetchOptions: { headers: buildTransportHeaders(url) } }));
 
-    return new ethers.JsonRpcProvider(buildProviderConnection(rpcUrls[0]), undefined, { staticNetwork: true });
+    return createPublicClient({
+        chain,
+        transport: fallback(transports),
+    }) as any;
 }

@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { formatUnits, parseUnits } from 'viem';
 import {
     ArrowRightLeft,
     RefreshCw,
@@ -60,7 +60,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     marketKey: initialMarketKey = null,
     donator = null,
 }) => {
-    const { account, provider, selectedNetwork, networkRpcProvider } = useWeb3();
+    const { account, selectedNetwork } = useWeb3();
     const { addToast } = useToast();
     const { marketAssets: fetchedMarketAssets, borrows, summary, refresh: refreshPositions } = useUserPosition(initialMarketKey || '');
     const { addTransaction, setSheetOpen } = useTransactionTracker();
@@ -172,8 +172,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         clearUserRejected,
     } = useDebtSwitchActions({
         account,
-        provider,
-        networkRpcProvider,
         fromToken,
         toToken,
         allowance: BigInt(0), // Debt swap usually handles its own allowance/permit checks
@@ -252,7 +250,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             }
 
             try {
-                const tokenAmount = ethers.formatUnits(swapAmount, fromToken.decimals || 18);
+                const tokenAmount = formatUnits(swapAmount, fromToken.decimals || 18);
                 return formatCompactToken(tokenAmount, fromToken.symbol);
             } catch {
                 return null;
@@ -282,7 +280,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             // In USD mode, show Token units
             if (swapQuote?.srcAmount) {
                 try {
-                    const tokenAmount = ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18);
+                    const tokenAmount = formatUnits(swapQuote.srcAmount, toToken.decimals || 18);
                     return formatCompactToken(tokenAmount, toToken.symbol);
                 } catch {
                     return null;
@@ -297,7 +295,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
             if (swapQuote?.srcAmount) {
                 try {
-                    const tokenAmount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
+                    const tokenAmount = parseFloat(formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
                     return formatUSD(tokenAmount * price);
                 } catch {
                     return null;
@@ -761,12 +759,12 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
                                 if (price > 0) {
                                     const tokenAmountNum = parseFloat(normalized) / price;
-                                    amountBI = ethers.parseUnits(tokenAmountNum.toFixed(fromToken?.decimals || 18), fromToken?.decimals || 18);
+                                    amountBI = parseUnits(tokenAmountNum.toFixed(fromToken?.decimals || 18), fromToken?.decimals || 18);
                                 } else {
                                     amountBI = BigInt(0);
                                 }
                             } else {
-                                amountBI = ethers.parseUnits(normalized, fromToken.decimals || 18);
+                                amountBI = parseUnits(normalized, fromToken.decimals || 18);
                             }
 
                             setSwapAmount(amountBI);
@@ -780,7 +778,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             return;
                         }
 
-                        const maxTokenAmount = ethers.formatUnits(debtBalance, fromToken.decimals || 18);
+                        const maxTokenAmount = formatUnits(debtBalance, fromToken.decimals || 18);
 
                         if (isUSDMode) {
                             const price = parseFloat(fromToken.priceInUSD || '0');
@@ -798,7 +796,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         }
 
                         const amountBI = (debtBalance * BigInt(pct)) / BigInt(100);
-                        const tokenAmount = ethers.formatUnits(amountBI, fromToken.decimals || 18);
+                        const tokenAmount = formatUnits(amountBI, fromToken.decimals || 18);
 
                         if (isUSDMode) {
                             const price = parseFloat(fromToken.priceInUSD || '0');
@@ -876,7 +874,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                                 const usdVal = parseFloat(swapQuote.priceRoute.srcUSD || '0');
                                                 return usdVal.toFixed(2);
                                             }
-                                            return ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18);
+                                            return formatUnits(swapQuote.srcAmount, toToken.decimals || 18);
                                         })()}
                                         className="text-2xl font-mono font-bold bg-transparent border-none text-slate-900 dark:text-white block w-full py-0.5 leading-none focus:outline-none cursor-text select-all"
                                     />
@@ -941,8 +939,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             <span>
                                 {(() => {
                                     if (swapQuote && swapAmount > BigInt(0)) {
-                                        const inputF = parseFloat(ethers.formatUnits(swapAmount, fromToken.decimals || 18));
-                                        const outputF = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
+                                        const inputF = parseFloat(formatUnits(swapAmount, fromToken.decimals || 18));
+                                        const outputF = parseFloat(formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
 
                                         if (inputF > 0 && outputF > 0) {
                                             if (invertRate) {
@@ -1039,7 +1037,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                             // Add platform fee estimate from backend quote (already discount-aware)
                                             if (swapQuote) {
                                                 const feeBps = swapQuote?.feeBps || 0;
-                                                const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
+                                                const amount = parseFloat(formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
                                                 totalUsd += amount * (feeBps / 10000) * parseFloat(toToken.priceInUSD || '0');
                                             }
 
@@ -1100,7 +1098,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                                         return 'Free';
                                                     }
 
-                                                    const amount = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
+                                                    const amount = parseFloat(formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
                                                     const fee = amount * (feeBps / 10000);
 
                                                     return fee < 0.00001 ? '< 0.00001' : fee.toLocaleString('en-US', { maximumFractionDigits: 6 });
@@ -1234,7 +1232,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                                 const fromAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
                                                 const existingFromBorrow = activeBorrows.find(b => (b.underlyingAsset || '').toLowerCase() === fromAddr);
                                                 const existingFromBalance = existingFromBorrow ? parseFloat(existingFromBorrow.formattedAmount || '0') : 0;
-                                                const repaidAmount = parseFloat(ethers.formatUnits(swapQuote.destAmount || "0", fromToken.decimals || 18));
+                                                const repaidAmount = parseFloat(formatUnits(swapQuote.destAmount || "0", fromToken.decimals || 18));
                                                 fromRemaining = Math.max(0, existingFromBalance - repaidAmount);
                                             } catch {
                                                 // Ignore malformed balances from upstream data.
@@ -1252,7 +1250,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                                 toTotal = existingToBalance;
 
                                                 if (swapQuote) {
-                                                    const newDebt = parseFloat(ethers.formatUnits(swapQuote.srcAmount || "0", toToken.decimals || 18));
+                                                    const newDebt = parseFloat(formatUnits(swapQuote.srcAmount || "0", toToken.decimals || 18));
                                                     toTotal = existingToBalance + newDebt;
                                                 }
                                             } catch {
@@ -1333,7 +1331,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                     if (simulatedHf !== -1 && simulatedHf < 1.05 && !isInsufficientBalance) {
                         alerts.push({
                             label: 'Danger:',
-                            message: `This swap will leave your Health Factor very low (${simulatedHf.toFixed(2)}).`,
+                            message: `This swap will leave your Health Factor very low (${formatHF(simulatedHf)}).`,
                             isDanger: true,
                         });
                     }
@@ -1443,8 +1441,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     const currentTotalCollateralUSD = parseFloat(summary.totalCollateralUSD) || 0;
                                     const currentLiquidationThreshold = parseFloat(summary.currentLiquidationThreshold) || 0;
                                     const currentTotalBorrowsUSD = parseFloat(summary.totalBorrowsUSD) || 0;
-                                    const reducedDebtAmountF = parseFloat(ethers.formatUnits(swapQuote.destAmount, fromToken.decimals || 18));
-                                    const newDebtAmountF = parseFloat(ethers.formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
+                                    const reducedDebtAmountF = parseFloat(formatUnits(swapQuote.destAmount, fromToken.decimals || 18));
+                                    const newDebtAmountF = parseFloat(formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
                                     const fromPrice = parseFloat(fromToken.priceInUSD) || 0;
                                     const toPrice = parseFloat(toToken.priceInUSD) || 0;
 
