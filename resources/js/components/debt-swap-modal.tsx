@@ -1611,7 +1611,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             ) : (
                                 <>
                                     <ArrowRightLeft className="w-4 h-4" />
-                                    {preferPermit && !isApproved ? 'Sign & Swap' : 'Confirm Swap'}
+                                    {isApproved && !forceRequirePermit ? 'Confirm Swap' : 'Approve & Swap'}
                                 </>
                             )}
                         </Button>

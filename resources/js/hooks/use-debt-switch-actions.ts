@@ -158,7 +158,7 @@ export const useDebtSwitchActions = ({
         return true;
     }, [walletClient, chainId, addLog]);
 
-    const generateAndCachePermit = useCallback(async (debtTokenAddr: string) => {
+    const generateAndCachePermit = useCallback(async (debtTokenAddr: string, exactAmount?: bigint) => {
         if (!walletClient || !account) return null;
         try {
             let nonce: bigint;
@@ -203,7 +203,7 @@ export const useDebtSwitchActions = ({
             }
 
             const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-            const value = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+            const value = exactAmount || BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
             const domain = { name, version: '1', chainId, verifyingContract: getAddress(debtTokenAddr) };
             const types = {
@@ -245,7 +245,7 @@ export const useDebtSwitchActions = ({
         }
     }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, preFetchedNonce, preFetchedTokenName, onSignatureCached]);
 
-    const handleApproveDelegation = useCallback(async (preferPermitOverride?: boolean, skipNetworkCheck?: boolean, debtTokenAddressOverride?: string) => {
+    const handleApproveDelegation = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint, skipNetworkCheck?: boolean, debtTokenAddressOverride?: string) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
         if (!walletClient || !toToken || !adapterAddress || !account) return;
 
@@ -271,7 +271,7 @@ export const useDebtSwitchActions = ({
             }
 
             if (preferPermitFinal) {
-                const permit = await generateAndCachePermit(debtTokenAddress);
+                const permit = await generateAndCachePermit(debtTokenAddress, exactAmount);
                 return { type: 'permit', permit };
             }
 
@@ -333,15 +333,10 @@ export const useDebtSwitchActions = ({
             const exactDebtRepayAmount = activeQuote.destAmount;
 
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
-            let newDebtTokenAddr = providedDebtTokenAddress || qTo?.variableDebtTokenAddress;
+            let newDebtTokenAddr = providedDebtTokenAddress || toToken?.variableDebtTokenAddress || qTo?.variableDebtTokenAddress;
             
             if (!newDebtTokenAddr || newDebtTokenAddr === zeroAddress) {
-                // Secondary check in quote if state was missing
-                newDebtTokenAddr = qTo?.variableDebtTokenAddress;
-            }
-
-            if (!newDebtTokenAddr || newDebtTokenAddr === zeroAddress) {
-                // Final fallback if truly missing everywhere
+                addLog?.('Resolving debt token address...', 'info');
                 const toReserveData = await publicClient?.readContract({
                     address: getAddress(networkAddresses.POOL),
                     abi: parseAbi(ABIS.POOL_GETTER),
@@ -363,7 +358,7 @@ export const useDebtSwitchActions = ({
                         effectiveSignedPermit.value >= maxNewDebt) {
                         permitParams = effectiveSignedPermit.params;
                     } else {
-                        const res = await handleApproveDelegation(forceRequirePermit || preferPermit, true, newDebtTokenAddr);
+                        const res = await handleApproveDelegation(forceRequirePermit || preferPermit, maxNewDebt, true, newDebtTokenAddr);
                         setIsActionLoading(true);
                         if (res?.permit) {
                             permitParams = res.permit;
@@ -372,7 +367,7 @@ export const useDebtSwitchActions = ({
                         }
                     }
                 } else {
-                    await handleApproveDelegation(false, true, newDebtTokenAddr);
+                    await handleApproveDelegation(false, undefined, true, newDebtTokenAddr);
                     setIsActionLoading(true);
                     await new Promise(r => setTimeout(r, 1500));
                     fetchDebtData();

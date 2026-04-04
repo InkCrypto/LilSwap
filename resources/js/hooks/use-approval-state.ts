@@ -46,6 +46,10 @@ export const useApprovalState = ({
         return signatureCache.get(cacheKey) || null;
     }, [cacheKey]);
 
+    const lastFetchedKey = useEffect(() => {
+        // This is a dummy to track mount state or similar if needed
+    }, []);
+
     const fetchAllowance = useCallback(async () => {
         if (!account || !tokenAddress || !spenderAddress || !publicClient) return;
 
@@ -98,15 +102,19 @@ export const useApprovalState = ({
 
                 if (!results) return { allowance: 0n, nonce: 0n, name: '' };
 
-                const allowance = (results[0]?.status === 'success' ? results[0].result : 0n) as bigint;
-                const nonce = (results[1]?.status === 'success' ? results[1].result : 0n) as bigint;
-                const name = (results[2]?.status === 'success' ? results[2].result : '') as string;
+                const allowanceVal = (results[0]?.status === 'success' ? results[0].result : 0n) as bigint;
+                const nonceVal = (results[1]?.status === 'success' ? results[1].result : 0n) as bigint;
+                const nameVal = (results[2]?.status === 'success' ? results[2].result : '') as string;
 
-                return { allowance, nonce, name };
+                return { allowance: allowanceVal, nonce: nonceVal, name: nameVal };
             })();
 
             activeAllowanceRequests.set(key, fetchPromise);
             const { allowance, nonce, name } = await fetchPromise;
+
+            // Only update state if the key hasn't changed while we were fetching
+            const currentKey = `${chainId}-${tokenAddress.toLowerCase()}-${spenderAddress.toLowerCase()}-${account.toLowerCase()}-${isDebt ? 'debt' : 'erc20'}`;
+            if (currentKey !== key) return;
 
             logger.debug(`[useApprovalState] Fetched ${isDebt ? 'Borrow' : 'ERC20'} Data | Allowance: ${allowance.toString()} | Nonce: ${nonce.toString()} | Name: ${name} | Token: ${tokenAddress}`);
 
@@ -122,12 +130,14 @@ export const useApprovalState = ({
     }, [account, tokenAddress, spenderAddress, publicClient, isDebt, chainId]);
 
     useEffect(() => {
+        let isMounted = true;
         fetchAllowance();
+        return () => { isMounted = false; };
     }, [fetchAllowance, chainId]);
 
     const isApproved = useMemo(() => {
-        // 1. Check on-chain
-        if (onChainAllowance >= amountRequired) return true;
+        // 1. Check on-chain - only once we have a definitive answer and it's non-zero
+        if (!isFetching && onChainAllowance > 0n && onChainAllowance >= amountRequired) return true;
 
         // 2. Check cached signature
         if (
@@ -139,7 +149,7 @@ export const useApprovalState = ({
         }
 
         return false;
-    }, [onChainAllowance, amountRequired, cachedSignature]);
+    }, [onChainAllowance, amountRequired, cachedSignature, isFetching]);
 
     const saveSignature = useCallback((signatureData: any) => {
         if (!cacheKey) return;

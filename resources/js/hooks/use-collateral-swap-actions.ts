@@ -206,7 +206,7 @@ export const useCollateralSwapActions = ({
             }
 
             const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-            const value = exactAmount || BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+            const value = exactAmount || (swapAmount + (swapAmount * 100n / 10000n) + 1n);
 
             const domain = { name, version: '1', chainId, verifyingContract: getAddress(aTokenAddr) };
             const types = {
@@ -280,6 +280,7 @@ export const useCollateralSwapActions = ({
             let aTokenAddress = aTokenAddressOverride || providedATokenAddress || fromToken?.aTokenAddress;
             
             if (!isValidATokenAddress(aTokenAddress)) {
+                addLog?.('Resolving aToken address...', 'info');
                 const tokenAddresses = await publicClient?.readContract({
                     address: getAddress(networkAddresses.DATA_PROVIDER),
                     abi: parseAbi(ABIS.DATA_PROVIDER),
@@ -290,14 +291,13 @@ export const useCollateralSwapActions = ({
             }
 
             if (preferPermitFinal) {
-                const permit = await generateAndCachePermit(aTokenAddress, exactAmount);
+                const permitAmount = exactAmount ?? (swapAmount > 0n ? (swapAmount + (swapAmount * 100n / 10000n) + 1n) : 0n);
+                const permit = await generateAndCachePermit(aTokenAddress, permitAmount);
                 return { type: 'permit', permit };
             }
 
             addLog?.('Sending Approval Transaction...');
-            const fallbackAmount = swapAmount > 0n
-                ? (swapAmount + (swapAmount * 100n / 10000n) + 1n)
-                : 0n;
+            const fallbackAmount = BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
             const approveAmount = exactAmount ?? fallbackAmount;
 
             if (approveAmount <= 0n) {
@@ -384,9 +384,10 @@ export const useCollateralSwapActions = ({
             const srcAmountBigInt = BigInt(srcAmount);
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
 
-            let aTokenAddr = providedATokenAddress || quoteFrom?.aTokenAddress;
+            let aTokenAddr = providedATokenAddress || fromToken?.aTokenAddress || quoteFrom?.aTokenAddress;
             
             if (!isValidATokenAddress(aTokenAddr)) {
+                addLog?.('Resolving aToken address...', 'info');
                 const tokenAddresses = await publicClient?.readContract({
                     address: getAddress(networkAddresses.DATA_PROVIDER),
                     abi: parseAbi(ABIS.DATA_PROVIDER),
@@ -437,8 +438,7 @@ export const useCollateralSwapActions = ({
                         }
                     }
                 } else {
-                    const boundedApprovalAmount = srcAmountBigInt + (srcAmountBigInt * 100n / 10000n) + 1n;
-                    await handleApprove(false, boundedApprovalAmount, true, aTokenAddr);
+                    await handleApprove(false, undefined, true, aTokenAddr);
                     setIsActionLoading(true);
                     await new Promise(r => setTimeout(r, 1500));
                     fetchPositionData();
@@ -540,24 +540,13 @@ export const useCollateralSwapActions = ({
                 0
             ] as const;
 
-            // Preflight simulation on public RPC helps distinguish contract revert from wallet/provider simulation issues.
-            const simulation = await publicClient?.simulateContract({
-                account: getAddress(account),
-                address: getAddress(networkAddresses.POOL),
-                abi: parseAbi(ABIS.POOL),
-                functionName: 'flashLoanSimple',
-                args: flashLoanArgs,
-            });
-
             addLog?.('Confirm in your wallet...', 'warning');
-
             const hash = await walletClient.writeContract({
                 account: getAddress(account),
                 address: getAddress(networkAddresses.POOL),
                 abi: parseAbi(ABIS.POOL),
                 functionName: 'flashLoanSimple',
                 args: flashLoanArgs,
-                ...(simulation?.request?.gas ? { gas: simulation.request.gas } : {}),
             });
 
             addLog?.(`Transaction broadcasted: ${hash}`, 'success');

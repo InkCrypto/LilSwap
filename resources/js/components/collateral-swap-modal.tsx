@@ -202,7 +202,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         nonce: preFetchedNonce,
         tokenName: preFetchedTokenName,
         saveSignature,
-        cachedSignature
+        cachedSignature,
+        isApproved,
     } = useApprovalState({
         account,
         tokenAddress: aTokenAddress,
@@ -1691,7 +1692,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                     ) : (
                         <>
                             <ArrowRightLeft className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
-                            {preferPermit && (forceRequirePermit || !signedPermit) ? 'Sign & Swap' : 'Confirm Swap'}
+                            {isApproved && !forceRequirePermit ? 'Confirm Swap' : 'Approve & Swap'}
                         </>
                     )}
                 </Button>
