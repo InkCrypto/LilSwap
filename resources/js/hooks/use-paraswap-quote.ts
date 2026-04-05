@@ -305,7 +305,7 @@ export const useParaswapQuote = ({
                     fromToken: { address: fromTokenAddress, decimals: fromToken.decimals, symbol: fromToken.symbol },
                     toToken: { address: toTokenAddress, decimals: toToken.decimals, symbol: toToken.symbol },
                     destAmount,
-                    adapterAddress: account,
+                    adapterAddress: adapterAddress || account,
                     walletAddress: account,
                     apyPercent: apyPercentToSend,
                     marketKey: marketKey || selectedNetwork?.key,

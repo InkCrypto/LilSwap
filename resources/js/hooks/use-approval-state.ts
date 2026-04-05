@@ -117,7 +117,7 @@ export const useApprovalState = ({
             const currentKey = cacheKey;
             if (currentKey !== key) return;
 
-            logger.debug(`[useApprovalState] Fetched ${isDebt ? 'Borrow' : 'ERC20'} Data | Allowance: ${allowance.toString()} | Nonce: ${nonce.toString()} | Name: ${name} | Token: ${tokenAddress}`);
+            logger.debug(`[useApprovalState] Fetched ${isDebt ? 'Borrow' : 'ERC20'} Data | Allowance: ${allowance.toString()} | Spender: ${spenderAddress} | Nonce: ${nonce.toString()} | Name: ${name} | Token: ${tokenAddress}`);
 
             setOnChainAllowance(allowance);
             setNonce(nonce);

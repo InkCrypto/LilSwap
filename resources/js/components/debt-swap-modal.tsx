@@ -135,10 +135,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         selectedNetwork: effectiveNetwork,
         marketKey: initialMarketKey || effectiveNetwork?.key,
         account,
+        adapterAddress,
         enabled: isOpen,
         freezeQuote,
         marketAssets: localMarketAssets,
-        adapterAddress,
     });
 
     // --- Computed Values ---
