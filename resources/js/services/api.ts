@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { notifyApiVersion, notifyApiStatus } from '../contexts/api-meta-context';
+import { getPublicApiErrorMessage } from '../utils/api-error';
 import logger from '../utils/logger';
 
 // Axios instance configured to point to the Laravel BFF Proxy
@@ -231,8 +232,7 @@ export const getDebtQuote = async (params: any, signal?: AbortSignal) => {
 throw error;
 }
 
-        const data = error.response?.data;
-        const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error fetching quote';
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching quote');
 
         throw new Error(errorMessage);
     }
@@ -244,8 +244,7 @@ export const buildDebtSwapTx = async (params: any) => {
 
         return response.data;
     } catch (error: any) {
-        const data = error.response?.data;
-        const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error building transaction';
+        const errorMessage = getPublicApiErrorMessage(error, 'Error building transaction');
 
         throw new Error(errorMessage);
     }
@@ -269,7 +268,7 @@ export const getUserPosition = async (walletAddress: string, marketKey?: string,
 
         return response.data;
     } catch (error: any) {
-        const errorMessage = error.response?.data?.error || error.message || 'Error fetching position';
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching position');
 
         throw new Error(errorMessage);
     }
@@ -285,8 +284,7 @@ export const getCollateralQuote = async (params: any, signal?: AbortSignal) => {
 throw error;
 }
 
-        const data = error.response?.data;
-        const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error fetching collateral quote';
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching collateral quote');
 
         throw new Error(errorMessage);
     }
@@ -298,8 +296,7 @@ export const buildCollateralSwapTx = async (params: any) => {
 
         return response.data;
     } catch (error: any) {
-        const data = error.response?.data;
-        const errorMessage = data?.userMessage || data?.message || data?.error || error.message || 'Error building collateral transaction';
+        const errorMessage = getPublicApiErrorMessage(error, 'Error building collateral transaction');
 
         throw new Error(errorMessage);
     }

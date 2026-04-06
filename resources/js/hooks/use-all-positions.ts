@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useUserActivity } from '../contexts/user-activity-context';
 import { useWeb3 } from '../contexts/web3-context';
 import { apiClient } from '../services/api';
+import { getPublicApiErrorMessage } from '../utils/api-error';
 import logger from '../utils/logger';
 
 export interface PositionInfo {
@@ -67,8 +68,11 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
 
             setLastFetch(Date.now());
         } catch (err: any) {
-            const errorMsg = err.response?.data?.message || err.message || 'Failed to fetch positions';
-            logger.error('Error fetching all positions', { error: errorMsg });
+            const errorMsg = getPublicApiErrorMessage(err, 'Failed to fetch positions');
+            logger.error('Error fetching all positions', {
+                error: err?.message,
+                publicMessage: errorMsg,
+            });
             setError(errorMsg);
             setData(null);
         } finally {

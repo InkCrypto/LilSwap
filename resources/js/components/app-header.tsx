@@ -1,4 +1,4 @@
-import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Lightbulb, History } from 'lucide-react';
+import { Wallet, LogOut, ChevronDown, Eye, EyeOff, History } from 'lucide-react';
 import { useConnectModal, ConnectButton } from '@rainbow-me/rainbowkit';
 import { useDisconnect } from 'wagmi';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -78,11 +78,16 @@ export function AppHeader({
                             className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer group rounded-full"
                             aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
                         >
-                            <Lightbulb
-                                className={`w-5 h-5 transition-all duration-300 ${
-                                    isDarkMode ? '' : 'text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]'
+                            <span
+                                className={`material-symbols-outlined text-[20px] leading-none transition-all duration-300 ${
+                                    isDarkMode
+                                        ? 'text-current'
+                                        : 'text-yellow-400 group-hover:text-yellow-500 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]'
                                 }`}
-                            />
+                                style={{ fontVariationSettings: isDarkMode ? "'FILL' 0, 'wght' 300, 'GRAD' 0" : "'FILL' 1, 'wght' 300, 'GRAD' 200" }}
+                            >
+                                lightbulb
+                            </span>
                         </button>
                     </InfoTooltip>
 

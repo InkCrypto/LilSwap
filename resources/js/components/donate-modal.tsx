@@ -42,7 +42,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
                             <span className="text-sm font-extrabold uppercase tracking-wider">Donator Rewards</span>
                         </div>
                         <p className="text-sm leading-relaxed text-slate-700 dark:text-slate-300">
-                            Unlock a <strong className="font-bold text-primary">10% fee discount</strong> for a limited time by donating <strong className="font-bold text-primary">$1 or more</strong> in stablecoins, ETH, or BTC wrappers.
+                            Unlock a <strong className="font-bold text-primary">10% fee discount</strong> for a limited time by donating <strong className="font-bold text-primary">$1 or more</strong>.
                         </p>
                     </div>
                 </div>
@@ -57,10 +57,10 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose }) => 
                     </div>
                     <div className="text-center">
                         <p className="mb-1 text-sm font-medium text-slate-900 dark:text-white">
-                            Send Stablecoins, ETH or BTC
+                            Send stablecoins, ETH, or BTC wrappers
                         </p>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                            ERC-20 tokens only (no native BTC)
+                            Supported ERC-20 tokens only
                         </p>
                     </div>
                 </div>

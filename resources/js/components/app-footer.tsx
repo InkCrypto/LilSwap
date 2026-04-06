@@ -50,7 +50,7 @@ const AppFooter: React.FC = () => {
 
                     <button
                         onClick={() => setIsDonateOpen(true)}
-                        className="mx-auto flex items-center gap-1.5 hover:text-primary-hover font-medium group"
+                        className="mx-auto flex items-center gap-1.5 font-semibold text-primary transition-colors hover:text-primary-hover dark:text-[#2EBDE3] dark:hover:text-[#67d4ef]"
                     >
                         <Coffee className="w-4 h-4" />
                         Donate
@@ -66,7 +66,10 @@ const AppFooter: React.FC = () => {
                 <div className="flex md:hidden flex-wrap items-center justify-center gap-x-4 gap-y-2 text-[13px] py-1">
                     <span className="whitespace-nowrap">© {new Date().getFullYear()} InkCrypto</span>
                     <span className="opacity-20">|</span>
-                    <button onClick={() => setIsDonateOpen(true)} className="flex items-center gap-1.5 text-primary font-bold">
+                    <button
+                        onClick={() => setIsDonateOpen(true)}
+                        className="flex items-center gap-1.5 font-bold text-primary transition-colors hover:text-primary-hover dark:text-[#2EBDE3] dark:hover:text-[#67d4ef]"
+                    >
                         <Coffee className="w-3.5 h-3.5" />
                         Donate
                     </button>
