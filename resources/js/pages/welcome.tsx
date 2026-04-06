@@ -1,65 +1,57 @@
-import { Wallet, LogOut, ChevronDown, Eye, EyeOff, Lightbulb, History } from 'lucide-react';
+import { Wallet } from 'lucide-react';
 import { useConnectModal, ConnectButton } from '@rainbow-me/rainbowkit';
-import { useDisconnect } from 'wagmi';
-import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
-import React, { useState, useEffect, useRef, Suspense, lazy } from 'react';
+import React, { useState, useEffect, Suspense, lazy } from 'react';
+import { AppHeader } from '@/components/app-header';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
 import { TransactionHistorySheet } from '@/components/transaction-history-sheet';
 import { useWeb3 } from '@/contexts/web3-context';
-import { useAppearance } from '@/hooks/use-appearance';
 import AppFooter from '../components/app-footer';
-import { InfoTooltip } from '../components/info-tooltip';
 import LilLogo from '../components/lil-logo';
 import { Button } from '../components/ui/button';
 
 const Dashboard = lazy(() => import('../components/dashboard'));
 
 export default function Welcome() {
-    const { account: web3Account } = useWeb3();
+    const { account } = useWeb3();
     const { activeCount, setSheetOpen } = useTransactionTracker();
     const { connectModalOpen } = useConnectModal();
-    const { disconnect } = useDisconnect();
-    const account = web3Account; // Keep reference for legacy logic compatibility if needed
-
-    const { resolvedAppearance, updateAppearance } = useAppearance();
-    const isDarkMode = resolvedAppearance === 'dark';
-    const toggleDarkMode = () => updateAppearance(isDarkMode ? 'light' : 'dark');
-
-    const [showAddress, setShowAddress] = useState(() => {
-        const saved = typeof localStorage !== 'undefined'
-            ? localStorage.getItem('lilswap_show_address')
-            : 'false';
-
-        return saved === 'true';
-    });
-
-    // Dual-span simultaneous airport flip animation
     const [flipState, setFlipState] = useState<{ current: string; prev: string | null; key: number }>({
         current: 'Little', prev: null, key: 0,
     });
 
-    // Every 3.5s: swap words. CSS keyframes handle the simultaneous animations.
     useEffect(() => {
         const interval = setInterval(() => {
-            setFlipState(fs => ({
-                prev: fs.current,
-                current: fs.current === 'Little' ? "Lil'" : 'Little',
-                key: fs.key + 1,
+            setFlipState((currentState) => ({
+                prev: currentState.current,
+                current: currentState.current === 'Little' ? "Lil'" : 'Little',
+                key: currentState.key + 1,
             }));
-            // Clear the outgoing span after animation finishes
-            setTimeout(() => setFlipState(fs => ({ ...fs, prev: null })), 380);
+
+            setTimeout(() => {
+                setFlipState((currentState) => ({ ...currentState, prev: null }));
+            }, 380);
         }, 3500);
 
         return () => clearInterval(interval);
     }, []);
 
     const spanBase: React.CSSProperties = {
-        position: 'absolute', left: 0, right: 0, textAlign: 'center',
+        position: 'absolute',
+        left: 0,
+        right: 0,
+        textAlign: 'center',
     };
 
-    // Both exit and enter play simultaneously via CSS @keyframes
     const flipPhrase = (
-        <span style={{ position: 'relative', display: 'inline-block', clipPath: 'inset(0 -6px)', verticalAlign: 'bottom', padding: '0 4px' }}>
+        <span
+            style={{
+                position: 'relative',
+                display: 'inline-block',
+                clipPath: 'inset(0 -6px)',
+                verticalAlign: 'bottom',
+                padding: '0 4px',
+            }}
+        >
             <span aria-hidden style={{ visibility: 'hidden' }}>
                 <span className="text-primary italic">Little</span> fees & <span className="text-primary italic">Little</span> effort!
             </span>
@@ -68,19 +60,20 @@ export default function Welcome() {
                     <span className="text-primary italic">{flipState.prev}</span> fees & <span className="text-primary italic">{flipState.prev}</span> effort!
                 </span>
             )}
-            <span key={`in-${flipState.key}`} style={{
-                ...spanBase,
-                animation: flipState.prev !== null ? 'word-enter 340ms ease forwards' : 'none',
-            }}>
+            <span
+                key={`in-${flipState.key}`}
+                style={{
+                    ...spanBase,
+                    animation: flipState.prev !== null ? 'word-enter 340ms ease forwards' : 'none',
+                }}
+            >
                 <span className="text-primary italic">{flipState.current}</span> fees & <span className="text-primary italic">{flipState.current}</span> effort!
             </span>
         </span>
     );
 
-
-
     return (
-        <div className="min-h-screen bg-background text-slate-800 dark:text-slate-100 selection:bg-primary/30 font-sans">
+        <div className="flex flex-col min-h-screen bg-background text-slate-800 dark:text-slate-100 selection:bg-primary/30 font-sans">
             <style>{`
                 @keyframes word-exit {
                     from { transform: translateY(0);    opacity: 1; }
@@ -92,149 +85,25 @@ export default function Welcome() {
                 }
             `}</style>
 
-            <header className="max-w-4xl mx-auto px-4 sm:px-6 pt-6 sm:pt-12 pb-6 sm:pb-8 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-2.5 min-w-0">
-                    <LilLogo className="w-10 h-10 sm:w-12 sm:h-12 shrink-0" />
-                    <div className="min-w-0 flex flex-col justify-center">
-                        <div className="flex items-center gap-2 leading-none">
-                            <h1 className="text-2xl sm:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight text-nowrap">
-                                LilSwap
-                            </h1>
-                            <span className="px-1 py-0 rounded text-primary text-[8px] font-bold border-2 border-primary/30 mt-0.5">
-                                BETA
-                            </span>
-                        </div>
-                        <div className="hidden sm:flex items-center gap-2 mt-1 leading-none text-nowrap">
-                            <span className="text-[9px] sm:text-[10px] font-bold text-slate-400 uppercase tracking-[0.15em] sm:tracking-[0.2em]">
-                                AAVE V3 Position Manager
-                            </span>
-                        </div>
-                    </div>
-                </div>
+            <AppHeader
+                account={account}
+                activeCount={activeCount}
+                onOpenHistory={() => setSheetOpen(true)}
+            />
 
-                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
-                    <InfoTooltip message={isDarkMode ? 'Turn lights on' : 'Turn lights off'} disableClick={true}>
-                        <button
-                            onClick={toggleDarkMode}
-                            className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer group rounded-full"
-                            aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-                        >
-                            <Lightbulb className={`w-5 h-5 transition-all duration-300 ${!isDarkMode
-                                ? 'text-yellow-400 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]'
-                                : ''
-                                }`} />
-                        </button>
-                    </InfoTooltip>
-
-                    {account && (
-                        <InfoTooltip message="Activity history" disableClick={true}>
-                            <button
-                                onClick={() => setSheetOpen(true)}
-                                className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer group relative rounded-full"
-                                aria-label="Activity"
-                            >
-                                <History className="w-5 h-5 transition-all duration-300" />
-                                {activeCount > 0 && (
-                                    <span className="absolute top-0 right-0 flex size-2">
-                                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                        <span className="relative inline-flex rounded-full size-2 bg-primary"></span>
-                                    </span>
-                                )}
-                            </button>
-                        </InfoTooltip>
-                    )}
-
-                    <ConnectButton.Custom>
-                        {({
-                            account: rbAccount,
-                            chain,
-                            openAccountModal,
-                            openConnectModal,
-                            authenticationStatus,
-                            mounted,
-                        }) => {
-                            const ready = mounted && authenticationStatus !== 'loading';
-                            const connected = ready && rbAccount && chain;
-                            const isConnecting = !ready || connectModalOpen;
-
-                            return (
-                                <div
-                                    {...(!ready && {
-                                        'aria-hidden': true,
-                                        'style': {
-                                            opacity: 0,
-                                            pointerEvents: 'none',
-                                            userSelect: 'none',
-                                        },
-                                    })}
-                                >
-                                    {!connected ? (
-                                        <Button
-                                            onClick={openConnectModal}
-                                            disabled={isConnecting}
-                                            className="text-xs sm:text-sm px-4 sm:px-5 py-2 sm:py-2.5 rounded-xl h-auto"
-                                        >
-                                            {isConnecting
-                                                ? <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                                : <Wallet className="w-4 h-4" />}
-                                            <span className="hidden sm:inline">
-                                                {isConnecting ? 'Connecting...' : 'Connect'}
-                                            </span>
-                                        </Button>
-                                    ) : (
-                                        <div className="flex items-center gap-2">
-                                            <InfoTooltip message="Protect your privacy by hiding your address" disableClick={true}>
-                                                <button
-                                                    onClick={() => setShowAddress(prev => {
-                                                        const newValue = !prev;
-                                                        localStorage.setItem('lilswap_show_address', newValue.toString());
-                                                        return newValue;
-                                                    })}
-                                                    className="hidden sm:flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer rounded-full"
-                                                >
-                                                    {showAddress ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
-                                                </button>
-                                            </InfoTooltip>
-
-                                            <Popover>
-                                                <PopoverTrigger asChild>
-                                                    <button
-                                                        className="bg-slate-100 dark:bg-slate-800/60 hover:bg-slate-200 dark:hover:bg-slate-800 text-slate-800 dark:text-white text-xs sm:text-sm font-bold px-3 sm:px-4 rounded-xl flex items-center gap-2 transition-all border border-border-light dark:border-border-dark active:scale-95 shadow-sm overflow-hidden min-w-35 h-10 justify-center"
-                                                    >
-                                                        <Wallet className="w-4 h-4 text-primary shrink-0" />
-                                                        <span className={`hidden sm:inline font-mono transition-all duration-300 ${!showAddress ? 'blur-xs select-none opacity-60' : ''}`}>
-                                                            {rbAccount.address.slice(0, 6)}...{rbAccount.address.slice(-4)}
-                                                        </span>
-                                                        <ChevronDown className="w-3 h-3 text-slate-400 shrink-0" />
-                                                    </button>
-                                                </PopoverTrigger>
-                                                <PopoverContent
-                                                    align="end"
-                                                    sideOffset={6}
-                                                    className="w-(--radix-popover-trigger-width) p-0 bg-white dark:bg-slate-900 border-border-light dark:border-border-dark shadow-xl rounded-xl overflow-hidden"
-                                                >
-                                                    <button
-                                                        onClick={() => disconnect()}
-                                                        className="w-full h-10 flex items-center justify-center gap-2.5 px-3 text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors group"
-                                                    >
-                                                        <LogOut className="w-4 h-4 transition-transform group-hover:scale-110" />
-                                                        Disconnect
-                                                    </button>
-                                                </PopoverContent>
-                                            </Popover>
-                                        </div>
-                                    )}
-                                </div>
-                            );
-                        }}
-                    </ConnectButton.Custom>
-                </div>
-            </header>
-
-            <main className="max-w-4xl mx-auto px-4 sm:px-6 pb-12">
-                {!account ? (
+            <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-24 w-full pt-2 md:pt-12">
+                {account ? (
+                    <Suspense
+                        fallback={
+                            <div className="flex items-center justify-center py-20">
+                                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            </div>
+                        }
+                    >
+                        <Dashboard />
+                    </Suspense>
+                ) : (
                     <div className="mt-12 sm:mt-16 bg-white dark:bg-slate-900 rounded-3xl pt-14 pb-10 px-10 sm:pt-16 sm:pb-12 sm:px-12 border border-slate-200 dark:border-slate-800 text-center shadow-xl max-w-lg mx-auto overflow-hidden">
-
                         <div className="mb-8 flex flex-col items-center">
                             <LilLogo className="w-10 h-10 sm:w-12 sm:h-12 mb-6" />
 
@@ -244,22 +113,15 @@ export default function Welcome() {
                             </p>
 
                             <ConnectButton.Custom>
-                                {({
-                                    account: rbAccount,
-                                    chain,
-                                    openConnectModal,
-                                    authenticationStatus,
-                                    mounted,
-                                }) => {
+                                {({ openConnectModal, authenticationStatus, mounted }) => {
                                     const ready = mounted && authenticationStatus !== 'loading';
-                                    const connected = ready && rbAccount && chain;
                                     const isConnecting = !ready || connectModalOpen;
 
                                     return (
                                         <div
                                             {...(!ready && {
                                                 'aria-hidden': true,
-                                                'style': {
+                                                style: {
                                                     opacity: 0,
                                                     pointerEvents: 'none',
                                                     userSelect: 'none',
@@ -269,7 +131,7 @@ export default function Welcome() {
                                             <Button
                                                 onClick={openConnectModal}
                                                 disabled={isConnecting}
-                                                className="text-xs sm:text-sm px-8 py-2 sm:px-10 sm:py-2.5 rounded-xl h-auto flex items-center justify-center gap-2.5"
+                                                className="text-sm px-6 py-2.5 rounded-xl h-auto flex items-center justify-center gap-2.5"
                                             >
                                                 {isConnecting ? (
                                                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
@@ -283,16 +145,7 @@ export default function Welcome() {
                                 }}
                             </ConnectButton.Custom>
                         </div>
-
                     </div>
-                ) : (
-                    <Suspense fallback={
-                        <div className="flex items-center justify-center py-20">
-                            <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                        </div>
-                    }>
-                        <Dashboard />
-                    </Suspense>
                 )}
             </main>
 
