@@ -81,16 +81,17 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
 
     return (
         <Tooltip open={open || isClicked} onOpenChange={handleOpenChange} delayDuration={700}>
-            <TooltipTrigger asChild onClick={handleClick}>
+            <TooltipTrigger asChild onClick={handleClick} onFocus={(e) => e.target.blur()}>
                 <span 
-                    className="relative inline-flex cursor-pointer transition-opacity hover:opacity-80"
+                    className="relative inline-flex cursor-pointer transition-opacity hover:opacity-80 outline-none"
+                    onFocus={(e) => (e.target as HTMLElement).blur()}
                 >
                     {children || <Info size={size} className="text-slate-400 hover:text-slate-500 dark:text-slate-500 dark:hover:text-slate-400 transition-colors" />}
                 </span>
             </TooltipTrigger>
             <TooltipContent
                 showArrow={false}
-                className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl"
+                className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl pointer-events-none select-none"
                 style={{ maxWidth }}
                 onPointerDownOutside={() => {
                     setIsClicked(false);

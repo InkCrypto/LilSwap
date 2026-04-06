@@ -7,7 +7,6 @@ import { useAllPositions } from '../hooks/use-all-positions';
 import { formatUSD, formatCompactToken, formatAPY, formatHF } from '../utils/formatters';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import logger from '../utils/logger';
-import { toHexChainId } from '../utils/wallet';
 import { DonateModal } from './donate-modal';
 import { InfoTooltip } from './info-tooltip';
 import { Button } from './ui/button';
@@ -34,13 +33,20 @@ interface PositionsAccordionProps {
     walletAddress: string;
 }
 
+const getEmptyChainIconClass = (marketKey: string, variant: 'summary' | 'list' = 'summary') => {
+    const baseSize = variant === 'summary' ? 'w-5 h-5' : 'w-4 h-4';
+    const gnosisAdjustment = marketKey === 'AaveV3Gnosis' ? 'scale-110' : '';
+
+    return `${baseSize} object-contain shrink-0 saturate-75 brightness-90 opacity-90 ${gnosisAdjustment}`.trim();
+};
+
 /**
  * PositionsAccordion Component
  * Displays user positions across multiple networks in an accordion layout
  */
 export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAddress }) => {
     const { positionsByChain, donator, loading, error, lastFetch, refresh } = useAllPositions(walletAddress);
-    const { provider, setSelectedNetwork } = useWeb3();
+    const { setSelectedNetwork } = useWeb3();
 
     const [openMarket, setOpenMarket] = useState<string | null>(null);
     const [openEmptyChains, setOpenEmptyChains] = useState(false);
@@ -95,46 +101,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
         });
 
         if (market) {
-            setSelectedNetwork?.(market.key);
+            void setSelectedNetwork(market.key).catch((err: any) => {
+                logger.debug('Chain switch did not complete during modal open', {
+                    chainId: chainIdNum,
+                    errorCode: err?.code,
+                    errorMessage: err?.message || String(err),
+                });
+            });
         }
-
-        void (async () => {
-            try {
-                if (provider) {
-                    const currentChainId = (await provider.getNetwork()).chainId;
-
-                    if (Number(currentChainId) !== chainIdNum) {
-                        const chainHex = toHexChainId(chainIdNum);
-                        logger.debug('Requesting chain switch', { chainId: chainIdNum, chainHex });
-                        await provider.send('wallet_switchEthereumChain', [{ chainId: chainHex }]);
-                    }
-                }
-            } catch (err: any) {
-                logger.error('Failed to switch chain', { chainId: chainIdNum, error: err.message });
-
-                const errorMessage = err?.message || String(err);
-                const errorCode = err?.code;
-
-                // Ethers may emit NETWORK_ERROR during the in-flight chainChanged event.
-                // If we already reached the requested chain, suppress the false error.
-                if (provider && errorCode === 'NETWORK_ERROR' && /network changed/i.test(errorMessage)) {
-                    try {
-                        const updatedChainId = (await provider.getNetwork()).chainId;
-
-                        if (Number(updatedChainId) === chainIdNum) {
-                            logger.debug('Network switched successfully after transient NETWORK_ERROR', { chainId: chainIdNum });
-
-                            return;
-                        }
-                    } catch {
-                        // Ignore follow-up network read errors and keep silent.
-                    }
-                }
-
-                // Keep network switch feedback delegated to wallet UI.
-                logger.debug('Chain switch did not complete during modal open', { chainId: chainIdNum, errorCode, errorMessage });
-            }
-        })();
     };
 
     const handleCloseModal = () => {
@@ -670,10 +644,18 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                             <div className="flex items-center gap-3">
                                 <div className="flex -space-x-2">
                                     {emptyChains.slice(0, 5).map((chain) => (
-                                        chain.icon && <img key={chain.marketKey} src={chain.icon} alt={chain.label} className="w-6 h-6 rounded-full border-2 border-white dark:border-card-dark opacity-50 grayscale" onError={(e) => (e.currentTarget.style.display = 'none')} />
+                                        chain.icon && (
+                                            <img
+                                                key={chain.marketKey}
+                                                src={chain.icon}
+                                                alt={chain.label}
+                                                className={getEmptyChainIconClass(chain.marketKey, 'summary')}
+                                                onError={(e) => (e.currentTarget.style.display = 'none')}
+                                            />
+                                        )
                                     ))}
                                     {emptyChains.length > 5 && (
-                                        <div className="w-6 h-6 rounded-full border-2 border-white dark:border-card-dark bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-500">+{emptyChains.length - 5}</div>
+                                        <div className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-500 dark:text-slate-300">+{emptyChains.length - 5}</div>
                                     )}
                                 </div>
                                 <span className="text-sm italic text-slate-400 ml-1">No positions</span>
@@ -684,9 +666,15 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                     {openEmptyChains && (
                         <div className="border-t border-border-light dark:border-border-dark p-4 flex flex-wrap gap-4">
                             {emptyChains.map((chain) => (
-                                <div key={chain.marketKey} className="flex items-center gap-1.5 opacity-60">
-                                    {chain.icon && <img src={chain.icon} alt={chain.label} className="w-4 h-4 rounded-full" />}
-                                    <span className="text-xs font-medium text-slate-500">{chain.label}</span>
+                                <div key={chain.marketKey} className="flex items-center gap-2">
+                                    {chain.icon && (
+                                        <img
+                                            src={chain.icon}
+                                            alt={chain.label}
+                                            className={getEmptyChainIconClass(chain.marketKey, 'list')}
+                                        />
+                                    )}
+                                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{chain.label}</span>
                                 </div>
                             ))}
                         </div>

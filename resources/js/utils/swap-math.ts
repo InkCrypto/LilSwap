@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { parseUnits, formatUnits } from 'viem';
 
 /**
  * approvalAmount = ceil(srcAmount * (10000 + bufferBps) / 10000)
@@ -21,9 +21,9 @@ export function calcMinAmountOut(destAmountBigInt: bigint, slippageBps: number =
 }
 
 export function parseHumanAmountToWei(amountString: string, decimals: number = 18): bigint {
-    return ethers.parseUnits(amountString, decimals);
+    return parseUnits(amountString, decimals);
 }
 
 export function formatWeiToHuman(amountBigInt: bigint, decimals: number = 18): string {
-    return ethers.formatUnits(amountBigInt, decimals);
+    return formatUnits(amountBigInt, decimals);
 }

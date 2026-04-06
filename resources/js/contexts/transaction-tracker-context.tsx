@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import { Hex } from 'viem';
 import { getMarketByChainId, getMarketByKey } from '../constants/networks';
 import { getUserTransactionsHistory } from '../services/api';
 import { createRpcProvider } from '../helpers/rpc-helper';
@@ -109,7 +110,7 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             setHasMore(true);
             setSheetOpen(false);
 
-            // Clean local transactions on account switch if needed, 
+            // Clean local transactions on account switch if needed,
             // but we start empty now anyway.
             setTransactions([]);
 
@@ -205,11 +206,21 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
                         continue;
                     }
 
-                    const provider = createRpcProvider(market.rpcUrls);
-                    const receipt = await provider.getTransactionReceipt(tx.hash);
+                    const provider = createRpcProvider(market.rpcUrls, tx.chainId);
+                    let receipt = null;
+                    try {
+                        receipt = await provider.getTransactionReceipt({ hash: tx.hash as Hex });
+                    } catch (err: any) {
+                        // Special handling for indexing delays
+                        if (err.name === 'TransactionReceiptNotFoundError' || err.message?.includes('not found')) {
+                            // logger.debug(`[TransactionTracker] Receipt not found yet for ${tx.hash}, retrying...`);
+                            continue;
+                        }
+                        throw err; // Re-throw other errors
+                    }
 
                     if (receipt) {
-                        const isSuccess = receipt.status === 1;
+                        const isSuccess = receipt.status === 'success';
 
                         setTransactions(prev => prev.map(t =>
                             t.hash === tx.hash ? { ...t, status: isSuccess ? 'success' : 'error' } : t

@@ -152,12 +152,22 @@
 }
 
 @layer base {
+    html {
+        scrollbar-gutter: stable both-edges;
+        overflow-y: scroll;
+    }
+
     * {
         @apply border-border;
     }
 
     body {
         @apply bg-background text-foreground;
+    }
+
+    body[data-scroll-locked] {
+        margin-right: 0 !important;
+        padding-right: 0 !important;
     }
 
     /* Global Scrollbar */

@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
 import { getUserPosition } from '../services/api';
+import { getPublicApiErrorMessage } from '../utils/api-error';
 import logger from '../utils/logger';
 
 export interface UserPositionData {
@@ -27,7 +28,7 @@ const cacheRef = {
  * @returns {Object} { supplies, borrows, summary, marketAssets, loading, error, refresh }
  */
 export const useUserPosition = (overrideMarketKey?: string) => {
-    const { account, selectedNetwork } = useWeb3();
+    const { account, selectedNetwork, isProxyReady } = useWeb3();
 
     const effectiveMarketKey = overrideMarketKey || selectedNetwork?.key;
     const cacheKey = account && effectiveMarketKey ? `${account}-${effectiveMarketKey}` : '';
@@ -49,7 +50,7 @@ export const useUserPosition = (overrideMarketKey?: string) => {
     const prevMarketRef = useRef<string | undefined>(effectiveMarketKey);
 
     const refresh = useCallback(async (force = false) => {
-        if (!account || !effectiveMarketKey) {
+        if (!account || !effectiveMarketKey || !isProxyReady) {
             setData({ supplies: [], borrows: [], marketAssets: [], summary: null });
             prevAddressRef.current = null;
             prevMarketRef.current = undefined;
@@ -101,20 +102,11 @@ export const useUserPosition = (overrideMarketKey?: string) => {
             setLastFetch(Date.now());
         } catch (err: any) {
             logger.error(`Error fetching user position for ${effectiveMarketKey}:`, err);
-            const errorMsg = err.message || 'Failed to load Aave positions';
-
-            // Provide more specific error messages
-            if (errorMsg.includes('rate limit')) {
-                setError('RPC rate limit reached. Please wait a few seconds and try again.');
-            } else if (errorMsg.includes('CALL_EXCEPTION')) {
-                setError('Error querying Aave. Please try again in a few seconds.');
-            } else {
-                setError(errorMsg);
-            }
+            setError(getPublicApiErrorMessage(err, 'Failed to load Aave positions'));
         } finally {
             setLoading(false);
         }
-    }, [account, effectiveMarketKey, selectedNetwork?.chainId]);
+    }, [account, effectiveMarketKey, selectedNetwork?.chainId, isProxyReady]);
 
     // Automatic refresh with debounce when account or network changes
     useEffect(() => {
@@ -131,11 +123,11 @@ export const useUserPosition = (overrideMarketKey?: string) => {
                 clearTimeout(fetchTimeoutRef.current);
             }
         };
-    }, [refresh]);
+    }, [refresh, isProxyReady]);
 
     return {
         ...data,
-        loading,
+        loading: loading || (!!account && !isProxyReady),
         error,
         lastFetch,
         refresh

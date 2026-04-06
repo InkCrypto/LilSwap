@@ -132,20 +132,29 @@ export const getDisplaySymbol = (token: any, allTokens: any[] = []): string => {
 };
 
 /**
- * Formats APY with < 0.01% fallback
+ * Formats APY with < 0.01% fallback for positive tiny values
  */
 export const formatAPY = (value: number | string | null | undefined): string => {
     const num = typeof value === 'string' ? parseFloat(value) : (value ?? 0);
-    if (num === 0) return '0.00%';
-    if (num < 0.01) return '< 0.01%';
-    return `${num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}%`;
+    
+    if (num === 0) return '0%';
+    if (num > 0 && num < 0.01) return '< 0.01%';
+    
+    return `${num.toLocaleString('en-US', { 
+        minimumFractionDigits: 2, 
+        maximumFractionDigits: 2,
+        useGrouping: true
+    })}%`;
 };
 
 /**
- * Formats Health Factor with infinity support
+ * Formats Health Factor with infinity support, flooring to 2 decimals (Aave style)
  */
 export const formatHF = (hf: number | string | null | undefined): string => {
     const num = typeof hf === 'string' ? parseFloat(hf) : (hf ?? -1);
     if (num === -1 || num > 100) return '∞';
-    return num.toFixed(2);
+    
+    // Aave floors the health factor to 2 decimals for a more conservative display
+    const floored = Math.floor(num * 100) / 100;
+    return floored.toFixed(2);
 };

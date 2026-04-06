@@ -1,244 +1,246 @@
-import { mainnet, bsc, polygon, base, arbitrum, avalanche, optimism, gnosis, sonic } from '@reown/appkit/networks';
-import { createAppKit, useAppKitProvider, useAppKitAccount, useAppKitNetwork } from '@reown/appkit/react';
-import { EthersAdapter } from '@reown/appkit-adapter-ethers';
-import { ethers } from 'ethers';
-import type { ReactNode } from 'react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import '@rainbow-me/rainbowkit/styles.css';
+import {
+    getDefaultConfig,
+    RainbowKitProvider,
+    darkTheme,
+    lightTheme,
+    useConnectModal
+} from '@rainbow-me/rainbowkit';
+import {
+    rabbyWallet,
+    oneKeyWallet,
+    walletConnectWallet,
+    metaMaskWallet,
+    trustWallet,
+    baseAccount
+} from '@rainbow-me/rainbowkit/wallets';
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
+import type { ReactNode } from 'react';
+import {
+    WagmiProvider,
+    useAccount,
+    useChainId,
+    useSwitchChain,
+    useDisconnect,
+    usePublicClient,
+    useWalletClient,
+    http
+} from 'wagmi';
+import { useAppearance } from '@/hooks/use-appearance';
 import type { MarketConfig } from '../constants/networks';
-import { DEFAULT_MARKET, MARKETS, getMarketByChainId } from '../constants/networks';
-import { createRpcProvider } from '../helpers/rpc-helper';
+import { DEFAULT_MARKET, MARKETS, getMarketByChainId, SUPPORTED_CHAINS, getAlchemyRpcUrl } from '../constants/networks';
 import { bootstrapProxySession, disconnectProxySession, setProxySessionIdentity } from '../services/api';
+import { buildTransportHeaders } from '../helpers/rpc-helper';
 import logger from '../utils/logger';
 
+
+const queryClient = new QueryClient();
+
+const projectId = import.meta.env.VITE_REOWN_PROJECT_ID;
+const chains = SUPPORTED_CHAINS;
+
+// Setup RainbowKit config with priority to Rabby and OneKey as requested
+const config = getDefaultConfig({
+    appName: 'LilSwap',
+    projectId,
+    chains,
+    wallets: [
+        {
+            groupName: 'Recommended',
+            wallets: [
+                rabbyWallet,
+                oneKeyWallet,
+                metaMaskWallet,
+                trustWallet,
+                baseAccount,
+                walletConnectWallet
+            ],
+        },
+    ],
+    transports: Object.fromEntries(
+        SUPPORTED_CHAINS.map(chain => {
+            const market = getMarketByChainId(chain.id);
+            const rpcUrl = market ? getAlchemyRpcUrl(market.alchemySlug) : undefined;
+
+            // For same-origin (proxied) RPCs, we MUST include the Laravel CSRF token
+            const headers = rpcUrl ? buildTransportHeaders(rpcUrl) : {};
+
+            return [chain.id, http(rpcUrl, {
+                fetchOptions: { headers }
+            })];
+        })
+    ),
+    ssr: true,
+});
+
 interface Web3ContextType {
-    provider: ethers.BrowserProvider | null;
     account: string | null;
-    connectWallet: () => Promise<void>;
+    chainId: number | null;
+    isConnected: boolean;
+    isConnecting: boolean;
+    isReconnecting: boolean;
+    isSettlingAccount: boolean;
+    isProxyReady: boolean;
+    connectWallet: () => void;
     disconnectWallet: () => Promise<void>;
     selectedNetwork: MarketConfig;
     setSelectedNetwork: (marketKey: string) => Promise<void>;
     availableNetworks: MarketConfig[];
-    networkRpcProvider: ethers.JsonRpcProvider | null;
-    isConnecting: boolean;
-    isSettlingAccount: boolean;
-    modal: any;
+    publicClient: any;
+    walletClient: any;
 }
 
 export const Web3Context = createContext<Web3ContextType | null>(null);
 
 export const useWeb3 = () => {
     const context = useContext(Web3Context);
-
     if (!context) {
         throw new Error('useWeb3 must be used within a Web3Provider');
     }
-
     return context;
 };
 
-const projectId = (import.meta as any).env.VITE_REOWN_PROJECT_ID || 'b8480dbf6f1c429fb1e3fcbefa80c920';
-const appKitNetworks: any[] = [mainnet, arbitrum, polygon, base, bsc, avalanche, optimism, gnosis, sonic];
-
-const metadata = {
-    name: 'LilSwap',
-    description: 'DeFi Portfolio Optimization for Aave',
-    url: window.location.origin,
-    icons: [window.location.origin + '/favicon.png']
-};
-
-const appKitConfig = {
-    adapters: [new EthersAdapter()],
-    networks: appKitNetworks as [any, ...any[]],
-    metadata,
-    projectId,
-    features: {
-        analytics: true,
-        email: false,
-        socials: []
-    },
-    enableInjected: true,
-    enableEIP6963: true,
-    enableCoinbase: false,
-    themeMode: 'dark' as const,
-    featuredWalletIds: [
-        '18388be9ac2d02726dbac9777c96efaac06d744b2f6d580fccdd4127a6d01fd1', // Rabby
-        '1aedbcfc1f31aade56ca34c38b0a1607b41cccfa3de93c946ef3b4ba2dfab11c', // OneKey
-        'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96',  // MetaMask
-        '163d2cf19babf05eb8962e9748f9ebe613ed52ebf9c8107c9a0f104bfcf161b3',  // Brave
-    ],
-    includeWalletIds: [
-        '18388be9ac2d02726dbac9777c96efaac06d744b2f6d580fccdd4127a6d01fd1', // Rabby
-        '1aedbcfc1f31aade56ca34c38b0a1607b41cccfa3de93c946ef3b4ba2dfab11c', // OneKey
-        'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96',  // MetaMask
-        '163d2cf19babf05eb8962e9748f9ebe613ed52ebf9c8107c9a0f104bfcf161b3',  // Brave
-    ]
-};
-
-const modal = createAppKit(appKitConfig);
-
 export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const { address, isConnected } = useAppKitAccount();
-    const { walletProvider } = useAppKitProvider('eip155');
-    const { chainId } = useAppKitNetwork();
+    const { resolvedAppearance } = useAppearance();
 
-    const [provider, setProvider] = useState<ethers.BrowserProvider | null>(null);
-    const [account, setAccount] = useState<string | null>(null);
-    const [selectedMarketKey, setSelectedMarketKey] = useState<string>(DEFAULT_MARKET.key);
-    const [isConnecting, setIsConnecting] = useState(false);
+    return (
+        <WagmiProvider config={config}>
+            <QueryClientProvider client={queryClient}>
+                <RainbowKitProvider
+                    theme={resolvedAppearance === 'dark' ? darkTheme() : lightTheme()}
+                    locale="en-US"
+                >
+                    <Web3InternalProvider>{children}</Web3InternalProvider>
+                </RainbowKitProvider>
+            </QueryClientProvider>
+        </WagmiProvider>
+    );
+};
+
+const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+    const { address, isConnected, isConnecting, isReconnecting, connector } = useAccount();
+    const chainId = useChainId();
+    const { switchChainAsync } = useSwitchChain();
+    const { disconnectAsync } = useDisconnect();
+
+    const handleDisconnect = useCallback(async () => {
+        setProxySessionIdentity(null);
+        await disconnectProxySession();
+        await disconnectAsync();
+    }, [disconnectAsync]);
+
     const [isSettlingAccount, setIsSettlingAccount] = useState(false);
+    const [isProxyReady, setIsProxyReady] = useState(false);
+    const [selectedMarketKey, setSelectedMarketKey] = useState<string>(DEFAULT_MARKET.key);
 
     const selectedNetwork = useMemo(() => MARKETS[selectedMarketKey] || DEFAULT_MARKET, [selectedMarketKey]);
     const allowedNetworks = useMemo(() => Object.values(MARKETS), []);
 
-    const networkRpcProvider = useMemo(() => {
-        const rpcUrls = selectedNetwork?.rpcUrls;
-
-        if (!rpcUrls || rpcUrls.length === 0) {
-return null;
-}
-
-        return createRpcProvider(rpcUrls);
-    }, [selectedNetwork]);
-
-    useEffect(() => {
-        if (isConnected && address && walletProvider) {
-            setAccount(address);
-            // Re-create provider on walletProvider or chainId change to avoid stale network cache in ethers 6
-            const newProvider = new ethers.BrowserProvider(walletProvider as any);
-            setProvider(newProvider);
-            setProxySessionIdentity({
-                walletAddress: address,
-                chainId: chainId ? Number(chainId) : null,
-            });
-        } else {
-            setAccount(null);
-            setProvider(null);
-            setProxySessionIdentity(null);
-        }
-    }, [isConnected, address, walletProvider, chainId]);
-
+    // Sync market selection with current chain
     useEffect(() => {
         if (chainId) {
             const newMarket = getMarketByChainId(chainId);
-
-            if (newMarket) {
+            if (newMarket && newMarket.key !== selectedMarketKey) {
                 setSelectedMarketKey(newMarket.key);
             }
         }
-    }, [chainId]);
+    }, [chainId, selectedMarketKey]);
+
+    // Track active session to avoid redundant calls
+    const lastSessionStatus = React.useRef<boolean | null>(null);
+
+    // Handle session and proxy identity
     useEffect(() => {
-        if (!isConnected || !address) {
-            setProxySessionIdentity(null);
+        const currentlyConnected = isConnected && !!address;
 
-            return;
-        }
+        // Prevent redundant disconnects or loops
+        if (lastSessionStatus.current === currentlyConnected) return;
 
-        setProxySessionIdentity({
-            walletAddress: address,
-            chainId: chainId ? Number(chainId) : null,
-        });
+        const previousStatus = lastSessionStatus.current;
+        lastSessionStatus.current = currentlyConnected;
 
-        bootstrapProxySession({
-            walletAddress: address,
-            chainId: chainId ? Number(chainId) : null,
-        }).catch((error) => {
-            logger.warn('[Web3Provider] Proxy session bootstrap failed', {
-                error: (error as any)?.message,
+        if (currentlyConnected) {
+            // Mark as not ready until bootstrap completes
+            setIsProxyReady(false);
+
+            setProxySessionIdentity({
+                walletAddress: address as string,
+                chainId: chainId || null,
             });
-        });
+
+            bootstrapProxySession({
+                walletAddress: address as string,
+                chainId: chainId || null,
+            }).then(() => {
+                setIsProxyReady(true);
+            }).catch((error) => {
+                console.warn('[Web3Provider] Proxy session bootstrap failed', {
+                    error: (error as any)?.message,
+                });
+                setIsProxyReady(false);
+            });
+        } else if (previousStatus === true) {
+            // Only explicitly disconnect if we were previously connected
+            setIsProxyReady(false);
+            setProxySessionIdentity(null);
+            disconnectProxySession().catch(() => { });
+        }
     }, [isConnected, address, chainId]);
 
-    // Re-verify account on visibility change (wake-up from hibernation)
+    // Re-verify account state on visibility change (re-sync with wallet)
     useEffect(() => {
         const handleVisibilityChange = async () => {
-            if (document.visibilityState === 'visible' && isConnected && walletProvider) {
+            if (document.visibilityState === 'visible' && isConnected && connector) {
                 try {
                     setIsSettlingAccount(true);
-                    logger.debug('[Web3Provider] Re-verifying account on visibility change...');
-
-                    const accounts = await (walletProvider as any).request({ method: 'eth_accounts' });
-
-                    if (accounts && accounts.length > 0) {
-                        const currentAccount = accounts[0].toLowerCase();
-
-                        if (currentAccount !== account?.toLowerCase()) {
-                            logger.info('[Web3Provider] Account mismatch detected on wakeup', {
-                                prev: account,
-                                current: currentAccount
-                            });
-                            setAccount(currentAccount);
-                        }
-                    }
-                } catch (error) {
-                    logger.warn('[Web3Provider] Account re-verification failed', error);
+                    // Wagmi useAccount is generally reactive, but we can force a refresh if needed
                 } finally {
-                    // Give a small extra buffer for downstream hooks to settle
                     setTimeout(() => setIsSettlingAccount(false), 200);
                 }
             }
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
-
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [isConnected, walletProvider, account]);
+    }, [isConnected, connector]);
 
-    const connectWallet = useCallback(async () => {
-        try {
-            setIsConnecting(true);
-            await modal.open();
-        } catch (error) {
-            logger.error('[Web3Provider] Connection failed:', error);
-
-            throw error;
-        } finally {
-            setIsConnecting(false);
-        }
-    }, []);
-
-    const disconnectWallet = useCallback(async () => {
-        try {
-            await disconnectProxySession();
-            await modal.disconnect();
-            setAccount(null);
-            setProvider(null);
-        } catch (error) {
-            logger.error('[Web3Provider] Disconnect failed:', error);
-        }
-    }, []);
+    const { openConnectModal } = useConnectModal();
+    const connectWallet = useCallback(() => {
+        openConnectModal?.();
+    }, [openConnectModal]);
 
     const changeNetwork = useCallback(async (marketKey: string) => {
         const targetMarket = MARKETS[marketKey];
-
-        if (!targetMarket) {
-return;
-}
+        if (!targetMarket || !switchChainAsync) return;
 
         try {
-            const appKitNetwork = appKitNetworks.find(n => n.id === targetMarket.chainId);
-
-            if (appKitNetwork) {
-                await modal.switchNetwork(appKitNetwork);
-            }
+            await switchChainAsync({ chainId: targetMarket.chainId });
         } catch (error) {
             logger.error('[Web3Provider] Network switch failed:', error);
         }
-    }, []);
+    }, [switchChainAsync]);
+
+    const publicClient = usePublicClient();
+    const { data: walletClient } = useWalletClient();
 
     return (
         <Web3Context.Provider
             value={{
-                provider,
-                account,
+                account: address || null,
+                chainId: chainId || null,
+                isConnected,
+                isConnecting,
+                isReconnecting,
+                isSettlingAccount,
+                isProxyReady,
                 connectWallet,
-                disconnectWallet,
+                disconnectWallet: handleDisconnect,
                 selectedNetwork,
                 setSelectedNetwork: changeNetwork,
                 availableNetworks: allowedNetworks,
-                networkRpcProvider,
-                isConnecting,
-                isSettlingAccount,
-                modal
+                publicClient,
+                walletClient,
             }}
         >
             {children}

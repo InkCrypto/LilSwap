@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useUserActivity } from '../contexts/user-activity-context';
 import { useWeb3 } from '../contexts/web3-context';
 import { apiClient } from '../services/api';
+import { getPublicApiErrorMessage } from '../utils/api-error';
 import logger from '../utils/logger';
 
 export interface PositionInfo {
@@ -39,11 +40,11 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
     const [error, setError] = useState<string | null>(null);
     const [lastFetch, setLastFetch] = useState<number | null>(null);
     const { isTabVisible, isUserActive } = useUserActivity();
-    const { isSettlingAccount } = useWeb3();
+    const { isSettlingAccount, isProxyReady } = useWeb3();
     const prevAddressRef = useRef<string | null>(walletAddress);
 
     const fetchPositions = useCallback(async (force = false) => {
-        if (!walletAddress) {
+        if (!walletAddress || !isProxyReady) {
             return;
         }
 
@@ -67,17 +68,20 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
 
             setLastFetch(Date.now());
         } catch (err: any) {
-            const errorMsg = err.response?.data?.message || err.message || 'Failed to fetch positions';
-            logger.error('Error fetching all positions', { error: errorMsg });
+            const errorMsg = getPublicApiErrorMessage(err, 'Failed to fetch positions');
+            logger.error('Error fetching all positions', {
+                error: err?.message,
+                publicMessage: errorMsg,
+            });
             setError(errorMsg);
             setData(null);
         } finally {
             setLoading(false);
         }
-    }, [walletAddress]);
+    }, [walletAddress, isProxyReady]);
 
     useEffect(() => {
-        if (!walletAddress) {
+        if (!walletAddress || !isProxyReady) {
             setData(null);
             prevAddressRef.current = null;
 
@@ -90,7 +94,7 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
         }
 
         fetchPositions();
-    }, [fetchPositions, walletAddress]);
+    }, [fetchPositions, walletAddress, isProxyReady]);
 
     useEffect(() => {
         if (!walletAddress) {
@@ -135,9 +139,9 @@ export const useAllPositions = (walletAddress: string | null, opts: { refreshInt
 
     return {
         positionsByChain: data,
-        donator,
-        loading,
+        loading: loading || (!!walletAddress && !isProxyReady),
         error,
+        donator,
         lastFetch,
         refresh: fetchPositions
     };

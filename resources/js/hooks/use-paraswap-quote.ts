@@ -1,4 +1,4 @@
-import { ethers } from 'ethers';
+import { getAddress } from 'viem';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DEFAULT_NETWORK } from '../constants/networks';
 import { useUserActivity } from '../contexts/user-activity-context';
@@ -7,6 +7,7 @@ import logger from '../utils/logger';
 import { useDebounce } from './use-debounce';
 
 const AUTO_REFRESH_SECONDS = 30;
+const EMPTY_ARRAY: any[] = [];
 
 const pickNumberish = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -101,7 +102,7 @@ export const useParaswapQuote = ({
     enabled = true,
     freezeQuote = false,
     marketKey = null,
-    marketAssets = []
+    marketAssets = EMPTY_ARRAY
 }: UseParaswapQuoteProps) => {
     const [swapQuote, setSwapQuote] = useState<any>(null);
     const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
@@ -175,7 +176,7 @@ export const useParaswapQuote = ({
         }
 
         try {
-            return ethers.getAddress(address);
+            return getAddress(address);
         } catch (error: any) {
             logger.warn(`[useParaswapQuote] Invalid address checksum for ${symbol}: ${address}`, error.message);
 
@@ -304,7 +305,7 @@ export const useParaswapQuote = ({
                     fromToken: { address: fromTokenAddress, decimals: fromToken.decimals, symbol: fromToken.symbol },
                     toToken: { address: toTokenAddress, decimals: toToken.decimals, symbol: toToken.symbol },
                     destAmount,
-                    adapterAddress: account,
+                    adapterAddress: adapterAddress || account,
                     walletAddress: account,
                     apyPercent: apyPercentToSend,
                     marketKey: marketKey || selectedNetwork?.key,
@@ -356,7 +357,7 @@ export const useParaswapQuote = ({
         } finally {
             setIsQuoteLoading(false);
         }
-    }, [debouncedAmount, isCollateral, fromToken, toToken, addLog, onQuoteLoaded, resetRefreshCountdown, selectedNetwork?.chainId, account, adapterAddress, clearQuoteError, setQuoteErrorWithTimer]);
+    }, [debouncedAmount, isCollateral, fromToken, toToken, addLog, onQuoteLoaded, resetRefreshCountdown, selectedNetwork?.chainId, account, adapterAddress, clearQuoteError, setQuoteErrorWithTimer, marketKey, selectedNetwork?.key, marketAssets]);
 
     useEffect(() => {
         return () => {

@@ -56,6 +56,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
 }) => {
     const [popoverOpen, setPopoverOpen] = useState(false);
     const popoverRef = useRef<HTMLDivElement>(null);
+    const inputRef = useRef<HTMLInputElement>(null);
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
@@ -86,12 +87,6 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
         if (!maxAmount || maxAmount === BigInt(0)) {
             return;
         }
-
-        // ethers is no longer imported, so we expect the parent to handle this if they want to be precise,
-        // but for backward compatibility if we had ethers, we'd use it.
-        // Actually, let's just make onApplyMax/Pct required or handle them in parent.
-        // I'll re-add ethers just in case or better, force the parent to provide handlers.
-        // I'll be explicit here: this component doesn't need ethers anymore as parents handle calculations.
     };
 
     const handleApplyMax = () => {
@@ -100,6 +95,13 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
 
             return;
         }
+    };
+
+    const focusPrimaryInput = () => {
+        requestAnimationFrame(() => {
+            inputRef.current?.focus();
+            inputRef.current?.select();
+        });
     };
 
     return (
@@ -111,6 +113,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                         <span className={`text-2xl font-mono font-bold mr-0.5 select-none transition-colors ${isError ? 'text-rose-500' : (value && value !== '0' ? 'text-slate-900 dark:text-white' : 'text-muted-foreground')}`}>$</span>
                     )}
                     <input
+                        ref={inputRef}
                         type="text"
                         value={value}
                         onChange={(e) => {
@@ -169,7 +172,11 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                 {/* Secondary value (USD or Token) - Toggle at the START */}
                 <button
                     type="button"
-                    onClick={onToggleUSDMode}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={() => {
+                        onToggleUSDMode?.();
+                        focusPrimaryInput();
+                    }}
                     disabled={disabled || !onToggleUSDMode}
                     className="flex items-center gap-1 min-h-5 text-left group/label p-0 bg-transparent border-none appearance-none cursor-pointer disabled:cursor-not-allowed"
                     title={isUSDMode ? "Switch to Token" : "Switch to USD"}
