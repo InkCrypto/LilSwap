@@ -1,14 +1,14 @@
-import { AlertCircle, ArrowDownRight, ArrowUpRight, CircleDashed, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, Gift, Network, RefreshCw } from 'lucide-react';
+import { AlertCircle, ArrowDownRight, ArrowUpRight, CircleDashed, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, RefreshCw } from 'lucide-react';
 import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
 import { getMarketByKey } from '../constants/networks';
-import type { PositionInfo } from '../hooks/use-all-positions';
-import { useAllPositions } from '../hooks/use-all-positions';
+import type { DonatorInfo, ChainInfo, PositionInfo } from '../hooks/use-all-positions';
 import { formatUSD, formatCompactToken, formatAPY, formatHF } from '../utils/formatters';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import logger from '../utils/logger';
-import { DonateModal } from './donate-modal';
 import { InfoTooltip } from './info-tooltip';
+import { PortfolioOverviewCard } from './portfolio-overview-card';
+import type { PortfolioOverview } from './portfolio-overview-card';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
 
@@ -31,7 +31,19 @@ interface ModalState {
 
 interface PositionsAccordionProps {
     walletAddress: string;
+    positionsByChain: Record<string, ChainInfo> | null;
+    donator: DonatorInfo;
+    loading: boolean;
+    error: string | null;
+    lastFetch: number | null;
+    refresh: (force?: boolean) => Promise<void>;
 }
+
+const parseAmount = (value: string | number | null | undefined): number => {
+    const parsed = typeof value === 'number' ? value : parseFloat(value || '');
+
+    return Number.isFinite(parsed) ? parsed : 0;
+};
 
 const getEmptyChainIconClass = (marketKey: string, variant: 'summary' | 'list' = 'summary') => {
     const baseSize = variant === 'summary' ? 'w-5 h-5' : 'w-4 h-4';
@@ -44,8 +56,15 @@ const getEmptyChainIconClass = (marketKey: string, variant: 'summary' | 'list' =
  * PositionsAccordion Component
  * Displays user positions across multiple networks in an accordion layout
  */
-export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAddress }) => {
-    const { positionsByChain, donator, loading, error, lastFetch, refresh } = useAllPositions(walletAddress);
+export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
+    walletAddress,
+    positionsByChain,
+    donator,
+    loading,
+    error,
+    lastFetch,
+    refresh,
+}) => {
     const { setSelectedNetwork } = useWeb3();
 
     const [openMarket, setOpenMarket] = useState<string | null>(null);
@@ -60,7 +79,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
         supplies: [],
         isCollateral: false
     });
-    const [isDonateOpen, setIsDonateOpen] = useState(false);
+    const [timeTick, setTimeTick] = useState(() => Date.now());
 
     // Preload swap modal chunks so the first open feels instant.
     useEffect(() => {
@@ -68,11 +87,22 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
         void import('./collateral-swap-modal');
     }, []);
 
+    useEffect(() => {
+        if (!lastFetch) {
+            return;
+        }
+
+        const interval = window.setInterval(() => {
+            setTimeTick(Date.now());
+        }, 1000);
+
+        return () => window.clearInterval(interval);
+    }, [lastFetch]);
+
     // Reset accordion state when walletAddress changes
     useEffect(() => {
         setOpenMarket(null);
         setOpenEmptyChains(false);
-        setIsDonateOpen(false);
         setModalState(prev => ({ ...prev, open: false }));
     }, [walletAddress]);
 
@@ -120,7 +150,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
             return null;
         }
 
-        const now = Date.now();
+        const now = timeTick;
         const diff = now - lastFetch;
         const seconds = Math.floor(diff / 1000);
 
@@ -150,14 +180,32 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
             const borrowsCount = info?.borrows?.length || 0;
             const hasPositions = info?.hasPositions || (suppliesCount + borrowsCount > 0);
             const hasError = !!info?.error;
-
-            const totalBorrowed = info?.borrows?.reduce((sum, b) => sum + parseFloat(b.formattedAmount || '0'), 0) || 0;
-            const totalSupplied = info?.supplies?.reduce((sum, s) => sum + parseFloat(s.formattedAmount || '0'), 0) || 0;
+            const totalSuppliedUSDFromAssets = info?.supplies?.reduce(
+                (sum, supply) => sum + (parseAmount(supply.formattedAmount) * parseAmount(supply.priceInUSD)),
+                0,
+            ) || 0;
+            const totalBorrowedUSDFromAssets = info?.borrows?.reduce(
+                (sum, borrow) => sum + (parseAmount(borrow.formattedAmount) * parseAmount(borrow.priceInUSD)),
+                0,
+            ) || 0;
             const totalPositions = suppliesCount + borrowsCount;
-
-            const healthFactor = info?.summary?.healthFactor ? parseFloat(info.summary.healthFactor) : null;
-            const netWorthUSD = info?.summary?.netWorthUSD ? parseFloat(info.summary.netWorthUSD) : 0;
-            const netAPY = info?.summary?.netAPY ? parseFloat(info.summary.netAPY) : 0;
+            const totalSuppliedUSD = info?.summary?.totalCollateralUSD
+                ? parseAmount(info.summary.totalCollateralUSD)
+                : totalSuppliedUSDFromAssets;
+            const totalBorrowedUSD = info?.summary?.totalBorrowsUSD
+                ? parseAmount(info.summary.totalBorrowsUSD)
+                : totalBorrowedUSDFromAssets;
+            const healthFactorValue = info?.summary?.healthFactor != null
+                ? parseFloat(info.summary.healthFactor)
+                : null;
+            const healthFactor = healthFactorValue != null && Number.isFinite(healthFactorValue)
+                ? healthFactorValue
+                : null;
+            const netWorthUSD = info?.summary?.netWorthUSD ? parseAmount(info.summary.netWorthUSD) : 0;
+            const netAPY = info?.summary?.netAPY ? parseAmount(info.summary.netAPY) : 0;
+            const currentLiquidationThreshold = info?.summary?.currentLiquidationThreshold != null
+                ? parseAmount(info.summary.currentLiquidationThreshold)
+                : null;
 
             const sortedSupplies = (info?.supplies || []).slice().sort((a, b) => {
                 const valA = parseFloat(a.formattedAmount || '0') * parseFloat(a.priceInUSD || '0');
@@ -182,12 +230,13 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                 borrowsCount,
                 hasPositions,
                 hasError,
-                totalBorrowed,
-                totalSupplied,
+                totalBorrowedUSD,
+                totalSuppliedUSD,
                 totalPositions,
                 healthFactor,
                 netWorthUSD,
                 netAPY,
+                currentLiquidationThreshold,
                 supplies: sortedSupplies,
                 borrows: sortedBorrows,
                 marketAssets: info?.marketAssets || [],
@@ -205,6 +254,59 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
             return b.netWorthUSD - a.netWorthUSD;
         });
     }, [positionsByChain]);
+
+    const activeChains = chainEntries.filter(c => c.hasPositions);
+    const emptyChains = chainEntries.filter(c => !c.hasPositions);
+
+    const portfolioOverview = useMemo<PortfolioOverview | null>(() => {
+        if (activeChains.length < 2) {
+            return null;
+        }
+
+        const totalNetWorthUSD = activeChains.reduce((sum, chain) => sum + chain.netWorthUSD, 0);
+        const totalSuppliedUSD = activeChains.reduce((sum, chain) => sum + chain.totalSuppliedUSD, 0);
+        const totalBorrowedUSD = activeChains.reduce((sum, chain) => sum + chain.totalBorrowedUSD, 0);
+
+        if (totalBorrowedUSD <= 0.01) {
+            return {
+                totalNetWorthUSD,
+                totalSuppliedUSD,
+                totalBorrowedUSD,
+                activeMarkets: activeChains.length,
+                approxHealthFactor: null,
+                approxHealthFactorStatus: 'no-debt',
+            };
+        }
+
+        const hasIncompleteThresholdData = activeChains.some(
+            (chain) => (chain.totalSuppliedUSD > 0 || chain.totalBorrowedUSD > 0) && chain.currentLiquidationThreshold == null,
+        );
+
+        if (hasIncompleteThresholdData) {
+            return {
+                totalNetWorthUSD,
+                totalSuppliedUSD,
+                totalBorrowedUSD,
+                activeMarkets: activeChains.length,
+                approxHealthFactor: null,
+                approxHealthFactorStatus: 'unavailable',
+            };
+        }
+
+        const collateralPower = activeChains.reduce(
+            (sum, chain) => sum + (chain.totalSuppliedUSD * (chain.currentLiquidationThreshold || 0)),
+            0,
+        );
+
+        return {
+            totalNetWorthUSD,
+            totalSuppliedUSD,
+            totalBorrowedUSD,
+            activeMarkets: activeChains.length,
+            approxHealthFactor: collateralPower / totalBorrowedUSD,
+            approxHealthFactorStatus: 'value',
+        };
+    }, [activeChains]);
 
     if (loading && !positionsByChain) {
         return (
@@ -231,100 +333,52 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
         return null;
     }
 
-    const activeChains = chainEntries.filter(c => c.hasPositions);
-    const emptyChains = chainEntries.filter(c => !c.hasPositions);
+    const statusActions = (
+        <div className="flex items-end gap-3 shrink-0">
+            {lastFetch && (
+                <span className="text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400 whitespace-nowrap">
+                    Updated {getLastFetchText()}
+                </span>
+            )}
+            <button
+                onClick={() => refresh(true)}
+                disabled={loading}
+                className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-all group rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+                <RefreshCw className={`w-5 h-5 translate-y-1 ${loading ? 'animate-spin' : ''}`} />
+            </button>
+        </div>
+    );
+
+    const hasOverview = !!portfolioOverview;
+
+    const positionsHeader = (
+        <div className="flex justify-between items-end w-full px-2">
+            <div className="text-[11px] font-black uppercase tracking-[0.18em] text-primary/80 sm:text-xs">
+                Aave Positions
+            </div>
+            {!hasOverview && statusActions}
+        </div>
+    );
 
     return (
         <div className="w-full space-y-3 animate-in fade-in duration-500">
-            <div className="flex flex-col w-full gap-1">
-                {donator.isDonator && (
-                    <div className="flex sm:hidden justify-center w-full -mt-1.5 mb-2">
-                        <InfoTooltip message={`You are enjoying a ${donator.discountPercent}% discount. Thank you for supporting LilSwap!`}>
-                            <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-linear-to-r from-primary/20 to-fuchsia-500/20 text-primary border border-primary/30 shadow-[0_0_10px_rgba(168,85,247,0.2)] cursor-help hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all">
-                                <span className="relative flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                                </span>
-                                {donator.type?.toLowerCase().includes('partner') ? 'PARTNER' : 'DONATOR'}
-                            </span>
-                        </InfoTooltip>
-                    </div>
-                )}
-
-                {!donator.isDonator && (
-                    <div className="flex sm:hidden justify-center w-full -mt-1.5 mb-2">
-                        <button
-                            onClick={() => setIsDonateOpen(true)}
-                            className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-linear-to-r from-primary/20 via-purple-500/20 to-fuchsia-500/20 text-primary border border-primary/40 shadow-[0_0_10px_rgba(168,85,247,0.1)] hover:shadow-[0_0_15px_rgba(168,85,247,0.5)] hover:scale-105 active:scale-95 transition-all group"
-                        >
-                            <Gift className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
-                            <span className="relative">
-                                Get 10% Fee Discount
-                                <span className="absolute -top-1 -right-2 flex h-2 w-2">
-                                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                    <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                                </span>
-                            </span>
-                        </button>
-                    </div>
-                )}
-
-                <div className="flex justify-between items-center w-full px-2">
-                    <div className="flex items-center gap-2">
-                        <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                            <Network className="w-5 h-5 text-primary shrink-0" />
-                            <span>Multi-Chain Positions</span>
-                        </h2>
-
-                        {donator.isDonator && (
-                            <div className="hidden sm:flex">
-                                <InfoTooltip message={`You are enjoying a ${donator.discountPercent}% discount. Thank you for supporting LilSwap!`}>
-                                    <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-extrabold bg-linear-to-r from-primary/20 to-fuchsia-500/20 text-primary border border-primary/30 shadow-[0_0_10px_rgba(168,85,247,0.2)] cursor-help hover:shadow-[0_0_15px_rgba(168,85,247,0.4)] transition-all">
-                                        <span className="relative flex h-2 w-2">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                                        </span>
-                                        {donator.type?.toLowerCase().includes('partner') ? 'PARTNER' : 'DONATOR'}
-                                    </span>
-                                </InfoTooltip>
-                            </div>
-                        )}
-
-                        {!donator.isDonator && (
-                            <div className="hidden sm:flex items-center">
-                                <button
-                                    onClick={() => setIsDonateOpen(true)}
-                                    className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-extrabold bg-linear-to-r from-primary/20 via-purple-500/20 to-fuchsia-500/20 text-primary border border-primary/40 shadow-[0_0_10px_rgba(168,85,247,0.1)] hover:shadow-[0_0_15px_rgba(168,85,247,0.5)] hover:scale-105 active:scale-95 transition-all group"
-                                >
-                                    <Gift className="w-3.5 h-3.5 group-hover:rotate-12 transition-transform" />
-                                    <span className="relative">
-                                        Get 10% Fee Discount
-                                        <span className="absolute -top-1 -right-2 flex h-2 w-2">
-                                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-primary opacity-75"></span>
-                                            <span className="relative inline-flex rounded-full h-2 w-2 bg-primary"></span>
-                                        </span>
-                                    </span>
-                                </button>
-                            </div>
-                        )}
+            {hasOverview && (
+                <>
+                    <div className="flex justify-between items-end w-full px-2">
+                        <div className="text-[11px] font-black uppercase tracking-[0.18em] text-primary/80 sm:text-xs">
+                            Portfolio Overview
+                        </div>
+                        {statusActions}
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
-                        {lastFetch && (
-                            <span className="text-xs text-slate-500 whitespace-nowrap">
-                                Updated {getLastFetchText()}
-                            </span>
-                        )}
-                        <button
-                            onClick={() => refresh(true)}
-                            disabled={loading}
-                            className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-all group rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
-                        </button>
-                    </div>
-                </div>
-            </div>
+                    <PortfolioOverviewCard overview={portfolioOverview} />
+
+                    {positionsHeader}
+                </>
+            )}
+
+            {!hasOverview && positionsHeader}
 
             {activeChains.map((chain) => (
                 <Card key={chain.marketKey} className="bg-white dark:bg-slate-800/60 border-border-light dark:border-border-dark overflow-hidden transition-all hover:border-slate-300 dark:hover:border-slate-600">
@@ -366,19 +420,19 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                         <div className="mt-3 sm:mt-0 flex-1 flex items-center justify-between">
                             <div className="flex items-center gap-3 sm:gap-6">
                                 <div className="flex flex-col items-start">
-                                    <span className="text-[10px] sm:text-xs text-slate-400 leading-none mb-1">Net worth</span>
+                                    <span className="mb-1 text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400">Net worth</span>
                                     <span className="text-sm sm:text-base font-mono font-bold text-slate-900 dark:text-white leading-none">
                                         {formatUSD(chain.netWorthUSD)}
                                     </span>
                                 </div>
                                 <div className="flex flex-col items-start border-l border-slate-200 dark:border-slate-700/50 pl-3 sm:border-0 sm:pl-0">
-                                    <span className="text-[10px] sm:text-xs text-slate-400 leading-none mb-1">Net APY</span>
+                                    <span className="mb-1 text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400">Net APY</span>
                                     <span className="text-sm sm:text-base font-mono font-bold text-slate-900 dark:text-white leading-none">
                                         {formatAPY(chain.netAPY)}
                                     </span>
                                 </div>
                                 <div className="flex flex-col items-start border-l border-slate-200 dark:border-slate-700/50 pl-3 sm:border-0 sm:pl-0">
-                                    <span className="text-[10px] sm:text-xs text-slate-400 leading-none mb-1">Health factor</span>
+                                    <span className="mb-1 text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400">Health factor</span>
                                     <div className="flex items-center gap-3">
                                         <span className={`text-base sm:text-lg font-mono font-bold leading-none ${(!chain.healthFactor || chain.healthFactor >= 3 || chain.healthFactor === -1) ? 'text-green-400' : chain.healthFactor >= 1.1 ? 'text-orange-400' : 'text-red-500'}`}>
                                             {formatHF(chain.healthFactor)}
@@ -710,7 +764,6 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({ walletAd
                 )}
             </Suspense>
 
-            <DonateModal isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} />
         </div>
     );
 };

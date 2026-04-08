@@ -20,8 +20,13 @@ export interface ChainInfo {
         healthFactor: string;
         netWorthUSD: string;
         netAPY: string;
+        totalCollateralUSD?: string;
+        totalBorrowsUSD?: string;
+        currentLiquidationThreshold?: string;
+        eModeCategoryId?: number;
+        eModes?: any[];
         [key: string]: any;
-    };
+    } | null;
     hasPositions: boolean;
     error?: string;
     marketAssets: any[];

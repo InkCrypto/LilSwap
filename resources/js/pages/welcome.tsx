@@ -1,11 +1,14 @@
-import { Wallet } from 'lucide-react';
 import { useConnectModal, ConnectButton } from '@rainbow-me/rainbowkit';
+import { Heart, Wallet } from 'lucide-react';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AppHeader } from '@/components/app-header';
-import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
+import { InfoTooltip } from '@/components/info-tooltip';
 import { TransactionHistorySheet } from '@/components/transaction-history-sheet';
+import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
 import { useWeb3 } from '@/contexts/web3-context';
+import { useAllPositions } from '@/hooks/use-all-positions';
 import AppFooter from '../components/app-footer';
+import { DonateModal } from '../components/donate-modal';
 import LilLogo from '../components/lil-logo';
 import { Button } from '../components/ui/button';
 
@@ -15,6 +18,8 @@ export default function Welcome() {
     const { account } = useWeb3();
     const { activeCount, setSheetOpen } = useTransactionTracker();
     const { connectModalOpen } = useConnectModal();
+    const { positionsByChain, donator, loading, error, lastFetch, refresh } = useAllPositions(account);
+    const [isDonateOpen, setIsDonateOpen] = useState(false);
     const [flipState, setFlipState] = useState<{ current: string; prev: string | null; key: number }>({
         current: 'Little', prev: null, key: 0,
     });
@@ -72,6 +77,11 @@ export default function Welcome() {
         </span>
     );
 
+    const donatorTagSuffix = donator.type?.toLowerCase().includes('partner') ? 'Partner' : 'Donator';
+    const appTagLabel = donator.isDonator ? `Lil'${donatorTagSuffix}` : 'Get 10% Fee Discount';
+    const desktopTagClassName = 'pointer-events-auto inline-flex h-6 items-center rounded-md border border-primary/35 bg-white px-2.5 text-[9px] font-black uppercase tracking-[0.16em] text-primary shadow-[0_0_10px_rgba(168,85,247,0.12)] dark:border-cyan-400/35 dark:bg-cyan-500/14 dark:text-cyan-300 dark:shadow-[0_0_12px_rgba(34,211,238,0.16)]';
+    const mobileTagClassName = 'pointer-events-auto inline-flex h-5 items-center rounded-md border border-primary/35 bg-white px-2 text-[8px] font-black uppercase tracking-[0.16em] text-primary shadow-[0_0_10px_rgba(168,85,247,0.12)] dark:border-cyan-400/35 dark:bg-cyan-500/14 dark:text-cyan-300 dark:shadow-[0_0_12px_rgba(34,211,238,0.16)]';
+
     return (
         <div className="flex flex-col min-h-screen bg-background text-slate-800 dark:text-slate-100 selection:bg-primary/30 font-sans">
             <style>{`
@@ -93,15 +103,66 @@ export default function Welcome() {
 
             <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-24 w-full pt-2 md:pt-12">
                 {account ? (
-                    <Suspense
-                        fallback={
-                            <div className="flex items-center justify-center py-20">
-                                <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
-                            </div>
-                        }
-                    >
-                        <Dashboard />
-                    </Suspense>
+                    <div className="relative">
+                        {positionsByChain && (
+                            <>
+                                <div className="pointer-events-none absolute left-1/2 top-0 z-45 -translate-x-1/2 -translate-y-[92%] sm:hidden">
+                                    {donator.isDonator ? (
+                                        <InfoTooltip message={`You are enjoying a ${donator.discountPercent}% discount. Thank you for supporting LilSwap!`}>
+                                            <span className={`${mobileTagClassName} cursor-help`}>
+                                                {appTagLabel}
+                                                {appTagLabel === "Lil'Donator" && <Heart className="ml-1 h-2.5 w-2.5 fill-current" />}
+                                            </span>
+                                        </InfoTooltip>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsDonateOpen(true)}
+                                            className={`${mobileTagClassName} transition-colors hover:bg-primary/8 dark:hover:bg-cyan-500/20`}
+                                        >
+                                            {appTagLabel}
+                                        </button>
+                                    )}
+                                </div>
+
+                                <div className="pointer-events-none absolute left-1/2 top-0 z-45 hidden -translate-x-1/2 -translate-y-[118%] sm:block">
+                                    {donator.isDonator ? (
+                                        <InfoTooltip message={`You are enjoying a ${donator.discountPercent}% discount. Thank you for supporting LilSwap!`}>
+                                            <span className={`${desktopTagClassName} cursor-help`}>
+                                                {appTagLabel}
+                                                {appTagLabel === "Lil'Donator" && <Heart className="ml-1 h-3 w-3 fill-current" />}
+                                            </span>
+                                        </InfoTooltip>
+                                    ) : (
+                                        <button
+                                            type="button"
+                                            onClick={() => setIsDonateOpen(true)}
+                                            className={`${desktopTagClassName} transition-colors hover:bg-primary/8 dark:hover:bg-cyan-500/20`}
+                                        >
+                                            {appTagLabel}
+                                        </button>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        <Suspense
+                            fallback={
+                                <div className="flex items-center justify-center py-20">
+                                    <div className="w-8 h-8 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                                </div>
+                            }
+                        >
+                            <Dashboard
+                                account={account}
+                                positionsByChain={positionsByChain}
+                                donator={donator}
+                                loading={loading}
+                                error={error}
+                                lastFetch={lastFetch}
+                                refresh={refresh}
+                            />
+                        </Suspense>
+                    </div>
                 ) : (
                     <div className="mt-12 sm:mt-16 bg-white dark:bg-slate-900 rounded-3xl pt-14 pb-10 px-10 sm:pt-16 sm:pb-12 sm:px-12 border border-slate-200 dark:border-slate-800 text-center shadow-xl max-w-lg mx-auto overflow-hidden">
                         <div className="mb-8 flex flex-col items-center">
@@ -150,6 +211,7 @@ export default function Welcome() {
             </main>
 
             <TransactionHistorySheet />
+            <DonateModal isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} />
             <AppFooter />
         </div>
     );
