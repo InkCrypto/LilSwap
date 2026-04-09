@@ -112,7 +112,7 @@ export const TransactionHistorySheet: React.FC = () => {
         const mappedApiHistory = apiHistory.map(tx => {
             let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
             if (tx.tx_status === 'CONFIRMED') mappedStatus = 'success';
-            else if (['FAILED', 'REJECTED', 'EXPIRED'].includes(tx.tx_status)) mappedStatus = 'error';
+            else if (['FAILED', 'REJECTED', 'EXPIRED', 'HASH_MISSING'].includes(tx.tx_status)) mappedStatus = 'error';
 
             const isDebt = tx.swap_type === 'debt';
             const desc = isDebt ? 'Debt Swap' : 'Collateral Swap';
@@ -126,7 +126,8 @@ export const TransactionHistorySheet: React.FC = () => {
                 fromTokenSymbol: tx.from_token_symbol,
                 toTokenSymbol: tx.to_token_symbol,
                 isApi: true,
-                revertReason: tx.revert_reason
+                revertReason: tx.revert_reason,
+                txStatus: tx.tx_status,
             };
         });
 
@@ -300,6 +301,7 @@ export const TransactionHistorySheet: React.FC = () => {
                                                         }`}>
                                                         {tx.status === 'pending' ? 'Processing...' :
                                                             tx.status === 'success' ? 'Confirmed' :
+                                                                tx.revertReason === 'hash_missing' || tx.revertReason === 'hash_sync_failed' || tx.txStatus === 'HASH_MISSING' ? 'Hash Missing' :
                                                                 (tx.revertReason === 'reverted' ? 'Reverted' :
                                                                     tx.revertReason === 'ghost_timeout' ? 'Timed Out (Not Found)' :
                                                                         tx.revertReason === 'drop_timeout' ? 'Dropped' : 'Failed')}

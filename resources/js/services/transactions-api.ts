@@ -6,27 +6,141 @@
 import logger from '../utils/logger';
 import { apiClient } from './api';
 
+const PENDING_HASH_SYNC_STORAGE_KEY = 'lilswap.pendingHashSync.v1';
+const HASH_SYNC_MAX_ATTEMPTS = 3;
+const HASH_SYNC_RETRY_DELAYS_MS = [0, 750, 2000];
+
+interface PendingHashSyncEntry {
+    transactionId: string;
+    txHash: string;
+    walletAddress?: string | null;
+    attempts: number;
+    createdAt: number;
+    updatedAt: number;
+}
+
+function readPendingHashSyncQueue(): PendingHashSyncEntry[] {
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) return [];
+        const raw = window.localStorage.getItem(PENDING_HASH_SYNC_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        return Array.isArray(parsed) ? parsed : [];
+    } catch {
+        return [];
+    }
+}
+
+function writePendingHashSyncQueue(entries: PendingHashSyncEntry[]) {
+    try {
+        if (typeof window === 'undefined' || !window.localStorage) return;
+        window.localStorage.setItem(PENDING_HASH_SYNC_STORAGE_KEY, JSON.stringify(entries.slice(0, 100)));
+    } catch {
+        // Ignore local persistence failures.
+    }
+}
+
+function upsertPendingHashSyncEntry(entry: PendingHashSyncEntry) {
+    const existing = readPendingHashSyncQueue();
+    const deduped = existing.filter(item =>
+        !(item.transactionId === entry.transactionId && item.txHash.toLowerCase() === entry.txHash.toLowerCase())
+    );
+    deduped.unshift(entry);
+    writePendingHashSyncQueue(deduped);
+}
+
+function removePendingHashSyncEntry(transactionId: string | number, txHash: string) {
+    const existing = readPendingHashSyncQueue();
+    const filtered = existing.filter(item =>
+        !(item.transactionId === String(transactionId) && item.txHash.toLowerCase() === txHash.toLowerCase())
+    );
+    writePendingHashSyncQueue(filtered);
+}
+
+function delay(ms: number) {
+    return new Promise(resolve => window.setTimeout(resolve, ms));
+}
+
+async function sendTransactionHash(transactionId: string | number, txHash: string): Promise<boolean> {
+    logger.debug('[Transactions] Sending hash to backend', { transactionId, txHash });
+    await apiClient.post(`/transactions/${transactionId}/send-hash`, { txHash });
+    logger.debug('[Transactions] Hash recorded:', { id: transactionId, hash: txHash?.slice(0, 8) });
+    return true;
+}
+
 /**
  * Updates backend with txHash after user sends to blockchain
  * @param transactionId - ID returned by buildDebtSwapTx
  * @param txHash - Transaction hash
  * @returns Promise<boolean>
  */
-export async function recordTransactionHash(transactionId: string | number, txHash: string): Promise<boolean> {
-    try {
-        logger.debug('[Transactions] Sending hash to backend', { transactionId, txHash });
-        await apiClient.post(`/transactions/${transactionId}/send-hash`, { txHash });
+export async function recordTransactionHash(
+    transactionId: string | number,
+    txHash: string,
+    options: { walletAddress?: string | null } = {}
+): Promise<boolean> {
+    let lastError: any = null;
 
-        logger.debug('[Transactions] Hash recorded:', { id: transactionId, hash: txHash?.slice(0, 8) });
-
-        return true;
-    } catch (error: any) {
-        const data = error.response?.data;
-        const status = error.response?.status;
-        logger.warn('[Transactions] Error recording hash', { status, data: data || error.message });
-
-        return false;
+    for (let attempt = 0; attempt < HASH_SYNC_MAX_ATTEMPTS; attempt++) {
+        try {
+            if (attempt > 0) {
+                await delay(HASH_SYNC_RETRY_DELAYS_MS[attempt] || HASH_SYNC_RETRY_DELAYS_MS[HASH_SYNC_RETRY_DELAYS_MS.length - 1]);
+            }
+            await sendTransactionHash(transactionId, txHash);
+            removePendingHashSyncEntry(transactionId, txHash);
+            return true;
+        } catch (error: any) {
+            lastError = error;
+            const data = error.response?.data;
+            const status = error.response?.status;
+            logger.warn('[Transactions] Error recording hash', {
+                status,
+                data: data || error.message,
+                attempt: attempt + 1,
+                maxAttempts: HASH_SYNC_MAX_ATTEMPTS,
+            });
+        }
     }
+
+    upsertPendingHashSyncEntry({
+        transactionId: String(transactionId),
+        txHash,
+        walletAddress: options.walletAddress || null,
+        attempts: HASH_SYNC_MAX_ATTEMPTS,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+    });
+
+    logger.warn('[Transactions] Hash sync queued for retry', {
+        transactionId,
+        txHash: txHash?.slice(0, 10),
+        error: lastError?.message,
+    });
+
+    return false;
+}
+
+export async function flushPendingTransactionHashes(walletAddress?: string | null): Promise<number> {
+    const queue = readPendingHashSyncQueue();
+    if (!queue.length) return 0;
+
+    let flushed = 0;
+
+    for (const entry of queue) {
+        if (walletAddress && entry.walletAddress && entry.walletAddress.toLowerCase() !== walletAddress.toLowerCase()) {
+            continue;
+        }
+
+        const success = await recordTransactionHash(entry.transactionId, entry.txHash, {
+            walletAddress: entry.walletAddress || walletAddress || null,
+        });
+
+        if (success) {
+            flushed++;
+        }
+    }
+
+    return flushed;
 }
 
 interface ConfirmData {

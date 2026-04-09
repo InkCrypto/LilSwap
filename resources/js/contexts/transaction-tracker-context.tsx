@@ -17,6 +17,7 @@ export interface PendingTransaction {
     fromTokenSymbol?: string;
     toTokenSymbol?: string;
     revertReason?: string;
+    txStatus?: string;
 }
 
 interface TransactionTrackerContextType {

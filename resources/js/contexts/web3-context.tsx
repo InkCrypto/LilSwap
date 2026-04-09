@@ -31,6 +31,7 @@ import { useAppearance } from '@/hooks/use-appearance';
 import type { MarketConfig } from '../constants/networks';
 import { DEFAULT_MARKET, MARKETS, getMarketByChainId, SUPPORTED_CHAINS, getAlchemyRpcUrl } from '../constants/networks';
 import { bootstrapProxySession, disconnectProxySession, setProxySessionIdentity } from '../services/api';
+import { flushPendingTransactionHashes } from '../services/transactions-api';
 import { buildTransportHeaders } from '../helpers/rpc-helper';
 import logger from '../utils/logger';
 
@@ -188,12 +189,25 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
     }, [isConnected, address, chainId]);
 
+    useEffect(() => {
+        if (!isConnected || !address || !isProxyReady) return;
+
+        void flushPendingTransactionHashes(address).then((flushed) => {
+            if (flushed > 0) {
+                logger.info('[Web3Provider] Re-synced pending tx hashes', { count: flushed });
+            }
+        });
+    }, [isConnected, address, isProxyReady]);
+
     // Re-verify account state on visibility change (re-sync with wallet)
     useEffect(() => {
         const handleVisibilityChange = async () => {
             if (document.visibilityState === 'visible' && isConnected && connector) {
                 try {
                     setIsSettlingAccount(true);
+                    if (address && isProxyReady) {
+                        void flushPendingTransactionHashes(address);
+                    }
                     // Wagmi useAccount is generally reactive, but we can force a refresh if needed
                 } finally {
                     setTimeout(() => setIsSettlingAccount(false), 200);
@@ -203,7 +217,7 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [isConnected, connector]);
+    }, [isConnected, connector, address, isProxyReady]);
 
     const { openConnectModal } = useConnectModal();
     const connectWallet = useCallback(() => {

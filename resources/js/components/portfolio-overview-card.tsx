@@ -76,11 +76,11 @@ const overviewItems = [
 export const PortfolioOverviewCard: React.FC<PortfolioOverviewCardProps> = ({ overview }) => {
     return (
         <Card className="overflow-hidden rounded-xl border border-border-light bg-white dark:border-border-dark dark:bg-slate-800/60">
-            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 p-4 sm:px-5 sm:py-4 lg:flex lg:items-center lg:gap-0">
+            <div className="grid grid-cols-2 gap-x-4 gap-y-2.5 p-4 sm:px-5 sm:py-4 md:flex md:items-center md:gap-0">
                 {overviewItems.map(({ key, label, value, accent, tooltip }, index) => (
                     <div
                         key={key}
-                        className={`px-0 py-0 lg:flex-1 lg:px-4 ${index > 0 ? 'lg:border-l lg:border-slate-200/80 dark:lg:border-slate-700/80' : ''}`}
+                        className={`px-0 py-0 md:flex-1 md:px-4 ${index > 0 ? 'md:border-l md:border-slate-200/80 dark:md:border-slate-700/80' : ''}`}
                     >
                         <div className="flex min-h-4 items-start gap-1.5 text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400">
                             <span>{label}</span>
@@ -90,7 +90,7 @@ export const PortfolioOverviewCard: React.FC<PortfolioOverviewCardProps> = ({ ov
                                 </InfoTooltip>
                             )}
                         </div>
-                        <div className={`mt-0.5 text-base font-mono font-bold leading-none sm:text-[1.7rem] lg:text-[1.05rem] ${typeof accent === 'function' ? accent(overview) : accent}`}>
+                        <div className={`mt-0.5 text-base font-mono font-bold leading-none md:text-[1rem] xl:text-[1.05rem] ${typeof accent === 'function' ? accent(overview) : accent}`}>
                             {value(overview)}
                         </div>
                     </div>

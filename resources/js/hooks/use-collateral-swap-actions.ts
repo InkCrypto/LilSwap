@@ -584,7 +584,13 @@ export const useCollateralSwapActions = ({
             });
 
             addLog?.(`Transaction broadcasted: ${hash}`, 'success');
-            if (localTxId) recordTransactionHash(localTxId, hash).catch(() => { });
+            if (localTxId) {
+                void recordTransactionHash(localTxId, hash, { walletAddress: account }).then((recorded) => {
+                    if (!recorded) {
+                        addLog?.('Hash sync pending. We will retry automatically in the background.', 'warning');
+                    }
+                });
+            }
             onTxSent?.(hash);
 
             const receipt = await publicClient?.waitForTransactionReceipt({ hash });

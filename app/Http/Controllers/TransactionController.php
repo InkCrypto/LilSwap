@@ -27,11 +27,15 @@ class TransactionController extends Controller
 
         try {
             $transactions = Transaction::where('wallet_address', $walletAddress)
-                ->whereNotNull('tx_hash')
+                ->where(function ($query) {
+                    $query->whereNotNull('tx_hash')
+                        ->orWhere('tx_status', 'HASH_MISSING');
+                })
                 ->orderBy('created_at', 'desc')
                 ->offset($offset)
                 ->limit($limit)
                 ->get([
+                    'id',
                     'tx_hash',
                     'tx_status',
                     'swap_type',

@@ -407,6 +407,7 @@ export const useDebtSwitchActions = ({
                 chainId,
                 walletAddress: account,
             });
+            updateCurrentTransactionId(txResult.transactionId?.toString?.() || null);
 
             const encodedParaswapData = encodeAbiParameters(
                 [{ type: 'bytes' }, { type: 'address' }],
@@ -447,7 +448,13 @@ export const useDebtSwitchActions = ({
             });
 
             addLog?.(`Transaction broadcasted: ${hash}`, 'success');
-            if (txResult.transactionId) recordTransactionHash(txResult.transactionId, hash).catch(() => {});
+            if (txResult.transactionId) {
+                void recordTransactionHash(txResult.transactionId, hash, { walletAddress: account }).then((recorded) => {
+                    if (!recorded) {
+                        addLog?.('Hash sync pending. We will retry automatically in the background.', 'warning');
+                    }
+                });
+            }
             onTxSent?.(hash);
 
             const receipt = await publicClient?.waitForTransactionReceipt({ hash });
