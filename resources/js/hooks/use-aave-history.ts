@@ -57,10 +57,12 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
     const [historyLoadedForWallet, setHistoryLoadedForWallet] = useState<string | null>(null);
     const requestedOffsetRef = useRef(0);
     const activeWalletRef = useRef<string | null>(normalizedWallet);
+    const reloadArmedWalletRef = useRef<string | null>(normalizedWallet);
 
     useEffect(() => {
         if (activeWalletRef.current !== normalizedWallet) {
             activeWalletRef.current = normalizedWallet;
+            reloadArmedWalletRef.current = null;
             setPersistedHistory([]);
             setHasMore(false);
             setError(null);
@@ -69,6 +71,17 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
             requestedOffsetRef.current = 0;
         }
     }, [normalizedWallet]);
+
+    useEffect(() => {
+        if (!normalizedWallet) {
+            reloadArmedWalletRef.current = null;
+            return;
+        }
+
+        if (!isProxyReady) {
+            reloadArmedWalletRef.current = normalizedWallet;
+        }
+    }, [isProxyReady, normalizedWallet]);
 
     useEffect(() => {
         if (!normalizedWallet || !isCurrentWalletPage || historyPayload === undefined) {
@@ -111,6 +124,7 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
 
             router.reload({
                 only: options?.includeWallet ? HISTORY_KEYS : ['historyPayload'],
+                reset: options?.includeWallet ? HISTORY_KEYS : [],
                 headers: {
                     'X-History-Load': 'true',
                     'X-History-Offset': String(offset),
@@ -142,7 +156,12 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
     }, [activeHistoryVisits, hasMore, persistedHistory.length, reloadHistory]);
 
     useEffect(() => {
-        if (!isSheetOpen || !walletAddress || !isProxyReady) {
+        if (
+            !isSheetOpen ||
+            !walletAddress ||
+            !isProxyReady ||
+            reloadArmedWalletRef.current !== normalizedWallet
+        ) {
             return;
         }
 
