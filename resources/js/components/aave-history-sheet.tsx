@@ -106,18 +106,16 @@ export const AaveHistorySheet: React.FC = () => {
                             Recent Activity
                         </SheetTitle>
                     </div>
-                    {lastSyncTime && (
-                        <div className="flex justify-end mt-1 -mr-1">
-                            <button
-                                onClick={() => void refresh(true)}
-                                disabled={isSyncingHistory || isLoadingHistory}
-                                className="flex items-center group text-slate-400 hover:text-primary transition-colors focus:outline-hidden disabled:opacity-50"
-                                title="Refresh history"
-                            >
-                                <RefreshCw className={`w-3.5 h-3.5 ${isSyncingHistory || (isLoadingHistory && combinedHistory.length === 0) ? 'animate-spin' : ''}`} />
-                            </button>
-                        </div>
-                    )}
+                    <div className="flex justify-end mt-1 -mr-1">
+                        <button
+                            onClick={() => void refresh(true)}
+                            disabled={isSyncingHistory || isLoadingHistory}
+                            className="flex items-center group text-slate-400 hover:text-primary transition-colors focus:outline-hidden disabled:opacity-50"
+                            title={lastSyncTime ? 'Refresh history' : 'Load history'}
+                        >
+                            <RefreshCw className={`w-3.5 h-3.5 ${isSyncingHistory || (isLoadingHistory && combinedHistory.length === 0) ? 'animate-spin' : ''}`} />
+                        </button>
+                    </div>
                 </SheetHeader>
 
                 <div className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 dark:[&::-webkit-scrollbar-thumb]:bg-slate-800/60 [&::-webkit-scrollbar-thumb]:rounded-full">
