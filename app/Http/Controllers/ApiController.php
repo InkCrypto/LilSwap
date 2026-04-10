@@ -2,12 +2,17 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\EngineProxyClient;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
 class ApiController extends Controller
 {
+    public function __construct(
+        protected EngineProxyClient $engineProxyClient,
+    ) {
+    }
+
     /**
      * Proxy requests to the external API with HMAC signing.
      */
@@ -50,13 +55,7 @@ class ApiController extends Controller
             ], 403);
         }
 
-        $apiUrl = env('API_URL', 'http://localhost:3001/v1');
-        $apiSecret = env('API_SECRET');
-
         $method = $request->method();
-        $fullUrl = rtrim($apiUrl, '/') . '/' . ltrim($path, '/');
-        $body = $request->all();
-        $timestamp = (string) (now()->getTimestamp() * 1000); // Milliseconds to match JS
 
         // Preparation for signing (matches exact string sent by client)
         $bodyString = $request->getContent();
@@ -64,42 +63,12 @@ class ApiController extends Controller
             $bodyString = '';
         }
 
-        $isLogs = str_contains($path, 'logs');
-        $signingV2Enabled = !$isLogs && filter_var(env('SIGNING_V2_ENABLED', false), FILTER_VALIDATE_BOOL);
-        $nonce = $signingV2Enabled ? bin2hex(random_bytes(12)) : null;
-        $payloadToSign = $signingV2Enabled
-            ? $timestamp . '|' . $nonce . '|' . $bodyString
-            : $timestamp . $bodyString;
-
-        $signature = hash_hmac('sha256', $payloadToSign, $apiSecret);
-
-        // Match the engine's signing logic: HMAC-SHA256(keccak256(secret), timestamp + body)
-        // We use a simple hash fallback if a keccak library isn't available,
-        // but for now let's assume the engine accepts the raw secret if we switch header names
-        // OR better: if it's a log request, use X-Log headers.
-
-        $signatureHeaders = [
-            'X-Internal-Signature' => $signature,
-            'X-Internal-Timestamp' => $timestamp,
-            'X-Internal-Session-ID' => request()->session()->getId(),
-        ];
-
-        if ($signingV2Enabled && $nonce !== null) {
-            $signatureHeaders['X-Internal-Signature-Version'] = '2';
-            $signatureHeaders['X-Internal-Nonce'] = $nonce;
-        }
-
-        if (str_contains($path, 'logs')) {
-            $signatureHeaders['X-Log-Signature'] = $signature;
-            $signatureHeaders['X-Log-Timestamp'] = $timestamp;
-        }
-
         try {
-            $response = Http::withHeaders(array_merge([
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-                'X-Request-Id' => $requestId,
-            ], $signatureHeaders))->withBody($bodyString, 'application/json')->send($method, $fullUrl);
+            $response = $this->engineProxyClient->send($method, $path, $request->all(), [
+                'bodyString' => $bodyString,
+                'requestId' => $requestId,
+                'sessionId' => $request->session()->getId(),
+            ]);
 
             $jsonResponse = response()->json($response->json(), $response->status());
 

@@ -189,11 +189,13 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                 0,
             ) || 0;
             const totalPositions = suppliesCount + borrowsCount;
-            const totalSuppliedUSD = info?.summary?.totalCollateralUSD
-                ? parseAmount(info.summary.totalCollateralUSD)
+            const totalSuppliedUSDFromSummary = parseAmount(info?.summary?.totalCollateralUSD);
+            const totalBorrowedUSDFromSummary = parseAmount(info?.summary?.totalBorrowsUSD);
+            const totalSuppliedUSD = totalSuppliedUSDFromSummary > 0 || totalSuppliedUSDFromAssets === 0
+                ? totalSuppliedUSDFromSummary
                 : totalSuppliedUSDFromAssets;
-            const totalBorrowedUSD = info?.summary?.totalBorrowsUSD
-                ? parseAmount(info.summary.totalBorrowsUSD)
+            const totalBorrowedUSD = totalBorrowedUSDFromSummary > 0 || totalBorrowedUSDFromAssets === 0
+                ? totalBorrowedUSDFromSummary
                 : totalBorrowedUSDFromAssets;
             const healthFactorValue = info?.summary?.healthFactor != null
                 ? parseFloat(info.summary.healthFactor)
@@ -275,6 +277,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                 activeMarkets: activeChains.length,
                 approxHealthFactor: null,
                 approxHealthFactorStatus: 'no-debt',
+                borrowPowerUsedPct: 0,
+                borrowPowerUsedStatus: 'no-debt',
             };
         }
 
@@ -290,6 +294,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                 activeMarkets: activeChains.length,
                 approxHealthFactor: null,
                 approxHealthFactorStatus: 'unavailable',
+                borrowPowerUsedPct: null,
+                borrowPowerUsedStatus: 'unavailable',
             };
         }
 
@@ -305,15 +311,17 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
             activeMarkets: activeChains.length,
             approxHealthFactor: collateralPower / totalBorrowedUSD,
             approxHealthFactorStatus: 'value',
+            borrowPowerUsedPct: collateralPower > 0 ? (totalBorrowedUSD / collateralPower) * 100 : null,
+            borrowPowerUsedStatus: collateralPower > 0 ? 'value' : 'unavailable',
         };
     }, [activeChains]);
 
     if (loading && !positionsByChain) {
         return (
-            <Card className="w-full bg-white dark:bg-card-dark rounded-2xl border border-border-light dark:border-border-dark p-6 text-center">
-                <RefreshCw className="w-8 h-8 text-primary animate-spin mx-auto mb-2" />
+            <div className="flex min-h-36 w-full flex-col items-center justify-center px-6 text-center">
+                <div className="mb-3 h-9 w-9 rounded-full border-[3px] border-primary/20 border-t-primary animate-spin" />
                 <p className="text-slate-500 dark:text-slate-400">Loading positions across networks...</p>
-            </Card>
+            </div>
         );
     }
 
@@ -336,7 +344,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
     const statusActions = (
         <div className="flex items-end gap-3 shrink-0">
             {lastFetch && (
-                <span className="text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400 whitespace-nowrap">
+                <span className="hidden sm:inline text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400 whitespace-nowrap">
                     Updated {getLastFetchText()}
                 </span>
             )}
@@ -382,8 +390,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
             {activeChains.map((chain) => (
                 <Card key={chain.marketKey} className="bg-white dark:bg-slate-800/60 border-border-light dark:border-border-dark overflow-hidden transition-all hover:border-slate-300 dark:hover:border-slate-600">
-                    <div className="flex flex-col sm:flex-row p-4 w-full sm:items-center cursor-pointer" onClick={() => setOpenMarket(openMarket === chain.marketKey ? null : chain.marketKey)}>
-                        <div className="flex justify-between items-center w-full sm:w-40 shrink-0">
+                    <div className="flex w-full cursor-pointer flex-col px-2 py-2.5 sm:flex-row sm:items-center sm:p-4" onClick={() => setOpenMarket(openMarket === chain.marketKey ? null : chain.marketKey)}>
+                        <div className="flex justify-between items-center pb-1 w-full sm:w-40 shrink-0 sm:pr-3">
                             <div className="flex items-center gap-2">
                                 {chain.icon && (
                                     <img src={chain.icon} alt={chain.label} className="w-5 h-5 rounded-full" onError={(e) => (e.currentTarget.style.display = 'none')} />
@@ -412,33 +420,56 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                 </div>
                                 {chain.hasError && <AlertCircle className="w-4 h-4 text-yellow-500" />}
                             </div>
-                            <div className="flex sm:hidden">
+                            <div className="flex items-center sm:hidden">
                                 {openMarket === chain.marketKey ? <ChevronUp className="w-5 h-5 text-slate-400" /> : <ChevronDown className="w-5 h-5 text-slate-400" />}
                             </div>
                         </div>
 
-                        <div className="mt-3 sm:mt-0 flex-1 flex items-center justify-between">
-                            <div className="flex items-center gap-3 sm:gap-6">
-                                <div className="flex flex-col items-start">
-                                    <span className="mb-1 text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400">Net worth</span>
-                                    <span className="text-sm sm:text-base font-mono font-bold text-slate-900 dark:text-white leading-none">
+                        <div className="mt-1.5 sm:mt-0 flex-1 px-0 sm:px-0 sm:border-l sm:border-slate-200/80 sm:pl-3 dark:sm:border-slate-700/80">
+                            <div className="flex items-start justify-between gap-2 sm:hidden">
+                                <div className="flex min-w-0 flex-col items-start">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] leading-[1.05] font-bold uppercase tracking-[0.12em] text-slate-400">Net worth</span>
+                                    <span className="whitespace-nowrap text-sm font-mono font-bold text-slate-900 dark:text-white leading-none">
                                         {formatUSD(chain.netWorthUSD)}
                                     </span>
                                 </div>
-                                <div className="flex flex-col items-start border-l border-slate-200 dark:border-slate-700/50 pl-3 sm:border-0 sm:pl-0">
-                                    <span className="mb-1 text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400">Net APY</span>
-                                    <span className="text-sm sm:text-base font-mono font-bold text-slate-900 dark:text-white leading-none">
-                                        {formatAPY(chain.netAPY)}
+                                <div className="flex min-w-0 flex-col items-start border-l border-slate-200/20 pl-2 dark:border-slate-700/40">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] leading-[1.05] font-bold uppercase tracking-[0.12em] text-slate-400">HF</span>
+                                    <span className={`whitespace-nowrap text-sm font-mono font-bold leading-none ${(!chain.healthFactor || chain.healthFactor >= 3 || chain.healthFactor === -1) ? 'text-green-400' : chain.healthFactor >= 1.1 ? 'text-orange-400' : 'text-red-500'}`}>
+                                        {formatHF(chain.healthFactor)}
                                     </span>
                                 </div>
-                                <div className="flex flex-col items-start border-l border-slate-200 dark:border-slate-700/50 pl-3 sm:border-0 sm:pl-0">
-                                    <span className="mb-1 text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400">Health factor</span>
-                                    <div className="flex items-center gap-3">
-                                        <span className={`text-base sm:text-lg font-mono font-bold leading-none ${(!chain.healthFactor || chain.healthFactor >= 3 || chain.healthFactor === -1) ? 'text-green-400' : chain.healthFactor >= 1.1 ? 'text-orange-400' : 'text-red-500'}`}>
+                                <div className="flex min-w-0 flex-col items-start border-l border-slate-200/20 pl-2 dark:border-slate-700/40">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] leading-[1.05] font-bold uppercase tracking-[0.12em] text-slate-400">Supplied</span>
+                                    <span className="whitespace-nowrap text-sm font-mono font-bold leading-none text-emerald-500 dark:text-emerald-400">
+                                        {formatUSD(chain.totalSuppliedUSD)}
+                                    </span>
+                                </div>
+                                <div className="flex min-w-0 flex-col items-start border-l border-slate-200/20 pl-2 dark:border-slate-700/40">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] leading-[1.05] font-bold uppercase tracking-[0.12em] text-slate-400">Borrowed</span>
+                                    <span className="whitespace-nowrap text-sm font-mono font-bold leading-none text-primary">
+                                        {formatUSD(chain.totalBorrowedUSD)}
+                                    </span>
+                                </div>
+                            </div>
+
+                            <div className="hidden sm:flex sm:items-center sm:justify-between sm:gap-5">
+                                <div className="flex min-w-0 flex-col items-start">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] sm:text-[10px] leading-[1.05] font-bold uppercase tracking-[0.12em] sm:tracking-[0.16em] text-slate-400">Net worth</span>
+                                    <span className="whitespace-nowrap text-[13px] sm:text-base font-mono font-bold text-slate-900 dark:text-white leading-none">
+                                        {formatUSD(chain.netWorthUSD)}
+                                    </span>
+                                </div>
+                                <div className="flex min-w-0 flex-col items-start border-l border-slate-200/80 pl-5 dark:border-slate-700/80">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] sm:text-[10px] leading-[1.05] font-bold uppercase tracking-[0.12em] sm:tracking-[0.16em] text-slate-400">
+                                        HF
+                                    </span>
+                                    <div className="flex items-center gap-1.5 sm:gap-3">
+                                        <span className={`whitespace-nowrap text-[13px] sm:text-lg font-mono font-bold leading-none ${(!chain.healthFactor || chain.healthFactor >= 3 || chain.healthFactor === -1) ? 'text-green-400' : chain.healthFactor >= 1.1 ? 'text-orange-400' : 'text-red-500'}`}>
                                             {formatHF(chain.healthFactor)}
                                         </span>
                                         {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
-                                            <div className="flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-500/5 dark:bg-sky-400/5 border border-sky-500/20 dark:border-sky-400/20 shrink-0">
+                                            <div className="hidden sm:flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-sky-500/5 dark:bg-sky-400/5 border border-sky-500/20 dark:border-sky-400/20 shrink-0">
                                                 <div className="w-1 h-1 rounded-full bg-sky-500/60 dark:bg-sky-400/60 shadow-[0_0_5px_rgba(14,165,233,0.3)] animate-pulse" />
                                                 <span className="text-[10px] font-bold text-sky-600/80 dark:text-sky-400/80 uppercase tracking-wide leading-none">
                                                     E-Mode
@@ -446,6 +477,24 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                             </div>
                                         )}
                                     </div>
+                                </div>
+                                <div className="flex min-w-0 flex-col items-start border-l border-slate-200/80 pl-5 dark:border-slate-700/80">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] sm:text-[10px] leading-[1.05] font-bold uppercase tracking-[0.12em] sm:tracking-[0.16em] text-slate-400">Net APY</span>
+                                    <span className="whitespace-nowrap text-[13px] sm:text-base font-mono font-bold text-slate-900 dark:text-white leading-none">
+                                        {formatAPY(chain.netAPY)}
+                                    </span>
+                                </div>
+                                <div className="flex min-w-0 flex-col items-start border-l border-slate-200/80 pl-5 dark:border-slate-700/80">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] sm:text-[10px] leading-[1.05] font-bold uppercase tracking-[0.12em] sm:tracking-[0.16em] text-slate-400">Supplied</span>
+                                    <span className="whitespace-nowrap text-[13px] sm:text-base font-mono font-bold leading-none text-emerald-500 dark:text-emerald-400">
+                                        {formatUSD(chain.totalSuppliedUSD)}
+                                    </span>
+                                </div>
+                                <div className="flex min-w-0 flex-col items-start border-l border-slate-200/80 pl-5 dark:border-slate-700/80">
+                                    <span className="mb-1 whitespace-nowrap text-[9px] sm:text-[10px] leading-[1.05] font-bold uppercase tracking-[0.12em] sm:tracking-[0.16em] text-slate-400">Borrowed</span>
+                                    <span className="whitespace-nowrap text-[13px] sm:text-base font-mono font-bold leading-none text-primary">
+                                        {formatUSD(chain.totalBorrowedUSD)}
+                                    </span>
                                 </div>
                             </div>
                         </div>
@@ -456,17 +505,17 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                     </div>
 
                     {openMarket === chain.marketKey && (
-                        <div className="border-t border-border-light dark:border-border-dark px-4 pt-3 pb-0 bg-slate-50/80 dark:bg-slate-950/40 flex flex-col md:flex-row gap-6 transition-colors duration-300">
+                        <div className="border-t border-border-light dark:border-border-dark bg-slate-50/80 px-0 pt-3 pb-0 dark:bg-slate-950/40 flex flex-col gap-6 transition-colors duration-300 md:flex-row md:px-4">
                             <div className="w-full">
                                 <div className="md:hidden space-y-4">
                                     <div>
-                                        <div className="flex items-center gap-2 mb-2 ml-1">
+                                        <div className="mb-2 flex items-center gap-2 px-3">
                                             <ArrowUpRight className="w-3 h-3 text-emerald-500" />
                                             <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Supplies</h4>
                                         </div>
-                                        <div className="-mx-4 border-x border-t border-slate-200 dark:border-slate-700/80 divide-y divide-slate-200 dark:divide-slate-700/80">
+                                        <div className="border-t border-slate-200 divide-y divide-slate-200 dark:border-slate-700/80 dark:divide-slate-700/80 md:-mx-4 md:border-x">
                                             {chain.supplies.map((supply) => (
-                                                <div key={`mobile-supply-${supply.underlyingAsset}`} className="px-4 py-2.5 bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200">
+                                                <div key={`mobile-supply-${supply.underlyingAsset}`} className="bg-white px-3 py-2.5 transition-colors duration-200 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-800">
                                                     <div className="flex items-center justify-between gap-3">
                                                         <div className="flex items-center gap-3 min-w-0">
                                                             <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
@@ -488,7 +537,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
                                     {chain.borrows.length > 0 && (
                                         <div>
-                                            <div className="flex items-center gap-2 mb-2 ml-1">
+                                            <div className="mb-2 flex items-center gap-2 px-3">
                                                 <ArrowDownRight className="w-3 h-3 text-primary" />
                                                 <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Borrows</h4>
                                                 {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
@@ -500,7 +549,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                     </div>
                                                 )}
                                             </div>
-                                            <div className="-mx-4 border-x border-t border-slate-200 dark:border-slate-700/80 divide-y divide-slate-200 dark:divide-slate-700/80">
+                                            <div className="border-t border-slate-200 divide-y divide-slate-200 dark:border-slate-700/80 dark:divide-slate-700/80 md:-mx-4 md:border-x">
                                                 {chain.borrows.map((borrow) => {
                                                     const borrowAddr = borrow.underlyingAsset.toLowerCase();
                                                     const hasAlternatives = (chain.marketAssets || []).some(
@@ -509,7 +558,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                     );
 
                                                     return (
-                                                        <div key={`mobile-borrow-${borrow.underlyingAsset}`} className="px-4 py-2.5 bg-white dark:bg-slate-800/60 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors duration-200">
+                                                        <div key={`mobile-borrow-${borrow.underlyingAsset}`} className="bg-white px-3 py-2.5 transition-colors duration-200 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-800">
                                                             <div className="flex items-center justify-between gap-3">
                                                                 <div className="flex items-center gap-3 min-w-0">
                                                                     <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">

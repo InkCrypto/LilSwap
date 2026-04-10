@@ -83,7 +83,7 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
         <Tooltip open={open || isClicked} onOpenChange={handleOpenChange} delayDuration={700}>
             <TooltipTrigger asChild onClick={handleClick} onFocus={(e) => e.target.blur()}>
                 <span 
-                    className="relative inline-flex cursor-pointer transition-opacity hover:opacity-80 outline-none"
+                    className="relative inline-flex h-fit w-fit cursor-pointer leading-none align-middle transition-opacity hover:opacity-80 outline-none"
                     onFocus={(e) => (e.target as HTMLElement).blur()}
                 >
                     {children || <Info size={size} className="text-slate-400 hover:text-slate-500 dark:text-slate-500 dark:hover:text-slate-400 transition-colors" />}

@@ -3,10 +3,10 @@ import { Heart, Wallet } from 'lucide-react';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AppHeader } from '@/components/app-header';
 import { InfoTooltip } from '@/components/info-tooltip';
-import { TransactionHistorySheet } from '@/components/transaction-history-sheet';
+import { AaveHistorySheet } from '@/components/aave-history-sheet';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
 import { useWeb3 } from '@/contexts/web3-context';
-import { useAllPositions } from '@/hooks/use-all-positions';
+import { usePositions } from '@/hooks/use-positions';
 import AppFooter from '../components/app-footer';
 import { DonateModal } from '../components/donate-modal';
 import LilLogo from '../components/lil-logo';
@@ -18,7 +18,7 @@ export default function Welcome() {
     const { account } = useWeb3();
     const { activeCount, setSheetOpen } = useTransactionTracker();
     const { connectModalOpen } = useConnectModal();
-    const { positionsByChain, donator, loading, error, lastFetch, refresh } = useAllPositions(account);
+    const { positionsByChain, donator, loading, error, lastFetch, refresh } = usePositions(account);
     const [isDonateOpen, setIsDonateOpen] = useState(false);
     const [flipState, setFlipState] = useState<{ current: string; prev: string | null; key: number }>({
         current: 'Little', prev: null, key: 0,
@@ -81,6 +81,7 @@ export default function Welcome() {
     const appTagLabel = donator.isDonator ? `Lil'${donatorTagSuffix}` : 'Get 10% Fee Discount';
     const desktopTagClassName = 'pointer-events-auto inline-flex h-6 items-center rounded-md border border-primary/35 bg-white px-2.5 text-[9px] font-black uppercase tracking-[0.16em] text-primary shadow-[0_0_10px_rgba(168,85,247,0.12)] dark:border-cyan-400/35 dark:bg-cyan-500/14 dark:text-cyan-300 dark:shadow-[0_0_12px_rgba(34,211,238,0.16)]';
     const mobileTagClassName = 'pointer-events-auto inline-flex h-5 items-center rounded-md border border-primary/35 bg-white px-2 text-[8px] font-black uppercase tracking-[0.16em] text-primary shadow-[0_0_10px_rgba(168,85,247,0.12)] dark:border-cyan-400/35 dark:bg-cyan-500/14 dark:text-cyan-300 dark:shadow-[0_0_12px_rgba(34,211,238,0.16)]';
+    const showDonatorTag = positionsByChain !== null;
 
     return (
         <div className="flex flex-col min-h-screen bg-background text-slate-800 dark:text-slate-100 selection:bg-primary/30 font-sans">
@@ -104,7 +105,7 @@ export default function Welcome() {
             <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-24 w-full pt-2 md:pt-12">
                 {account ? (
                     <div className="relative">
-                        {positionsByChain && (
+                        {showDonatorTag && (
                             <>
                                 <div className="pointer-events-none absolute left-1/2 top-0 z-45 -translate-x-1/2 -translate-y-[92%] sm:hidden">
                                     {donator.isDonator ? (
@@ -210,7 +211,7 @@ export default function Welcome() {
                 )}
             </main>
 
-            <TransactionHistorySheet />
+            <AaveHistorySheet />
             <DonateModal isOpen={isDonateOpen} onClose={() => setIsDonateOpen(false)} />
             <AppFooter />
         </div>

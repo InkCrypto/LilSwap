@@ -148,18 +148,19 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         }
     }, [chainId, selectedMarketKey]);
 
-    // Track active session to avoid redundant calls
-    const lastSessionStatus = React.useRef<boolean | null>(null);
+    // Track active session identity to avoid redundant bootstraps
+    const lastSessionIdentity = React.useRef<string | null>(null);
 
     // Handle session and proxy identity
     useEffect(() => {
         const currentlyConnected = isConnected && !!address;
+        const sessionIdentity = currentlyConnected ? `${String(address).toLowerCase()}:${chainId || 'none'}` : null;
 
-        // Prevent redundant disconnects or loops
-        if (lastSessionStatus.current === currentlyConnected) return;
+        // Prevent redundant bootstraps or disconnect loops
+        if (lastSessionIdentity.current === sessionIdentity) return;
 
-        const previousStatus = lastSessionStatus.current;
-        lastSessionStatus.current = currentlyConnected;
+        const previousIdentity = lastSessionIdentity.current;
+        lastSessionIdentity.current = sessionIdentity;
 
         if (currentlyConnected) {
             // Mark as not ready until bootstrap completes
@@ -181,7 +182,7 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 });
                 setIsProxyReady(false);
             });
-        } else if (previousStatus === true) {
+        } else if (previousIdentity !== null) {
             // Only explicitly disconnect if we were previously connected
             setIsProxyReady(false);
             setProxySessionIdentity(null);
