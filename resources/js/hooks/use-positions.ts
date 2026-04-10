@@ -43,9 +43,14 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
     const [lastFetch, setLastFetch] = useState<number | null>(null);
     const [activePositionVisits, setActivePositionVisits] = useState(0);
     const activeWalletRef = useRef<string | null>(normalizedWallet);
+    const reloadArmedWalletRef = useRef<string | null>(normalizedWallet);
 
     const positionsPayload = isCurrentWalletPage ? (page.props.positionsPayload as PositionsPayload | undefined) : undefined;
-    const needsBootstrapReload = !!normalizedWallet && isProxyReady && positionsWallet !== normalizedWallet;
+    const needsBootstrapReload =
+        !!normalizedWallet &&
+        isProxyReady &&
+        reloadArmedWalletRef.current === normalizedWallet &&
+        positionsWallet !== normalizedWallet;
     const loading = !!walletAddress && (
         !isProxyReady ||
         needsBootstrapReload ||
@@ -56,12 +61,19 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
     useEffect(() => {
         if (activeWalletRef.current !== normalizedWallet) {
             activeWalletRef.current = normalizedWallet;
+            reloadArmedWalletRef.current = null;
             setPositionsByChain(null);
             setDonator(EMPTY_DONATOR);
             setError(null);
             setLastFetch(null);
         }
     }, [normalizedWallet]);
+
+    useEffect(() => {
+        if (normalizedWallet && !isProxyReady) {
+            reloadArmedWalletRef.current = normalizedWallet;
+        }
+    }, [isProxyReady, normalizedWallet]);
 
     useEffect(() => {
         if (!normalizedWallet || !isCurrentWalletPage || positionsPayload === undefined) {
