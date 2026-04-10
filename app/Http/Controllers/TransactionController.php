@@ -2,11 +2,16 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Transaction;
+use App\Services\TransactionHistoryService;
 use Illuminate\Http\Request;
 
 class TransactionController extends Controller
 {
+    public function __construct(
+        protected TransactionHistoryService $transactionHistoryService,
+    ) {
+    }
+
     /**
      * Retrieve the transaction history for a specific wallet address.
      * 
@@ -26,30 +31,7 @@ class TransactionController extends Controller
         $offset = $validated['offset'] ?? 0;
 
         try {
-            $transactions = Transaction::where('wallet_address', $walletAddress)
-                ->where(function ($query) {
-                    $query->whereNotNull('tx_hash')
-                        ->orWhere('tx_status', 'HASH_MISSING');
-                })
-                ->orderBy('created_at', 'desc')
-                ->offset($offset)
-                ->limit($limit)
-                ->get([
-                    'id',
-                    'tx_hash',
-                    'tx_status',
-                    'swap_type',
-                    'chain_id',
-                    'from_token_symbol',
-                    'to_token_symbol',
-                    'revert_reason',
-                    'created_at'
-                ]);
-
-            // Simplified response format (Frontend expects { transactions: [...] })
-            return response()->json([
-                'transactions' => $transactions,
-            ]);
+            return response()->json($this->transactionHistoryService->fetch($walletAddress, $limit, $offset));
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to fetch transaction history',

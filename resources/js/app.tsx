@@ -26,8 +26,8 @@ createInertiaApp({
         const initialApiMeta = (props as any)?.initialPage?.props?.apiMeta ?? {};
 
         root.render(
-            <StrictMode>
-                <Web3Provider>
+            <Web3Provider>
+                <StrictMode>
                     <ApiMetaProvider
                         initialApiVersion={initialApiMeta.version ?? null}
                         initialApiStatus={initialApiMeta.isUp ?? true}
@@ -42,8 +42,8 @@ createInertiaApp({
                             </ToastProvider>
                         </UserActivityProvider>
                     </ApiMetaProvider>
-                </Web3Provider>
-            </StrictMode>,
+                </StrictMode>
+            </Web3Provider>,
         );
     },
     progress: {

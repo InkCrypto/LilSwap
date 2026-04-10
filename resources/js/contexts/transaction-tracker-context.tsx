@@ -1,7 +1,7 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode, useRef } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Hex } from 'viem';
-import { getMarketByChainId, getMarketByKey } from '../constants/networks';
-import { getUserTransactionsHistory } from '../services/api';
+import { getMarketByKey } from '../constants/networks';
 import { createRpcProvider } from '../helpers/rpc-helper';
 import logger from '../utils/logger';
 import { useToast } from './toast-context';
@@ -13,7 +13,7 @@ export interface PendingTransaction {
     description: string;
     status: 'pending' | 'success' | 'error';
     timestamp: number;
-    marketKey: string; // Required for isolation
+    marketKey: string;
     fromTokenSymbol?: string;
     toTokenSymbol?: string;
     revertReason?: string;
@@ -23,15 +23,9 @@ export interface PendingTransaction {
 interface TransactionTrackerContextType {
     transactions: PendingTransaction[];
     addTransaction: (tx: Omit<PendingTransaction, 'status' | 'timestamp'>) => void;
-    apiHistory: any[];
-    isLoadingHistory: boolean;
-    hasMore: boolean;
-    loadHistory: (walletAddress: string, isLoadMore?: boolean, isSilent?: boolean) => Promise<void>;
     isSheetOpen: boolean;
     setSheetOpen: (open: boolean) => void;
     activeCount: number;
-    isSyncingHistory: boolean;
-    lastSyncTime: number | null;
 }
 
 const TransactionTrackerContext = createContext<TransactionTrackerContextType | undefined>(undefined);
@@ -46,160 +40,57 @@ export const useTransactionTracker = () => {
     return context;
 };
 
-const STORAGE_KEY = 'lilswap.transactionHistory';
-
-/**
- * Normalizes old transaction data for the new UI.
- * - Extracts symbols from old description strings ("Swap Collateral: ETH → USDC")
- * - Cleans up titles ("Swap Collateral" -> "Collateral Swap")
- */
-const migrateTransactions = (txs: PendingTransaction[]): PendingTransaction[] => {
-    if (!txs || !Array.isArray(txs)) return [];
-
-    return txs.map(tx => {
-        let updated = { ...tx };
-
-        // 1. Handle legacy "Swap Collateral: A → B" format
-        if (!updated.fromTokenSymbol && updated.description) {
-            const match = updated.description.match(/Swap (Collateral|Debt):\s*([A-Za-z0-9.]+)\s*[→→]\s*([A-Za-z0-9.]+)/i);
-            if (match) {
-                updated.description = `${match[1]} Swap`;
-                updated.fromTokenSymbol = match[2];
-                updated.toTokenSymbol = match[3];
-            }
-        }
-
-        // 2. Handle intermediate "Collateral Swap: A → B" format
-        if (updated.description?.includes(':')) {
-            updated.description = updated.description.split(':')[0].trim();
-        }
-
-        // 3. Fix phrasing if it's the old "Swap Collateral"
-        if (updated.description === 'Swap Collateral') updated.description = 'Collateral Swap';
-        if (updated.description === 'Swap Debt') updated.description = 'Debt Swap';
-
-        return updated;
-    });
-};
-
 export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
     const { account } = useWeb3();
     const prevAccountRef = useRef(account);
-
     const [transactions, setTransactions] = useState<PendingTransaction[]>([]);
-
-    // API History States
-    const [apiHistory, setApiHistory] = useState<any[]>([]);
-    const [page, setPage] = useState(0);
-    const [hasMore, setHasMore] = useState(true);
-    const [isLoadingHistory, setIsLoadingHistory] = useState(false);
-    const [isSyncingHistory, setIsSyncingHistory] = useState(false);
-    const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
-
-    // Use refs to avoid loadHistory dependency loops
-    const isFetchingRef = useRef(false);
     const [isSheetOpen, setSheetOpen] = useState(false);
     const { addToast, updateToast } = useToast();
     const toastMap = useRef<Map<string, number>>(new Map());
 
-    // Reset state on account switch
     useEffect(() => {
         if (account !== prevAccountRef.current) {
-            // Clear API History & Load state
-            setApiHistory([]);
-            setPage(0);
-            setHasMore(true);
             setSheetOpen(false);
-
-            // Clean local transactions on account switch if needed,
-            // but we start empty now anyway.
             setTransactions([]);
-
             prevAccountRef.current = account;
         }
     }, [account]);
 
-    // Auto-cleanup local records that are already confirmed in the API history
-    useEffect(() => {
-        if (apiHistory.length > 0 && transactions.length > 0) {
-            const apiHashes = new Set(apiHistory.map(tx => tx.tx_hash?.toLowerCase()).filter(Boolean));
-            const toRemove = transactions.filter(t => apiHashes.has(t.hash.toLowerCase()));
-
-            if (toRemove.length > 0) {
-                setTransactions(prev => prev.filter(t => !apiHashes.has(t.hash.toLowerCase())));
-                // Also remove from toast tracking if they were there
-                toRemove.forEach(t => toastMap.current.delete(t.hash));
-            }
-        }
-    }, [apiHistory]);
-
-    const activeCount = transactions.filter(t => t.status === 'pending').length;
+    const activeCount = transactions.filter((tx) => tx.status === 'pending').length;
 
     const addTransaction = useCallback((tx: Omit<PendingTransaction, 'status' | 'timestamp'>) => {
         const newTx: PendingTransaction = {
             ...tx,
             status: 'pending',
-            timestamp: Date.now()
+            timestamp: Date.now(),
         };
-        // Add to beginning of list
-        setTransactions(prev => [newTx, ...prev]);
 
-        // Show Loading Toast and track it
+        setTransactions((prev) => [newTx, ...prev]);
+
         const toastId = addToast({
             title: 'Transaction Submitted',
             message: tx.description,
             type: 'loading',
-            duration: 0, // Keep it open until confirmed or failed
+            duration: 0,
             action: {
                 label: 'View',
-                onClick: () => setSheetOpen(true)
-            }
+                onClick: () => setSheetOpen(true),
+            },
         });
+
         toastMap.current.set(tx.hash, toastId);
     }, [addToast]);
 
-    const loadHistory = useCallback(async (walletAddress: string, isLoadMore: boolean = false, isSilent: boolean = false) => {
-        if (!walletAddress || isFetchingRef.current || (!hasMore && isLoadMore)) return;
-
-        isFetchingRef.current = true;
-        if (isSilent) {
-            setIsSyncingHistory(true);
-        } else {
-            setIsLoadingHistory(true);
-        }
-        try {
-            const limit = 20;
-            const currentPage = isLoadMore ? page + 1 : 0;
-            const offset = currentPage * limit;
-
-            const response = await getUserTransactionsHistory(walletAddress, limit, offset);
-            const fetchedTxs = response?.transactions || [];
-
-            setApiHistory(prev => isLoadMore ? [...prev, ...fetchedTxs] : fetchedTxs);
-            setPage(currentPage);
-            setHasMore(fetchedTxs.length === limit);
-            if (!isLoadMore) setLastSyncTime(Date.now());
-        } catch (error) {
-            logger.error('Failed to load transaction history in Context', error);
-        } finally {
-            setIsLoadingHistory(false);
-            setIsSyncingHistory(false);
-            isFetchingRef.current = false;
-        }
-    }, [page, hasMore]);
-
-    // Polling mechanism for pending transactions
     useEffect(() => {
         if (activeCount === 0) {
             return;
         }
 
         const checkPendingTransactions = async () => {
-            const pending = transactions.filter(t => t.status === 'pending');
+            const pending = transactions.filter((tx) => tx.status === 'pending');
 
             for (const tx of pending) {
                 try {
-                    // FIX: Always prefer marketKey for accurate RPC/config lookup
                     const market = getMarketByKey(tx.marketKey);
 
                     if (!market) {
@@ -209,22 +100,22 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
 
                     const provider = createRpcProvider(market.rpcUrls, tx.chainId);
                     let receipt = null;
+
                     try {
                         receipt = await provider.getTransactionReceipt({ hash: tx.hash as Hex });
                     } catch (err: any) {
-                        // Special handling for indexing delays
                         if (err.name === 'TransactionReceiptNotFoundError' || err.message?.includes('not found')) {
-                            // logger.debug(`[TransactionTracker] Receipt not found yet for ${tx.hash}, retrying...`);
                             continue;
                         }
-                        throw err; // Re-throw other errors
+
+                        throw err;
                     }
 
                     if (receipt) {
                         const isSuccess = receipt.status === 'success';
 
-                        setTransactions(prev => prev.map(t =>
-                            t.hash === tx.hash ? { ...t, status: isSuccess ? 'success' : 'error' } : t
+                        setTransactions((prev) => prev.map((item) =>
+                            item.hash === tx.hash ? { ...item, status: isSuccess ? 'success' : 'error' } : item
                         ));
 
                         if (isSuccess) {
@@ -232,9 +123,8 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
                             window.dispatchEvent(new CustomEvent('lilswap:refresh-positions'));
                         }
 
-                        // Show/Update Toast Notification
-
                         const toastId = toastMap.current.get(tx.hash);
+
                         if (toastId) {
                             updateToast(toastId, {
                                 title: isSuccess ? 'Transaction Confirmed' : 'Transaction Failed',
@@ -249,24 +139,21 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
                                 type: isSuccess ? 'success' : 'error',
                                 action: {
                                     label: 'View',
-                                    onClick: () => setSheetOpen(true)
-                                }
+                                    onClick: () => setSheetOpen(true),
+                                },
                             });
                         }
                     } else {
-                        // Still pending — Check if it's taking too long (> 2 minutes)
                         const elapsed = Date.now() - tx.timestamp;
                         const toastId = toastMap.current.get(tx.hash);
 
                         if (toastId && elapsed > 120000) {
-                            // Update the toast to be non-intrusive and allow it to clear
                             updateToast(toastId, {
                                 title: 'Still Processing...',
-                                message: 'This transaction is taking a bit longer to confirm. You can safely close this; we\'ll update your history as soon as it completes.',
+                                message: 'This transaction is taking a bit longer to confirm. You can safely close this; we will update your history as soon as it completes.',
                                 type: 'info',
                                 duration: 8000,
                             });
-                            // Remove from map so we don't keep spamming updates
                             toastMap.current.delete(tx.hash);
                         }
                     }
@@ -276,40 +163,21 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
             }
         };
 
-        const intervalId = setInterval(checkPendingTransactions, 6000);
+        const intervalId = window.setInterval(checkPendingTransactions, 6000);
+        void checkPendingTransactions();
 
-        // Initial check immediately
-        checkPendingTransactions();
-
-        return () => clearInterval(intervalId);
+        return () => window.clearInterval(intervalId);
     }, [transactions, activeCount, addToast, updateToast]);
-
-    // Background history sync when sheet is open
-    useEffect(() => {
-        if (!isSheetOpen || !account) return;
-
-        // Poll every 30 seconds
-        const intervalId = setInterval(() => {
-            loadHistory(account, false, true);
-        }, 30000);
-
-        return () => clearInterval(intervalId);
-    }, [isSheetOpen, account, loadHistory]);
 
     return (
         <TransactionTrackerContext.Provider value={{
             transactions,
             addTransaction,
-            apiHistory,
-            isLoadingHistory,
-            hasMore,
-            loadHistory,
             isSheetOpen,
             setSheetOpen,
             activeCount,
-            isSyncingHistory,
-            lastSyncTime
-        }}>
+        }}
+        >
             {children}
         </TransactionTrackerContext.Provider>
     );
