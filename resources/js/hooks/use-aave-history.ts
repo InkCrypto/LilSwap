@@ -37,6 +37,46 @@ const HISTORY_KEY_SET = new Set(HISTORY_KEYS);
 const normalizeWallet = (walletAddress: string | null | undefined) =>
     typeof walletAddress === 'string' && walletAddress !== '' ? walletAddress.toLowerCase() : null;
 
+const parseDbTimestampUtcToMillis = (raw: string): number => {
+    if (!raw) return Date.now();
+
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const hasTimezone = /[zZ]$|[+-]\d{2}:\d{2}$/.test(normalized);
+    if (hasTimezone) {
+        const parsed = Date.parse(normalized);
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+
+    // DB timestamps often come without timezone info. To avoid fixed UTC/local shifts,
+    // evaluate both interpretations and pick the one that is temporally consistent.
+    const localParsed = Date.parse(normalized);
+    const utcParsed = Date.parse(`${normalized}Z`);
+
+    const localValid = !Number.isNaN(localParsed);
+    const utcValid = !Number.isNaN(utcParsed);
+
+    if (!localValid && !utcValid) {
+        const fallback = Date.parse(raw);
+        return Number.isNaN(fallback) ? Date.now() : fallback;
+    }
+
+    if (!localValid) return utcParsed;
+    if (!utcValid) return localParsed;
+
+    const now = Date.now();
+    const futureToleranceMs = 5 * 60 * 1000;
+
+    const localIsFuture = localParsed - now > futureToleranceMs;
+    const utcIsFuture = utcParsed - now > futureToleranceMs;
+
+    if (localIsFuture && !utcIsFuture) return utcParsed;
+    if (utcIsFuture && !localIsFuture) return localParsed;
+
+    // If both are plausible, choose the closest to "now".
+    return Math.abs(now - localParsed) <= Math.abs(now - utcParsed) ? localParsed : utcParsed;
+};
+
+
 export const useAaveHistory = (walletAddress: string | null, opts: { refreshIntervalMs?: number } = {}) => {
     const page = usePage<HistoryPageProps>();
     const { isProxyReady } = useWeb3();
@@ -253,7 +293,7 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
                 chainId: Number(tx.chain_id || 1),
                 description: tx.swap_type === 'debt' ? 'Debt Swap' : 'Collateral Swap',
                 status: mappedStatus,
-                timestamp: new Date(tx.created_at).getTime(),
+                timestamp: parseDbTimestampUtcToMillis(tx.created_at),
                 fromTokenSymbol: tx.from_token_symbol || undefined,
                 toTokenSymbol: tx.to_token_symbol || undefined,
                 isApi: true,
