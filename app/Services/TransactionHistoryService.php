@@ -36,7 +36,13 @@ class TransactionHistoryService
             ]);
 
         $hasMore = $rows->count() > $safeLimit;
-        $transactions = $rows->take($safeLimit)->values()->map(fn (Transaction $transaction) => $transaction->toArray())->all();
+        $transactions = $rows->take($safeLimit)->values()->map(function (Transaction $transaction) {
+            $payload = $transaction->toArray();
+            // Use raw DB timestamp to avoid timezone shifts from Eloquent serialization.
+            $payload['created_at'] = $transaction->getRawOriginal('created_at');
+
+            return $payload;
+        })->all();
 
         return [
             'transactions' => $transactions,
