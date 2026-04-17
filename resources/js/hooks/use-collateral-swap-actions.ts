@@ -18,6 +18,7 @@ import { DEFAULT_NETWORK } from '../constants/networks';
 import { buildCollateralSwapTx } from '../services/api';
 import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } from '../services/transactions-api';
 import logger, { isUserRejectedError } from '../utils/logger';
+import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
 interface UseCollateralSwapActionsProps {
     account: string | null;
@@ -35,7 +36,6 @@ interface UseCollateralSwapActionsProps {
     clearQuote: () => void;
     clearQuoteError?: () => void;
     selectedNetwork: any;
-    simulateError?: boolean;
     preferPermit?: boolean;
     forceRequirePermitOverride?: boolean;
     marketKey?: string | null;
@@ -64,7 +64,6 @@ export const useCollateralSwapActions = ({
     clearQuote,
     clearQuoteError,
     selectedNetwork,
-    simulateError,
     preferPermit = true,
     marketKey = null,
     onTxSent,
@@ -369,6 +368,8 @@ export const useCollateralSwapActions = ({
         if (!adapterAddress || !account || !walletClient) return;
 
         let localTxId: string | null = null;
+        let simulationInProgress = false;
+        let swapDebugMeta: any = null;
         let activeQuote = swapQuote;
 
         if (!activeQuote) {
@@ -527,6 +528,15 @@ export const useCollateralSwapActions = ({
 
             localTxId = txResult.transactionId;
             updateCurrentTransactionId(localTxId);
+            swapDebugMeta = txResult?.debugFlags || null;
+            const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
+            logger.debug('[useCollateralSwapActions] Swap debug decision', {
+                chainId,
+                marketKey: marketKey || targetNetwork?.key,
+                account,
+                transactionId: localTxId,
+                swapDebug: swapDebugMeta,
+            });
 
             // Use explicit params definition to avoid abitype inference errors
             const encodedParams = encodeAbiParameters(
@@ -564,8 +574,6 @@ export const useCollateralSwapActions = ({
                 ]
             );
 
-            if (simulateError) throw new Error('Simulation Failure');
-
             const flashLoanArgs = [
                 getAddress(adapterAddress),
                 getAddress(quoteFrom.address || quoteFrom.underlyingAsset),
@@ -573,6 +581,19 @@ export const useCollateralSwapActions = ({
                 encodedParams,
                 0
             ] as const;
+
+            if (shouldSimulateBeforeSwap) {
+                addLog?.('Running debug simulation before sending transaction...', 'info');
+                simulationInProgress = true;
+                await publicClient?.simulateContract({
+                    account: getAddress(account),
+                    address: getAddress(networkAddresses.POOL),
+                    abi: parseAbi(ABIS.POOL),
+                    functionName: 'flashLoanSimple',
+                    args: flashLoanArgs,
+                });
+                simulationInProgress = false;
+            }
 
             addLog?.('Confirm in your wallet...', 'warning');
             const hash = await walletClient.writeContract({
@@ -615,16 +636,31 @@ export const useCollateralSwapActions = ({
                 addLog?.('User rejected swap.', 'warning');
                 if (localTxId) rejectTransaction(localTxId, 'wallet_rejected').catch(() => { });
             } else {
-                const diagnostic = [
+                const diagnostic = Array.from(new Set([
                     error?.shortMessage,
-                    error?.message,
                     error?.details,
-                    error?.data,
+                    error?.code,
                     error?.cause?.shortMessage,
-                    error?.cause?.message,
                     error?.cause?.details,
-                    error?.cause?.data,
-                ].filter(Boolean).join(' | ');
+                    error?.cause?.code,
+                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+
+                const errorSnapshot = {
+                    name: error?.name || null,
+                    shortMessage: error?.shortMessage || null,
+                    message: error?.message || null,
+                    details: error?.details || null,
+                    code: error?.code || null,
+                    data: error?.data || null,
+                    cause: {
+                        name: error?.cause?.name || null,
+                        shortMessage: error?.cause?.shortMessage || null,
+                        message: error?.cause?.message || null,
+                        details: error?.cause?.details || null,
+                        code: error?.cause?.code || null,
+                        data: error?.cause?.data || null,
+                    },
+                };
 
                 logger.error('[useCollateralSwapActions] Swap failure diagnostic', {
                     chainId,
@@ -633,19 +669,34 @@ export const useCollateralSwapActions = ({
                     fromToken: fromToken?.symbol,
                     toToken: toToken?.symbol,
                     swapAmount: swapAmount?.toString?.() || '0',
+                    swapDebug: swapDebugMeta,
                     diagnostic,
+                    error: errorSnapshot,
                     rawError: error,
                 });
 
-                setTxError(error.message || 'Swap failed');
-                addLog?.('Swap Failed: ' + (error.message || 'Unknown error'), 'error');
+                const technicalErrorMessage = Array.from(new Set([
+                    error?.shortMessage,
+                    error?.message,
+                    error?.details,
+                    error?.cause?.shortMessage,
+                    error?.cause?.message,
+                    error?.cause?.details,
+                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+                const friendlyMessage = mapErrorToUserFriendly(technicalErrorMessage)
+                    || (simulationInProgress
+                        ? 'Simulation failed. Try increasing slippage or reducing amount.'
+                        : 'Swap failed. Please try again.');
+
+                setTxError(friendlyMessage);
+                addLog?.(`Swap Failed: ${friendlyMessage}`, 'error');
             }
             resetRefreshCountdown();
         } finally {
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
-    }, [account, walletClient, publicClient, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedATokenAddress, networkAddresses, chainId, ensureWalletNetwork, targetNetwork?.key || '', preferPermit, forceRequirePermit, handleApprove, onTxSent, clearQuote, fetchPositionData, resetRefreshCountdown, cachedPermit, marketKey, clearQuoteError, simulateError]);
+    }, [account, walletClient, publicClient, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedATokenAddress, networkAddresses, chainId, ensureWalletNetwork, targetNetwork?.key || '', preferPermit, forceRequirePermit, handleApprove, onTxSent, clearQuote, fetchPositionData, resetRefreshCountdown, cachedPermit, marketKey, clearQuoteError]);
 
     return {
         isActionLoading, isSigning, signedPermit: cachedPermit, forceRequirePermit, txError, userRejected,
