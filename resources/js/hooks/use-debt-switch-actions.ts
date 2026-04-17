@@ -17,6 +17,7 @@ import logger from '../utils/logger';
 import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } from '../services/transactions-api';
 import { isUserRejectedError } from '../utils/logger';
 import { calcApprovalAmount } from '../utils/swap-math';
+import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
 interface UseDebtSwitchActionsProps {
     account: string | null;
@@ -34,7 +35,6 @@ interface UseDebtSwitchActionsProps {
     clearQuote: () => void;
     clearQuoteError?: () => void;
     selectedNetwork: any;
-    simulateError?: boolean;
     preferPermit?: boolean;
     marketKey?: string | null;
     onTxSent?: (hash: string) => void;
@@ -315,6 +315,8 @@ export const useDebtSwitchActions = ({
         }
 
         let activeQuote = swapQuote;
+        let simulationInProgress = false;
+        let swapDebugMeta: any = null;
         if (!activeQuote) {
             addLog?.('Fetching quote...', 'info');
             activeQuote = await fetchQuote();
@@ -408,6 +410,15 @@ export const useDebtSwitchActions = ({
                 walletAddress: account,
             });
             updateCurrentTransactionId(txResult.transactionId?.toString?.() || null);
+            swapDebugMeta = txResult?.debugFlags || null;
+            const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
+            logger.debug('[useDebtSwitchActions] Swap debug decision', {
+                chainId,
+                marketKey: marketKey || targetNetwork?.key,
+                account,
+                transactionId: txResult?.transactionId || null,
+                swapDebug: swapDebugMeta,
+            });
 
             const encodedParaswapData = encodeAbiParameters(
                 [{ type: 'bytes' }, { type: 'address' }],
@@ -436,6 +447,19 @@ export const useDebtSwitchActions = ({
             };
 
             const collateralPermit = { aToken: zeroAddress, value: 0n, deadline: 0n, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
+
+            if (shouldSimulateBeforeSwap) {
+                addLog?.('Running debug simulation before sending transaction...', 'info');
+                simulationInProgress = true;
+                await publicClient?.simulateContract({
+                    account: getAddress(account),
+                    address: getAddress(adapterAddress),
+                    abi: parseAbi(ABIS.ADAPTER),
+                    functionName: 'swapDebt',
+                    args: [swapParams, creditPermit, collateralPermit],
+                });
+                simulationInProgress = false;
+            }
 
             addLog?.('Confirm in your wallet...', 'warning');
             
@@ -477,8 +501,58 @@ export const useDebtSwitchActions = ({
                 addLog?.('Cancelled by user.', 'warning');
                 if (currentTransactionId) rejectTransaction(currentTransactionId, 'wallet_rejected').catch(() => {});
             } else {
-                setTxError(error.message);
-                addLog?.('Error: ' + error.message, 'error');
+                const diagnostic = Array.from(new Set([
+                    error?.shortMessage,
+                    error?.details,
+                    error?.code,
+                    error?.cause?.shortMessage,
+                    error?.cause?.details,
+                    error?.cause?.code,
+                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+                const errorSnapshot = {
+                    name: error?.name || null,
+                    shortMessage: error?.shortMessage || null,
+                    message: error?.message || null,
+                    details: error?.details || null,
+                    code: error?.code || null,
+                    data: error?.data || null,
+                    cause: {
+                        name: error?.cause?.name || null,
+                        shortMessage: error?.cause?.shortMessage || null,
+                        message: error?.cause?.message || null,
+                        details: error?.cause?.details || null,
+                        code: error?.cause?.code || null,
+                        data: error?.cause?.data || null,
+                    },
+                };
+                logger.error('[useDebtSwitchActions] Swap failure diagnostic', {
+                    chainId,
+                    marketKey: marketKey || targetNetwork?.key,
+                    account,
+                    fromToken: fromToken?.symbol,
+                    toToken: toToken?.symbol,
+                    swapAmount: swapAmount?.toString?.() || '0',
+                    swapDebug: swapDebugMeta,
+                    diagnostic,
+                    error: errorSnapshot,
+                    rawError: error,
+                });
+
+                const technicalErrorMessage = Array.from(new Set([
+                    error?.shortMessage,
+                    error?.message,
+                    error?.details,
+                    error?.cause?.shortMessage,
+                    error?.cause?.message,
+                    error?.cause?.details,
+                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+                const friendlyMessage = mapErrorToUserFriendly(technicalErrorMessage)
+                    || (simulationInProgress
+                        ? 'Simulation failed. Try increasing slippage or reducing amount.'
+                        : 'Swap failed. Please try again.');
+
+                setTxError(friendlyMessage);
+                addLog?.(`Error: ${friendlyMessage}`, 'error');
             }
         } finally {
             setIsActionLoading(false);

@@ -82,6 +82,51 @@ const getTimestamp = (): string => {
     return now.toISOString().split('T')[1].replace('Z', '');
 };
 
+const toSafeJsonValue = (input: any, seen = new WeakSet<any>()): any => {
+    if (input === null || input === undefined) {
+        return input;
+    }
+
+    if (typeof input === 'bigint') {
+        return input.toString();
+    }
+
+    if (typeof input === 'function') {
+        return `[Function ${input.name || 'anonymous'}]`;
+    }
+
+    if (typeof input !== 'object') {
+        return input;
+    }
+
+    if (input instanceof Error) {
+        return {
+            name: input.name,
+            message: input.message,
+            stack: input.stack,
+            code: (input as any).code,
+            shortMessage: (input as any).shortMessage,
+            details: (input as any).details,
+            cause: (input as any).cause ? toSafeJsonValue((input as any).cause, seen) : undefined,
+        };
+    }
+
+    if (seen.has(input)) {
+        return '[Circular]';
+    }
+    seen.add(input);
+
+    if (Array.isArray(input)) {
+        return input.map((item) => toSafeJsonValue(item, seen));
+    }
+
+    const out: Record<string, any> = {};
+    for (const [key, value] of Object.entries(input)) {
+        out[key] = toSafeJsonValue(value, seen);
+    }
+    return out;
+};
+
 const relayLogToBackend = async (level: LogLevel, message: string, data: any) => {
     if (isUserRejectedError(data)) {
         return;
@@ -100,13 +145,19 @@ const relayLogToBackend = async (level: LogLevel, message: string, data: any) =>
             meta = { raw: data };
         }
 
+        const safeMeta = toSafeJsonValue(meta) || {};
+        const fallbackStack =
+            (typeof safeMeta?.stack === 'string' ? safeMeta.stack : null)
+            || (typeof safeMeta?.rawError?.stack === 'string' ? safeMeta.rawError.stack : null)
+            || (typeof safeMeta?.error?.stack === 'string' ? safeMeta.error.stack : null);
+
         const payload = {
             level,
             message,
-            meta,
-            stack,
+            meta: safeMeta,
+            stack: stack || fallbackStack,
             url: window.location.href,
-            userAddress: meta.userAddress || meta.walletAddress || null
+            userAddress: safeMeta.userAddress || safeMeta.walletAddress || safeMeta.account || safeMeta.address || null
         };
 
         const signingData = await logSessionService.signPayload(payload);
