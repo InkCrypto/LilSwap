@@ -1,4 +1,3 @@
-import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { Heart, Wallet } from 'lucide-react';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
 import { AppHeader } from '@/components/app-header';
@@ -16,9 +15,8 @@ import { Button } from '../components/ui/button';
 const Dashboard = lazy(() => import('../components/dashboard'));
 
 export default function Welcome() {
-    const { account, connectWallet, isConnecting, isReconnecting } = useWeb3();
+    const { account, connectWallet, isConnecting, isReconnecting, isConnectModalOpen } = useWeb3();
     const { activeCount, setSheetOpen } = useTransactionTracker();
-    const { connectModalOpen } = useConnectModal();
     const { positionsByChain, donator, loading, error, lastFetch, refresh } = usePositions(account);
     const [isDonateOpen, setIsDonateOpen] = useState(false);
     const [isVerifyOpen, setIsVerifyOpen] = useState(false);
@@ -178,15 +176,15 @@ export default function Welcome() {
 
                             <Button
                                 onClick={connectWallet}
-                                disabled={connectModalOpen || isConnecting || isReconnecting}
+                                disabled={isConnectModalOpen || isConnecting || isReconnecting}
                                 className="text-sm px-6 py-2.5 rounded-xl h-auto flex items-center justify-center gap-2.5"
                             >
-                                {connectModalOpen || isConnecting || isReconnecting ? (
+                                {isConnectModalOpen || isConnecting || isReconnecting ? (
                                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                 ) : (
                                     <Wallet className="w-4 h-4" />
                                 )}
-                                <span>{connectModalOpen || isConnecting || isReconnecting ? 'Connecting...' : 'Connect to start'}</span>
+                                <span>{isConnectModalOpen || isConnecting || isReconnecting ? 'Connecting...' : 'Connect to start'}</span>
                             </Button>
                         </div>
                     </div>
