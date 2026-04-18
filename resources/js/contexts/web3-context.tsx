@@ -1,20 +1,5 @@
+import { useAppKit, useAppKitState } from '@reown/appkit/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import '@rainbow-me/rainbowkit/styles.css';
-import {
-    getDefaultConfig,
-    RainbowKitProvider,
-    darkTheme,
-    lightTheme,
-    useConnectModal
-} from '@rainbow-me/rainbowkit';
-import {
-    rabbyWallet,
-    oneKeyWallet,
-    walletConnectWallet,
-    metaMaskWallet,
-    trustWallet,
-    baseAccount
-} from '@rainbow-me/rainbowkit/wallets';
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
@@ -25,55 +10,17 @@ import {
     useDisconnect,
     usePublicClient,
     useWalletClient,
-    http
 } from 'wagmi';
-import { useAppearance } from '@/hooks/use-appearance';
 import type { MarketConfig } from '../constants/networks';
-import { DEFAULT_MARKET, MARKETS, getMarketByChainId, SUPPORTED_CHAINS, getAlchemyRpcUrl } from '../constants/networks';
+import { DEFAULT_MARKET, MARKETS, getMarketByChainId } from '../constants/networks';
 import { bootstrapProxySession, disconnectProxySession, setProxySessionIdentity } from '../services/api';
 import { flushPendingTransactionHashes } from '../services/transactions-api';
-import { buildTransportHeaders } from '../helpers/rpc-helper';
 import logger from '../utils/logger';
+import { wagmiConfig } from './appkit';
 
+export { wagmiConfig };
 
 const queryClient = new QueryClient();
-
-const projectId = import.meta.env.VITE_REOWN_PROJECT_ID;
-const chains = SUPPORTED_CHAINS;
-
-// Setup RainbowKit config with priority to Rabby and OneKey as requested
-export const wagmiConfig = getDefaultConfig({
-    appName: 'LilSwap',
-    projectId,
-    chains,
-    wallets: [
-        {
-            groupName: 'Recommended',
-            wallets: [
-                rabbyWallet,
-                oneKeyWallet,
-                metaMaskWallet,
-                trustWallet,
-                baseAccount,
-                walletConnectWallet
-            ],
-        },
-    ],
-    transports: Object.fromEntries(
-        SUPPORTED_CHAINS.map(chain => {
-            const market = getMarketByChainId(chain.id);
-            const rpcUrl = market ? getAlchemyRpcUrl(market.alchemySlug) : undefined;
-
-            // For same-origin (proxied) RPCs, we MUST include the Laravel CSRF token
-            const headers = rpcUrl ? buildTransportHeaders(rpcUrl) : {};
-
-            return [chain.id, http(rpcUrl, {
-                fetchOptions: { headers }
-            })];
-        })
-    ),
-    ssr: true,
-});
 
 interface Web3ContextType {
     account: string | null;
@@ -81,6 +28,7 @@ interface Web3ContextType {
     isConnected: boolean;
     isConnecting: boolean;
     isReconnecting: boolean;
+    isConnectModalOpen: boolean;
     isSettlingAccount: boolean;
     isProxyReady: boolean;
     connectWallet: () => void;
@@ -96,24 +44,19 @@ export const Web3Context = createContext<Web3ContextType | null>(null);
 
 export const useWeb3 = () => {
     const context = useContext(Web3Context);
+
     if (!context) {
         throw new Error('useWeb3 must be used within a Web3Provider');
     }
+
     return context;
 };
 
 export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) => {
-    const { resolvedAppearance } = useAppearance();
-
     return (
         <WagmiProvider config={wagmiConfig}>
             <QueryClientProvider client={queryClient}>
-                <RainbowKitProvider
-                    theme={resolvedAppearance === 'dark' ? darkTheme() : lightTheme()}
-                    locale="en-US"
-                >
-                    <Web3InternalProvider>{children}</Web3InternalProvider>
-                </RainbowKitProvider>
+                <Web3InternalProvider>{children}</Web3InternalProvider>
             </QueryClientProvider>
         </WagmiProvider>
     );
@@ -124,11 +67,24 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const chainId = useChainId();
     const { switchChainAsync } = useSwitchChain();
     const { disconnectAsync } = useDisconnect();
+    const { open: openAppKitModal } = useAppKit();
+    const { open: isConnectModalOpen } = useAppKitState();
+    const isDisconnectingRef = React.useRef(false);
 
     const handleDisconnect = useCallback(async () => {
-        setProxySessionIdentity(null);
-        await disconnectProxySession();
-        await disconnectAsync();
+        if (isDisconnectingRef.current) {
+            return;
+        }
+
+        isDisconnectingRef.current = true;
+
+        try {
+            setProxySessionIdentity(null);
+            await disconnectProxySession();
+            await disconnectAsync();
+        } finally {
+            isDisconnectingRef.current = false;
+        }
     }, [disconnectAsync]);
 
     const [isSettlingAccount, setIsSettlingAccount] = useState(false);
@@ -138,32 +94,30 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const selectedNetwork = useMemo(() => MARKETS[selectedMarketKey] || DEFAULT_MARKET, [selectedMarketKey]);
     const allowedNetworks = useMemo(() => Object.values(MARKETS), []);
 
-    // Sync market selection with current chain
     useEffect(() => {
         if (chainId) {
             const newMarket = getMarketByChainId(chainId);
+
             if (newMarket && newMarket.key !== selectedMarketKey) {
                 setSelectedMarketKey(newMarket.key);
             }
         }
     }, [chainId, selectedMarketKey]);
 
-    // Track active session identity to avoid redundant bootstraps
     const lastSessionIdentity = React.useRef<string | null>(null);
 
-    // Handle session and proxy identity
     useEffect(() => {
         const currentlyConnected = isConnected && !!address;
         const sessionIdentity = currentlyConnected ? `${String(address).toLowerCase()}:${chainId || 'none'}` : null;
 
-        // Prevent redundant bootstraps or disconnect loops
-        if (lastSessionIdentity.current === sessionIdentity) return;
+        if (lastSessionIdentity.current === sessionIdentity) {
+            return;
+        }
 
         const previousIdentity = lastSessionIdentity.current;
         lastSessionIdentity.current = sessionIdentity;
 
         if (currentlyConnected) {
-            // Mark as not ready until bootstrap completes
             setIsProxyReady(false);
 
             setProxySessionIdentity({
@@ -183,15 +137,19 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 setIsProxyReady(false);
             });
         } else if (previousIdentity !== null) {
-            // Only explicitly disconnect if we were previously connected
             setIsProxyReady(false);
             setProxySessionIdentity(null);
-            disconnectProxySession().catch(() => { });
+
+            if (!isDisconnectingRef.current) {
+                disconnectProxySession().catch(() => { });
+            }
         }
     }, [isConnected, address, chainId]);
 
     useEffect(() => {
-        if (!isConnected || !address || !isProxyReady) return;
+        if (!isConnected || !address || !isProxyReady) {
+            return;
+        }
 
         void flushPendingTransactionHashes(address).then((flushed) => {
             if (flushed > 0) {
@@ -200,16 +158,20 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         });
     }, [isConnected, address, isProxyReady]);
 
-    // Re-verify account state on visibility change (re-sync with wallet)
     useEffect(() => {
         const handleVisibilityChange = async () => {
             if (document.visibilityState === 'visible' && isConnected && connector) {
                 try {
                     setIsSettlingAccount(true);
+
+                    await bootstrapProxySession({
+                        walletAddress: address ?? null,
+                        chainId: chainId ?? null,
+                    });
+
                     if (address && isProxyReady) {
                         void flushPendingTransactionHashes(address);
                     }
-                    // Wagmi useAccount is generally reactive, but we can force a refresh if needed
                 } finally {
                     setTimeout(() => setIsSettlingAccount(false), 200);
                 }
@@ -217,17 +179,37 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         };
 
         document.addEventListener('visibilitychange', handleVisibilityChange);
-        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-    }, [isConnected, connector, address, isProxyReady]);
 
-    const { openConnectModal } = useConnectModal();
+        return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+    }, [isConnected, connector, address, chainId, isProxyReady]);
+
     const connectWallet = useCallback(() => {
-        openConnectModal?.();
-    }, [openConnectModal]);
+        if (isConnectModalOpen) {
+            return;
+        }
+
+        void (async () => {
+            try {
+                await bootstrapProxySession({
+                    walletAddress: address ?? null,
+                    chainId: chainId ?? null,
+                });
+            } catch (error) {
+                logger.warn('[Web3Provider] Pre-connect proxy bootstrap failed', {
+                    error: (error as any)?.message,
+                });
+            }
+
+            await openAppKitModal();
+        })();
+    }, [openAppKitModal, isConnectModalOpen, address, chainId]);
 
     const changeNetwork = useCallback(async (marketKey: string) => {
         const targetMarket = MARKETS[marketKey];
-        if (!targetMarket || !switchChainAsync) return;
+
+        if (!targetMarket || !switchChainAsync) {
+            return;
+        }
 
         try {
             await switchChainAsync({ chainId: targetMarket.chainId });
@@ -247,6 +229,7 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 isConnected,
                 isConnecting,
                 isReconnecting,
+                isConnectModalOpen: Boolean(isConnectModalOpen),
                 isSettlingAccount,
                 isProxyReady,
                 connectWallet,

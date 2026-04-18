@@ -1,4 +1,3 @@
-import { useConnectModal } from '@rainbow-me/rainbowkit';
 import { Wallet, LogOut, ChevronDown, History, Eye, EyeOff } from 'lucide-react';
 import React from 'react';
 import { useDisconnect } from 'wagmi';
@@ -19,11 +18,10 @@ type AppHeaderProps = {
 export function AppHeader({
     account,
     activeCount = 0,
-    onOpenHistory = () => {},
+    onOpenHistory = () => { },
 }: AppHeaderProps) {
-    const { connectModalOpen } = useConnectModal();
     const { disconnect } = useDisconnect();
-    const { connectWallet, disconnectWallet, isConnecting, isReconnecting } = useWeb3();
+    const { connectWallet, disconnectWallet, isConnecting, isReconnecting, isConnectModalOpen } = useWeb3();
     const { resolvedAppearance, updateAppearance } = useAppearance();
     const { preferences, updatePreference } = useUiPreferences();
     const isDarkMode = resolvedAppearance === 'dark';
@@ -42,11 +40,10 @@ export function AppHeader({
 
     return (
         <header
-            className={`sticky top-0 z-40 transition-all duration-300 ${
-                isScrolled
+            className={`sticky top-0 z-40 transition-all duration-300 ${isScrolled
                     ? 'bg-background border-b-2 border-border-light/70 dark:border-border-dark/70'
                     : 'bg-background border-b border-transparent'
-            }`}
+                }`}
         >
             <div className="max-w-480 mx-auto px-4 md:px-6 pt-6 md:pt-4 pb-6 md:pb-4 flex items-center justify-between gap-3 md:gap-2">
                 <div className="flex items-center gap-2 sm:gap-2.5 min-w-0 flex-1">
@@ -76,11 +73,10 @@ export function AppHeader({
                             aria-label={isDarkMode ? 'Switch to light mode' : 'Switch to dark mode'}
                         >
                             <span
-                                className={`material-symbols-outlined text-[20px] leading-none transition-all duration-300 ${
-                                    isDarkMode
+                                className={`material-symbols-outlined text-[20px] leading-none transition-all duration-300 ${isDarkMode
                                         ? 'text-current'
                                         : 'text-yellow-400 group-hover:text-yellow-500 drop-shadow-[0_0_8px_rgba(250,204,21,0.6)]'
-                                }`}
+                                    }`}
                                 style={{ fontVariationSettings: isDarkMode ? "'FILL' 0, 'wght' 300, 'GRAD' 0" : "'FILL' 1, 'wght' 300, 'GRAD' 200" }}
                             >
                                 lightbulb
@@ -147,16 +143,16 @@ export function AppHeader({
                     ) : (
                         <Button
                             onClick={connectWallet}
-                            disabled={connectModalOpen || isConnecting || isReconnecting}
+                            disabled={isConnectModalOpen || isConnecting || isReconnecting}
                             className="text-xs md:text-sm px-4 md:px-5 py-2 md:py-2.5 rounded-xl h-auto"
                         >
-                            {connectModalOpen || isConnecting || isReconnecting ? (
+                            {isConnectModalOpen || isConnecting || isReconnecting ? (
                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             ) : (
                                 <Wallet className="w-4 h-4" />
                             )}
                             <span className="hidden sm:inline">
-                                {connectModalOpen || isConnecting || isReconnecting ? 'Connecting...' : 'Connect'}
+                                {isConnectModalOpen || isConnecting || isReconnecting ? 'Connecting...' : 'Connect'}
                             </span>
                         </Button>
                     )}

@@ -60,6 +60,10 @@ export const setProxySessionIdentity = (payload: ProxySessionPayload | null) => 
     lastProxySessionPayload = payload;
 };
 
+export const getProxySessionIdentity = (): ProxySessionPayload | null => {
+    return lastProxySessionPayload;
+};
+
 /**
  * Sync Internal State (Placeholder)
  */
@@ -79,6 +83,12 @@ export const bootstrapProxySession = async (payload: { walletAddress?: string | 
     const response = await runProxyBootstrap(payload);
 
     return response.data;
+};
+
+export const waitForProxySessionBootstrap = async () => {
+    if (proxySessionBootstrapInFlight) {
+        await proxySessionBootstrapInFlight;
+    }
 };
 
 export const disconnectProxySession = async () => {
@@ -104,11 +114,11 @@ export const getUserTransactionsHistory = async (walletAddress: string, limit = 
             limit,
             offset
         });
-        
+
         return response.data;
     } catch (error) {
         logger.error('Failed to fetch user transaction history', error);
-        
+
         return { transactions: [], count: 0 };
     }
 };
@@ -304,6 +314,7 @@ export const buildCollateralSwapTx = async (params: any) => {
 
 export const getDonationConfig = async () => {
     const response = await apiClient.get('/donations/config');
+
     return response.data;
 };
 
@@ -313,11 +324,13 @@ export const getDonationPreflight = async (params: {
     tokenKey: string;
 }) => {
     const response = await apiClient.post('/donations/preflight', params);
+
     return response.data;
 };
 
 export const verifyDonationByHash = async (params: { txHash: string; walletAddress?: string | null; chainId?: number | null }) => {
     const response = await apiClient.post('/donations/verify-hash', params);
+
     return response.data;
 };
 
@@ -328,6 +341,7 @@ export const verifyDonationByWallet = async (params: {
     approximateSentAt: string;
 }) => {
     const response = await apiClient.post('/donations/verify-wallet', params);
+
     return response.data;
 };
 
