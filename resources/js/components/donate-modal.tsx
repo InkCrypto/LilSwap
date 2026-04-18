@@ -45,6 +45,7 @@ type BalanceStatus = {
     balance?: bigint | null;
     source?: string | null;
     usdPrice?: number | null;
+    tokenDecimals?: number | null;
 };
 
 const ERC20_ABI = parseAbi(['function transfer(address to, uint256 amount) returns (bool)']);
@@ -105,6 +106,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
     const displayedRecipient = truncate(DONATION_WALLET);
     const selectedAssetUsdPrice = selectedAsset?.type === 'erc20' ? 1 : balanceStatus.usdPrice ?? null;
     const donationUsdAmount = Number(donationAmount || '0');
+    const effectiveTokenDecimals = balanceStatus.tokenDecimals ?? selectedAsset?.decimals ?? 18;
     const donationTokenAmount = useMemo(() => {
         if (!selectedAsset || !donationAmount || donationUsdAmount <= 0) return null;
         if (selectedAsset.type === 'erc20') return donationAmount;
@@ -150,6 +152,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
 
                 const balance = BigInt(response.balanceRaw || '0');
                 const usdPrice = response.usdPrice == null ? null : Number(response.usdPrice);
+                const tokenDecimals = Number.isFinite(Number(response.decimals)) ? Number(response.decimals) : selectedAsset.decimals;
 
                 if (selectedAsset.type === 'native' && !response.nativePriceAvailable) {
                     setBalanceStatus({
@@ -157,6 +160,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
                         balance,
                         source: response.source || null,
                         usdPrice: null,
+                        tokenDecimals,
                     });
                     return;
                 }
@@ -167,6 +171,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
                         balance,
                         source: response.source || null,
                         usdPrice,
+                        tokenDecimals,
                     });
                     return;
                 }
@@ -189,13 +194,14 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
                     return;
                 }
 
-                const requiredAmount = parseUnits(requiredTokenAmount, selectedAsset.decimals);
+                const requiredAmount = parseUnits(requiredTokenAmount, tokenDecimals);
 
                 setBalanceStatus({
                     kind: balance >= requiredAmount ? 'ok' : 'insufficient',
                     balance,
                     source: response.source || null,
                     usdPrice,
+                    tokenDecimals,
                 });
             } catch {
                 if (!cancelled) {
@@ -317,7 +323,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
                 txHash = await sendTransaction(activeWalletClient, {
                     account: getAddress(account),
                     to: getAddress(DONATION_WALLET),
-                    value: parseUnits(donationTokenAmount, selectedAsset.decimals),
+                    value: parseUnits(donationTokenAmount, effectiveTokenDecimals),
                 });
             } else {
                 txHash = await writeContract(activeWalletClient, {
@@ -325,7 +331,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
                     address: getAddress(selectedAsset.address!),
                     abi: ERC20_ABI,
                     functionName: 'transfer',
-                    args: [getAddress(DONATION_WALLET), parseUnits(donationTokenAmount, selectedAsset.decimals)],
+                    args: [getAddress(DONATION_WALLET), parseUnits(donationTokenAmount, effectiveTokenDecimals)],
                 });
             }
 
