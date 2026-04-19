@@ -15,8 +15,8 @@
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
         "types:check": "tsc --noEmit",
-        "release:patch": "git checkout master && git merge develop --ff-only && pnpm version patch && git push origin master --tags && git checkout develop",
-        "release:minor": "git checkout master && git merge develop --ff-only && pnpm version minor && git push origin master --tags && git checkout develop"
+        "release:patch": "git checkout master && git merge develop --ff-only && pnpm version patch && git checkout develop && git merge master",
+        "release:minor": "git checkout master && git merge develop --ff-only && pnpm version minor && git checkout develop && git merge master"
     },
     "devDependencies": {
         "@eslint/js": "^9.39.2",

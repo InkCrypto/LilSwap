@@ -6,6 +6,10 @@ import { getMarketByChainId, SUPPORTED_CHAINS, getAlchemyRpcUrl } from '../const
 import { buildTransportConfig } from '../helpers/rpc-helper';
 
 const projectId = import.meta.env.VITE_REOWN_PROJECT_ID;
+const RABBY_WALLETCONNECT_ID = '18388be9ac2d02726dbac9777c96efaac06d744b2f6d580fccdd4127a6d01fd1';
+const ONEKEY_WALLETCONNECT_ID = '1aedbcfc1f31aade56ca34c38b0a1607b41cccfa3de93c946ef3b4ba2dfab11c';
+const METAMASK_WALLETCONNECT_ID = 'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96';
+const BRAVE_WALLETCONNECT_ID = '163d2cf19babf05eb8962e9748f9ebe613ed52ebf9c8107c9a0f104bfcf161b3';
 
 if (!projectId) {
     throw new Error('Missing VITE_REOWN_PROJECT_ID');
@@ -51,7 +55,7 @@ const wagmiAdapter = new WagmiAdapter({
     customRpcUrls,
 });
 
-createAppKit({
+const appKitConfig = {
     adapters: [wagmiAdapter],
     networks,
     projectId,
@@ -61,26 +65,26 @@ createAppKit({
     enableWalletConnect: true,
     enableCoinbase: false,
     allWallets: 'SHOW',
+    themeMode: 'dark' as const,
     featuredWalletIds: [
-        '18388be9ac2d02726dbac9777c96efaac06d744b2f6d580fccdd4127a6d01fd1', // Rabby
-        '1aedbcfc1f31aade56ca34c38b0a1607b41cccfa3de93c946ef3b4ba2dfab11c', // OneKey
-        'c57ca95b47569778a828d19178114f4db188b89b763c899ba0be274e97267d96', // MetaMask
-        '163d2cf19babf05eb8962e9748f9ebe613ed52ebf9c8107c9a0f104bfcf161b3', // Brave
+        RABBY_WALLETCONNECT_ID,
+        ONEKEY_WALLETCONNECT_ID,
+        METAMASK_WALLETCONNECT_ID,
+        BRAVE_WALLETCONNECT_ID,
+    ],
+    includeWalletIds: [
+        RABBY_WALLETCONNECT_ID,
+        ONEKEY_WALLETCONNECT_ID,
+        METAMASK_WALLETCONNECT_ID,
+        BRAVE_WALLETCONNECT_ID,
     ],
     features: {
-        connectorTypeOrder: [
-            'recent',
-            'injected',
-            'featured',
-            'custom',
-            'external',
-            'recommended',
-            'walletConnect',
-        ],
         analytics: false,
         email: false,
-        socials: false,
+        socials: [],
     },
-});
+};
+
+createAppKit(appKitConfig as Parameters<typeof createAppKit>[0]);
 
 export const wagmiConfig = wagmiAdapter.wagmiConfig;
