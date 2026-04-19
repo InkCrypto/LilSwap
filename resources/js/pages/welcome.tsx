@@ -1,21 +1,22 @@
 import { Heart, Wallet } from 'lucide-react';
 import React, { useState, useEffect, Suspense, lazy } from 'react';
+import { AaveHistorySheet } from '@/components/aave-history-sheet';
 import { AppHeader } from '@/components/app-header';
 import { InfoTooltip } from '@/components/info-tooltip';
-import { AaveHistorySheet } from '@/components/aave-history-sheet';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
 import { useWeb3 } from '@/contexts/web3-context';
 import { usePositions } from '@/hooks/use-positions';
 import AppFooter from '../components/app-footer';
 import { DonateModal } from '../components/donate-modal';
-import { VerifyDonationModal } from '../components/verify-donation-modal';
 import LilLogo from '../components/lil-logo';
 import { Button } from '../components/ui/button';
+import { VerifyDonationModal } from '../components/verify-donation-modal';
 
 const Dashboard = lazy(() => import('../components/dashboard'));
 
 export default function Welcome() {
     const { account, connectWallet, isConnecting, isReconnecting, isConnectModalOpen } = useWeb3();
+    const isConnectBusy = isReconnecting || (isConnecting && isConnectModalOpen);
     const { activeCount, setSheetOpen } = useTransactionTracker();
     const { positionsByChain, donator, loading, error, lastFetch, refresh } = usePositions(account);
     const [isDonateOpen, setIsDonateOpen] = useState(false);
@@ -176,15 +177,15 @@ export default function Welcome() {
 
                             <Button
                                 onClick={connectWallet}
-                                disabled={isConnectModalOpen || isConnecting || isReconnecting}
+                                disabled={isConnectBusy}
                                 className="text-sm px-6 py-2.5 rounded-xl h-auto flex items-center justify-center gap-2.5"
                             >
-                                {isConnectModalOpen || isConnecting || isReconnecting ? (
+                                {isConnectBusy ? (
                                     <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                                 ) : (
                                     <Wallet className="w-4 h-4" />
                                 )}
-                                <span>{isConnectModalOpen || isConnecting || isReconnecting ? 'Connecting...' : 'Connect to start'}</span>
+                                <span>{isConnectBusy ? 'Connecting...' : 'Connect to start'}</span>
                             </Button>
                         </div>
                     </div>

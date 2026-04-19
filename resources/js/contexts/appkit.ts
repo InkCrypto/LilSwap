@@ -56,6 +56,9 @@ createAppKit({
     networks,
     projectId,
     metadata,
+    enableInjected: true,
+    enableEIP6963: true,
+    enableWalletConnect: true,
     enableCoinbase: false,
     allWallets: 'SHOW',
     featuredWalletIds: [
@@ -65,6 +68,15 @@ createAppKit({
         '163d2cf19babf05eb8962e9748f9ebe613ed52ebf9c8107c9a0f104bfcf161b3', // Brave
     ],
     features: {
+        connectorTypeOrder: [
+            'recent',
+            'injected',
+            'featured',
+            'custom',
+            'external',
+            'recommended',
+            'walletConnect',
+        ],
         analytics: false,
         email: false,
         socials: false,

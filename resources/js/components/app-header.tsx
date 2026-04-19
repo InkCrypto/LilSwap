@@ -22,6 +22,7 @@ export function AppHeader({
 }: AppHeaderProps) {
     const { disconnect } = useDisconnect();
     const { connectWallet, disconnectWallet, isConnecting, isReconnecting, isConnectModalOpen } = useWeb3();
+    const isConnectBusy = isReconnecting || (isConnecting && isConnectModalOpen);
     const { resolvedAppearance, updateAppearance } = useAppearance();
     const { preferences, updatePreference } = useUiPreferences();
     const isDarkMode = resolvedAppearance === 'dark';
@@ -143,16 +144,16 @@ export function AppHeader({
                     ) : (
                         <Button
                             onClick={connectWallet}
-                            disabled={isConnectModalOpen || isConnecting || isReconnecting}
+                            disabled={isConnectBusy}
                             className="text-xs md:text-sm px-4 md:px-5 py-2 md:py-2.5 rounded-xl h-auto"
                         >
-                            {isConnectModalOpen || isConnecting || isReconnecting ? (
+                            {isConnectBusy ? (
                                 <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             ) : (
                                 <Wallet className="w-4 h-4" />
                             )}
                             <span className="hidden sm:inline">
-                                {isConnectModalOpen || isConnecting || isReconnecting ? 'Connecting...' : 'Connect'}
+                                {isConnectBusy ? 'Connecting...' : 'Connect'}
                             </span>
                         </Button>
                     )}

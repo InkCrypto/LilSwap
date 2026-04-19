@@ -184,10 +184,6 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }, [isConnected, connector, address, chainId, isProxyReady]);
 
     const connectWallet = useCallback(() => {
-        if (isConnectModalOpen) {
-            return;
-        }
-
         void (async () => {
             try {
                 await bootstrapProxySession({
@@ -202,7 +198,7 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
             await openAppKitModal();
         })();
-    }, [openAppKitModal, isConnectModalOpen, address, chainId]);
+    }, [openAppKitModal, address, chainId]);
 
     const changeNetwork = useCallback(async (marketKey: string) => {
         const targetMarket = MARKETS[marketKey];
