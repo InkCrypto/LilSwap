@@ -11,7 +11,7 @@ import {
     parseUnits
 } from 'viem';
 import { useCallback, useEffect, useState, useMemo } from 'react';
-import { usePublicClient, useWalletClient } from 'wagmi';
+import { usePublicClient, useWalletClient, useSignTypedData } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
@@ -76,6 +76,7 @@ export const useCollateralSwapActions = ({
 }: UseCollateralSwapActionsProps) => {
     const publicClient = usePublicClient();
     const { data: walletClient } = useWalletClient();
+    const { signTypedDataAsync } = useSignTypedData();
 
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isSigning, setIsSigning] = useState(false);
@@ -223,7 +224,9 @@ export const useCollateralSwapActions = ({
             const message = { owner: getAddress(account), spender: getAddress(adapterAddress!), value, nonce, deadline };
 
             addLog?.('Requesting signature for aToken (Permit)...', 'warning');
-            const signature = await walletClient.signTypedData({
+            
+            // Using signTypedDataAsync from useSignTypedData hook for better stability in v2
+            const signature = await signTypedDataAsync({
                 account: getAddress(account),
                 domain,
                 types,

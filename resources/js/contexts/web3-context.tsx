@@ -160,21 +160,23 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
 
     useEffect(() => {
         const handleVisibilityChange = async () => {
-            if (document.visibilityState === 'visible' && isConnected && connector) {
-                try {
-                    setIsSettlingAccount(true);
+            if (document.visibilityState !== 'visible' || !isConnected || !connector) {
+                return;
+            }
 
-                    await bootstrapProxySession({
-                        walletAddress: address ?? null,
-                        chainId: chainId ?? null,
-                    });
+            try {
+                setIsSettlingAccount(true);
 
-                    if (address && isProxyReady) {
-                        void flushPendingTransactionHashes(address);
-                    }
-                } finally {
-                    setTimeout(() => setIsSettlingAccount(false), 200);
+                await bootstrapProxySession({
+                    walletAddress: address ?? null,
+                    chainId: chainId ?? null,
+                });
+
+                if (address && isProxyReady) {
+                    void flushPendingTransactionHashes(address);
                 }
+            } finally {
+                setTimeout(() => setIsSettlingAccount(false), 200);
             }
         };
 

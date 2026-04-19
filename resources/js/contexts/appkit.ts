@@ -51,7 +51,7 @@ const customRpcUrls = Object.fromEntries(
 const wagmiAdapter = new WagmiAdapter({
     projectId,
     networks,
-    ssr: true,
+    ssr: false,
     customRpcUrls,
 });
 
@@ -63,21 +63,16 @@ const appKitConfig = {
     enableInjected: true,
     enableEIP6963: true,
     enableWalletConnect: true,
-    enableCoinbase: false,
+    enableCoinbase: true,
     allWallets: 'SHOW',
     themeMode: 'dark' as const,
     featuredWalletIds: [
-        RABBY_WALLETCONNECT_ID,
         ONEKEY_WALLETCONNECT_ID,
         METAMASK_WALLETCONNECT_ID,
         BRAVE_WALLETCONNECT_ID,
     ],
-    includeWalletIds: [
-        RABBY_WALLETCONNECT_ID,
-        ONEKEY_WALLETCONNECT_ID,
-        METAMASK_WALLETCONNECT_ID,
-        BRAVE_WALLETCONNECT_ID,
-    ],
+
+
     features: {
         analytics: false,
         email: false,

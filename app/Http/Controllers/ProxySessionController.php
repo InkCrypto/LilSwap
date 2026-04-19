@@ -21,6 +21,13 @@ class ProxySessionController extends Controller
         $session = $request->session();
         $data = (array) $session->get('proxy_session', []);
 
+        if (($data['active_wallet'] ?? null) !== $wallet) {
+            \Log::info('[BOOTSTRAP] Wallet Changed', [
+                'old' => $data['active_wallet'] ?? 'none',
+                'new' => $wallet ?? 'none'
+            ]);
+        }
+
         $wallets = array_values(array_unique(array_filter((array) ($data['wallets'] ?? []), fn($v) => is_string($v) && $v !== '')));
         if ($wallet && !in_array($wallet, $wallets, true)) {
             $wallets[] = $wallet;

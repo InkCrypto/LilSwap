@@ -1,6 +1,5 @@
 import { Wallet, LogOut, ChevronDown, History, Eye, EyeOff } from 'lucide-react';
 import React from 'react';
-import { useDisconnect } from 'wagmi';
 import { InfoTooltip } from '@/components/info-tooltip';
 import LilLogo from '@/components/lil-logo';
 import { Button } from '@/components/ui/button';
@@ -20,7 +19,6 @@ export function AppHeader({
     activeCount = 0,
     onOpenHistory = () => { },
 }: AppHeaderProps) {
-    const { disconnect } = useDisconnect();
     const { connectWallet, disconnectWallet, isConnecting, isReconnecting, isConnectModalOpen } = useWeb3();
     const isConnectBusy = isReconnecting || (isConnecting && isConnectModalOpen);
     const { resolvedAppearance, updateAppearance } = useAppearance();
@@ -131,7 +129,6 @@ export function AppHeader({
                                     <button
                                         onClick={() => {
                                             void disconnectWallet();
-                                            disconnect();
                                         }}
                                         className="w-full h-10 flex items-center justify-center gap-2.5 px-3 text-sm font-bold text-red-500 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors group"
                                     >

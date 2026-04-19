@@ -43,13 +43,12 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
     const [lastFetch, setLastFetch] = useState<number | null>(null);
     const [activePositionVisits, setActivePositionVisits] = useState(0);
     const activeWalletRef = useRef<string | null>(normalizedWallet);
-    const reloadArmedWalletRef = useRef<string | null>(normalizedWallet);
 
     const positionsPayload = isCurrentWalletPage ? (page.props.positionsPayload as PositionsPayload | undefined) : undefined;
     const needsBootstrapReload =
         !!normalizedWallet &&
         isProxyReady &&
-        reloadArmedWalletRef.current === normalizedWallet &&
+        activePositionVisits === 0 &&
         positionsWallet !== normalizedWallet;
     const loading = !!walletAddress && (
         !isProxyReady ||
@@ -61,7 +60,6 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
     useEffect(() => {
         if (activeWalletRef.current !== normalizedWallet) {
             activeWalletRef.current = normalizedWallet;
-            reloadArmedWalletRef.current = null;
             setPositionsByChain(null);
             setDonator(EMPTY_DONATOR);
             setError(null);
@@ -69,11 +67,7 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
         }
     }, [normalizedWallet]);
 
-    useEffect(() => {
-        if (normalizedWallet && !isProxyReady) {
-            reloadArmedWalletRef.current = normalizedWallet;
-        }
-    }, [isProxyReady, normalizedWallet]);
+    // No-op effect removed (previously used for arming reloads)
 
     useEffect(() => {
         if (!normalizedWallet || !isCurrentWalletPage) {
@@ -104,11 +98,25 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
                 return;
             }
 
+            // Strict guard: Do not allow partial data refreshes (includeWallet=false)
+            // if the server is out of sync with the client wallet. This prevents
+            // rogue GET requests from locking onto the old session and overwriting
+            // the new session via cookie driver race conditions.
+            const targetWallet = normalizeWallet(walletAddress);
+            const serverWallet = normalizeWallet(page.props.positionsWallet);
+            if (!includeWallet && targetWallet !== serverWallet) {
+                resolve();
+                return;
+            }
+
             setError(null);
 
             router.reload({
                 only: includeWallet ? RELOAD_KEYS : ['positionsPayload'],
-                headers: force ? { 'X-Positions-Force': 'true' } : undefined,
+                headers: {
+                    ...(force ? { 'X-Positions-Force': 'true' } : {}),
+                    'X-Target-Wallet': targetWallet || '',
+                },
                 onFinish: () => resolve(),
                 onError: () => {
                     setError('Failed to fetch positions');
@@ -160,7 +168,7 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
     }, []);
 
     useEffect(() => {
-        if (!walletAddress) {
+        if (!walletAddress || !isCurrentWalletPage) {
             return;
         }
 
@@ -172,10 +180,10 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
         }, refreshInterval);
 
         return () => window.clearInterval(interval);
-    }, [isTabVisible, isUserActive, opts.refreshIntervalMs, refresh, walletAddress]);
+    }, [isTabVisible, isUserActive, opts.refreshIntervalMs, refresh, walletAddress, isCurrentWalletPage]);
 
     useEffect(() => {
-        if (!walletAddress || !lastFetch || isSettlingAccount) {
+        if (!walletAddress || !lastFetch || isSettlingAccount || !isCurrentWalletPage) {
             return;
         }
 
@@ -184,7 +192,7 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
         if (isTabVisible && isUserActive && Date.now() - lastFetch > refreshInterval) {
             void refresh(false);
         }
-    }, [isSettlingAccount, isTabVisible, isUserActive, lastFetch, opts.refreshIntervalMs, refresh, walletAddress]);
+    }, [isCurrentWalletPage, isSettlingAccount, isTabVisible, isUserActive, lastFetch, opts.refreshIntervalMs, refresh, walletAddress]);
 
     useEffect(() => {
         let debounceTimer: ReturnType<typeof setTimeout>;
