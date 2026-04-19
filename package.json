@@ -2,7 +2,7 @@
     "$schema": "https://www.schemastore.org/package.json",
     "name": "lilswap",
     "private": true,
-    "version": "0.15.0",
+    "version": "0.15.1",
     "author": "InkCrypto - LilSwap",
     "type": "module",
     "scripts": {
@@ -14,7 +14,9 @@
         "format:check": "prettier --check resources/",
         "lint": "eslint . --fix",
         "lint:check": "eslint .",
-        "types:check": "tsc --noEmit"
+        "types:check": "tsc --noEmit",
+        "release:patch": "git checkout master && git merge develop --ff-only && pnpm version patch && git push origin master --tags && git checkout develop",
+        "release:minor": "git checkout master && git merge develop --ff-only && pnpm version minor && git push origin master --tags && git checkout develop"
     },
     "devDependencies": {
         "@eslint/js": "^9.39.2",
