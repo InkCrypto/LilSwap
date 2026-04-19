@@ -2,6 +2,7 @@ import { router, usePage } from '@inertiajs/react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useUserActivity } from '../contexts/user-activity-context';
 import { useWeb3 } from '../contexts/web3-context';
+import { bootstrapProxySession } from '../services/api';
 import logger from '../utils/logger';
 import type { ChainInfo, DonatorInfo } from './use-all-positions';
 
@@ -67,8 +68,6 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
         }
     }, [normalizedWallet]);
 
-    // No-op effect removed (previously used for arming reloads)
-
     useEffect(() => {
         if (!normalizedWallet || !isCurrentWalletPage) {
             setPositionsByChain(null);
@@ -103,7 +102,7 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
             // rogue GET requests from locking onto the old session and overwriting
             // the new session via cookie driver race conditions.
             const targetWallet = normalizeWallet(walletAddress);
-            const serverWallet = normalizeWallet(page.props.positionsWallet);
+            const serverWallet = positionsWallet;
             if (!includeWallet && targetWallet !== serverWallet) {
                 resolve();
                 return;
@@ -124,7 +123,7 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
                 },
             });
         });
-    }, [isProxyReady, walletAddress]);
+    }, [isProxyReady, positionsWallet, walletAddress]);
 
     const refresh = useCallback((force = false) => {
         return reloadPositions(force, false);
@@ -135,7 +134,13 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
             return;
         }
 
-        void reloadPositions(false, true);
+        void (async () => {
+            await bootstrapProxySession({
+                walletAddress,
+            });
+
+            await reloadPositions(false, true);
+        })();
     }, [isProxyReady, needsBootstrapReload, reloadPositions, walletAddress]);
 
     useEffect(() => {

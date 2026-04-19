@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useUserActivity } from '../contexts/user-activity-context';
 import { useWeb3 } from '../contexts/web3-context';
+import { bootstrapProxySession } from '../services/api';
 import logger from '../utils/logger';
 
 type PersistedHistoryItem = {
@@ -159,6 +160,14 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
 
             const offset = options?.offset ?? 0;
             const limit = options?.limit ?? 20;
+            const targetWallet = normalizeWallet(walletAddress);
+            const serverWallet = historyWallet;
+
+            if (!options?.includeWallet && targetWallet !== serverWallet) {
+                resolve();
+                return;
+            }
+
             requestedOffsetRef.current = offset;
             setError(null);
 
@@ -170,6 +179,7 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
                     'X-History-Offset': String(offset),
                     'X-History-Limit': String(limit),
                     ...(options?.force ? { 'X-History-Force': 'true' } : {}),
+                    'X-Target-Wallet': targetWallet || '',
                 },
                 onFinish: () => resolve(),
                 onError: () => {
@@ -178,7 +188,7 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
                 },
             });
         });
-    }, [isProxyReady, walletAddress]);
+    }, [historyWallet, isProxyReady, walletAddress]);
 
     const refresh = useCallback((force = false) => {
         return reloadHistory({ force, offset: 0, limit: Math.max(persistedHistory.length, 20) });
@@ -206,7 +216,13 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
         }
 
         if (needsBootstrapReload) {
-            void reloadHistory({ includeWallet: true, offset: 0, limit: 20 });
+            void (async () => {
+                await bootstrapProxySession({
+                    walletAddress,
+                });
+
+                await reloadHistory({ includeWallet: true, offset: 0, limit: 20 });
+            })();
             return;
         }
 

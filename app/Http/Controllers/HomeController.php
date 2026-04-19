@@ -52,19 +52,8 @@ class HomeController extends Controller
     {
         $sessionData = (array) $request->session()->get('proxy_session', []);
         $wallet = $sessionData['active_wallet'] ?? null;
-        $resolved = is_string($wallet) && $wallet !== '' ? strtolower($wallet) : null;
 
-        // Self-Healing: If the frontend explicitly tells us which wallet it expects via header,
-        // and it differs from our session (likely due to cookie race conditions on mobile),
-        // we trust the signed frontend state and sync the session immediately.
-        $targetWallet = $request->header('X-Target-Wallet');
-        if ($targetWallet && is_string($targetWallet) && strtolower($targetWallet) !== $resolved) {
-            $resolved = strtolower($targetWallet);
-            $sessionData['active_wallet'] = $resolved;
-            $request->session()->put('proxy_session', $sessionData);
-        }
-
-        return $resolved;
+        return is_string($wallet) && $wallet !== '' ? strtolower($wallet) : null;
     }
 
     /**
