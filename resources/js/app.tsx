@@ -3,7 +3,6 @@ import { resolvePageComponent } from 'laravel-vite-plugin/inertia-helpers';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import '../css/app.css';
 
 import { ApiMetaProvider } from '@/contexts/api-meta-context';
 import { DonationVerificationProvider } from '@/contexts/donation-verification-context';

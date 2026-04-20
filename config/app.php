@@ -54,6 +54,8 @@ return [
 
     'url' => env('APP_URL', 'http://localhost'),
 
+    'allowed_origins' => array_filter(explode(',', (string) env('APP_ALLOWED_ORIGINS', ''))),
+
     /*
     |--------------------------------------------------------------------------
     | Application Timezone

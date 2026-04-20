@@ -129,17 +129,34 @@ export const usePositions = (walletAddress: string | null, opts: { refreshInterv
         return reloadPositions(force, false);
     }, [reloadPositions]);
 
+    // In-flight guard: prevents a second concurrent bootstrap+reload from starting
+    // while one is already in progress for the same wallet. Uses a ref to avoid
+    // triggering extra renders. Cleared on completion so future wallet switches work.
+    const isBootstrappingRef = useRef(false);
+
     useEffect(() => {
         if (!walletAddress || !isProxyReady || !needsBootstrapReload) {
             return;
         }
 
-        void (async () => {
-            await bootstrapProxySession({
-                walletAddress,
-            });
+        if (isBootstrappingRef.current) {
+            return;
+        }
 
-            await reloadPositions(false, true);
+        isBootstrappingRef.current = true;
+
+        void (async () => {
+            try {
+                logger.info('[usePositions] Bootstrapping session + syncing page for new wallet', { walletAddress });
+                // Explicitly re-bootstrap to ensure the server session matches the new wallet
+                // before we ask Inertia to reload positionsWallet + positionsPayload.
+                // web3-context.tsx also does this, but timing is not guaranteed relative to
+                // this hook, so we do it here too to ensure correctness.
+                await bootstrapProxySession({ walletAddress });
+                await reloadPositions(false, true);
+            } finally {
+                isBootstrappingRef.current = false;
+            }
         })();
     }, [isProxyReady, needsBootstrapReload, reloadPositions, walletAddress]);
 

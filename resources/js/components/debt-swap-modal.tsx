@@ -725,7 +725,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
 
     return (
-        <Modal isOpen={isOpen} onClose={onClose} title={modalTitle} headerBorder={false}>
+        <Modal 
+            isOpen={isOpen} 
+            onClose={onClose} 
+            title={modalTitle} 
+            headerBorder={false}
+            preventAutoFocus={true}
+        >
             <div className="p-3 space-y-2">
                 {/* Slippage Settings Toggle & Label */}
                 <div className="flex justify-end items-center mb-2 relative">

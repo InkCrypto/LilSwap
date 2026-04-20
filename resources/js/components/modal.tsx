@@ -15,6 +15,7 @@ interface ModalProps {
     children: React.ReactNode;
     maxWidth?: string;
     headerBorder?: boolean;
+    preventAutoFocus?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -23,7 +24,8 @@ export const Modal: React.FC<ModalProps> = ({
     title,
     children,
     maxWidth = '460px',
-    headerBorder = true
+    headerBorder = true,
+    preventAutoFocus = false,
 }) => {
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
@@ -42,8 +44,9 @@ export const Modal: React.FC<ModalProps> = ({
                     }
                 }}
                 onOpenAutoFocus={(e) => {
-                    // Focus the DialogContent instead of the first input
-                    // This prevents keyboard from popping up on mobile
+                    if (preventAutoFocus) {
+                        e.preventDefault();
+                    }
                 }}
             >
                 <DialogDescription className="sr-only">

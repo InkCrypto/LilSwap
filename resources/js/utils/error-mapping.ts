@@ -117,10 +117,14 @@ export const mapErrorToUserFriendly = (technicalMessage: string | null | undefin
         return 'Insufficient funds for gas.';
     }
 
-    // If message is too long and no mapping found, return a generic one
-    if (technicalMessage.length > 200) {
-        return 'An unexpected technical error occurred. Please check your connection or try again.';
+    // Default Fallback logic
+    // If the message is very long and doesn't match anything known, it's likely a cryptic 
+    // technical revert/bytecode. We return a generic message while the background 
+    // logger (logger.ts) handles the full detail sync to the backend.
+    if (technicalMessage.length > 140) {
+        return "The transaction failed. Technical details have been logged for inspection.";
     }
 
-    return technicalMessage; // Fallback to original if no mapping found
+    // If no mapping found and message is short, return original message
+    return technicalMessage;
 };
