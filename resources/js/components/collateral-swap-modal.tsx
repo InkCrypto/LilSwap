@@ -441,18 +441,22 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 const hasPositiveSupply = parseFloat(s.formattedAmount || '0') > 0 || parseFloat(s.amount || '0') > 0;
                 return s.usageAsCollateralEnabledOnUser && hasPositiveSupply;
             })
-            .filter(s => {
+            .map(s => {
                 const supplyAddress = (s.underlyingAsset || s.address || '').toLowerCase();
-                if (!supplyAddress) return false;
+                if (!supplyAddress) return null;
 
                 const asset = marketsToUse.find(m => {
                     const marketAddress = (m.underlyingAsset || m.address || '').toLowerCase();
                     return marketAddress === supplyAddress;
                 });
-                const ltv = asset ? parseFloat(asset.baseLTVasCollateral) : NaN;
+                return asset ? { ...s, ...asset } : s;
+            })
+            .filter(Boolean)
+            .filter(asset => {
+                const ltv = parseFloat(asset.baseLTVasCollateral);
                 return Number.isFinite(ltv) && ltv === 0;
             })
-            .map(s => s.symbol);
+            .map(asset => getDisplaySymbol(asset, marketsToUse));
     }, [activeSupplies, localMarketAssets]);
 
     const isBlockedByZeroLtv = blockingZeroLtvAssets.length > 0;

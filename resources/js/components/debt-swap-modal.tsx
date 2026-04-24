@@ -472,8 +472,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     }, [providedSupplies, supplies, localMarketAssets]);
 
     const blockingZeroLtvSymbols = useMemo(() =>
-        blockingZeroLtvObjects.map(s => s.symbol),
-        [blockingZeroLtvObjects]);
+        blockingZeroLtvObjects.map(s => getDisplaySymbol(s, localMarketAssets)),
+        [blockingZeroLtvObjects, localMarketAssets]);
 
     const isBlockedByZeroLtv = blockingZeroLtvObjects.length > 0;
 
@@ -778,6 +778,23 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             preventAutoFocus={true}
         >
             <div className="p-3 space-y-2">
+                {/* Zero LTV Warning */}
+                {isBlockedByZeroLtv && (
+                    <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 p-3 rounded-xl animate-in fade-in slide-in-from-top-2 duration-300 mb-2">
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-500 shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                                <h4 className="text-sm font-bold text-red-900 dark:text-red-200">
+                                    Action Blocked by Aave
+                                </h4>
+                                <p className="text-xs text-red-800/80 dark:text-red-300/80 leading-relaxed">
+                                    You have assets with LTV 0 ({blockingZeroLtvSymbols.join(', ')}) enabled as collateral.<br />
+                                    Aave requires you to disable them as collateral or withdraw them before performing this action.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {/* Slippage Settings Toggle & Label */}
                 <div className="flex justify-end items-center mb-2 relative">
                     <div className={`flex items-center gap-1.5 transition-all ${!swapQuote ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
@@ -1561,18 +1578,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 {swapQuote && fromToken && toToken && (
                     <div className="space-y-2 mt-2">
                         {/* High Price Impact Alert */}
-                        {isBlockedByZeroLtv && (
-                            <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
-                                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                                <div className="flex-1 min-w-0">
-                                    <p className="text-xs text-red-800/80 dark:text-red-300/80 leading-relaxed">
-                                        You have assets with LTV 0 ({blockingZeroLtvSymbols.join(', ')}) enabled as collateral.<br />
-                                        Aave requires you to disable them as collateral or withdraw them before performing this action.
-                                    </p>
-                                </div>
-                            </div>
-                        )}
-
                         {priceImpact > 0.05 && (
                             <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
