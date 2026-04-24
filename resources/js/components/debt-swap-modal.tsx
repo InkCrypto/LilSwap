@@ -69,7 +69,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 }) => {
     const { account, selectedNetwork } = useWeb3();
     const { addToast } = useToast();
-    const { marketAssets: fetchedMarketAssets, borrows, summary, refresh: refreshPositions } = useUserPosition(initialMarketKey || '');
+    const { marketAssets: fetchedMarketAssets, supplies, borrows, summary, refresh: refreshGlobalPosition } = useUserPosition(initialMarketKey || '');
     const { addTransaction, setSheetOpen } = useTransactionTracker();
     const localMarketAssets = useMemo(() => externalMarketAssets || fetchedMarketAssets || [], [externalMarketAssets, fetchedMarketAssets]);
     const effectiveNetwork = selectedNetwork;
@@ -236,6 +236,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     }, [toToken, isOpen, effectiveNetwork, publicClient]);
 
 
+    const amountRequired = useMemo(() => {
+        if (!swapQuote) return swapAmount;
+        const srcAmount = BigInt(swapQuote.srcAmount);
+        const bufferBps = swapQuote.bufferBps || 70;
+        return calcApprovalAmount(srcAmount, bufferBps);
+    }, [swapQuote, swapAmount]);
+
     // Use Approval Hook for ToToken Debt
     const {
         onChainAllowance,
@@ -248,7 +255,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         account,
         tokenAddress: isOpen ? toDebtTokenAddress : null,
         spenderAddress: isOpen ? adapterAddress : null,
-        amountRequired: swapAmount, // We'll add buffer later in actions, but this gives a good indicator
+        amountRequired,
         isDebt: true,
         chainId: effectiveNetwork.chainId,
         enabled: isOpen,
@@ -273,7 +280,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         debtBalance,
         swapQuote,
         slippage,
-        fetchDebtData: refreshPositions,
+        fetchDebtData: refreshGlobalPosition,
         fetchQuote,
         resetRefreshCountdown,
         clearQuote,
@@ -431,6 +438,28 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
         return { borrowable: canBorrow, reasons };
     }, []);
+
+    // --- Zero LTV Detection ---
+    const blockingZeroLtvAssets = useMemo(() => {
+        const suppliesToUse = supplies || [];
+        const marketsToUse = localMarketAssets || [];
+        
+        if (suppliesToUse.length === 0 || marketsToUse.length === 0) return [];
+        
+        return suppliesToUse
+            .filter(s => s.usageAsCollateralEnabledOnUser)
+            .filter(s => {
+                const asset = marketsToUse.find(m => 
+                    m.underlyingAsset.toLowerCase() === s.underlyingAsset.toLowerCase() ||
+                    m.symbol.toLowerCase() === s.symbol.toLowerCase()
+                );
+                const ltv = asset ? parseFloat(asset.baseLTVasCollateral || '0') : 1; // Default to 1 if not found to not block
+                return asset && ltv === 0;
+            })
+            .map(s => s.symbol);
+    }, [supplies, localMarketAssets]);
+
+    const isBlockedByZeroLtv = blockingZeroLtvAssets.length > 0;
 
 
 
@@ -1602,7 +1631,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
                     return (
                         <Button
-                            disabled={isBusy || !swapQuote || swapAmount === BigInt(0) || isInsufficientBalance || isEmodeConflict}
+                            disabled={isBusy || !fromToken || !toToken || !swapAmount || !!quoteError || isBlockedByZeroLtv || isInsufficientBalance || isEmodeConflict}
                             onClick={handleSwap}
                             className={`w-full py-3 h-auto font-bold rounded-xl mt-2 ${isInsufficientBalance ? 'bg-rose-500 hover:bg-rose-600 border-rose-600 text-white' : ''}`}
                         >

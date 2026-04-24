@@ -70,7 +70,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 }) => {
     const { account, selectedNetwork } = useWeb3();
     const { addToast } = useToast();
-    const { marketAssets: fetchedMarketAssets, supplies, summary } = useUserPosition(initialMarketKey || '');
+    const { marketAssets: fetchedMarketAssets, supplies, borrows, summary, refresh: refreshGlobalPosition } = useUserPosition(initialMarketKey || '');
     const { addTransaction, setSheetOpen } = useTransactionTracker();
     const localMarketAssets = useMemo(() => externalMarketAssets || fetchedMarketAssets || [], [externalMarketAssets, fetchedMarketAssets]);
 
@@ -430,6 +430,27 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         return list;
     }, [selectorTokens, oppositeToken, selectingForFrom, summary?.eModeCategoryId, localMarketAssets]);
 
+    const blockingZeroLtvAssets = useMemo(() => {
+        const suppliesToUse = supplies || [];
+        const marketsToUse = localMarketAssets || [];
+        
+        if (suppliesToUse.length === 0 || marketsToUse.length === 0) return [];
+        
+        return suppliesToUse
+            .filter(s => s.usageAsCollateralEnabledOnUser)
+            .filter(s => {
+                const asset = marketsToUse.find(m => 
+                    m.underlyingAsset.toLowerCase() === s.underlyingAsset.toLowerCase() ||
+                    m.symbol.toLowerCase() === s.symbol.toLowerCase()
+                );
+                const ltv = asset ? parseFloat(asset.baseLTVasCollateral || '0') : 1;
+                return asset && ltv === 0;
+            })
+            .map(s => s.symbol);
+    }, [supplies, localMarketAssets]);
+
+    const isBlockedByZeroLtv = blockingZeroLtvAssets.length > 0;
+
     const validatePairSwappability = useCallback(async (destToken: any) => {
         if (!fromToken || !destToken || !selectedNetwork) {
             return;
@@ -769,6 +790,23 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             preventAutoFocus={true}
         >
             <div className="p-3 space-y-2">
+                {/* Zero LTV Warning */}
+                {isBlockedByZeroLtv && (
+                    <div className="bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800/50 p-3 rounded-xl animate-in fade-in slide-in-from-top-2 duration-300 mb-2">
+                        <div className="flex items-start gap-3">
+                            <AlertTriangle className="w-5 h-5 text-red-600 dark:text-red-500 shrink-0 mt-0.5" />
+                            <div className="space-y-1">
+                                <h4 className="text-sm font-bold text-red-900 dark:text-red-200">
+                                    Action Blocked by Aave
+                                </h4>
+                                <p className="text-xs text-red-800/80 dark:text-red-300/80 leading-relaxed">
+                                    You have assets with zero LTV ({blockingZeroLtvAssets.join(', ')}) enabled as collateral. 
+                                    Aave requires you to disable them as collateral or withdraw them before performing this action.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 {/* Slippage Settings Toggle & Label */}
                 <div className="flex justify-end items-center mb-2 relative">
                     <div className={`flex items-center gap-1.5 transition-all ${!swapQuote ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
@@ -1678,7 +1716,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
                 {/* Swap Button */}
                 <Button
-                    disabled={isActionLoading || !swapQuote || swapAmount === BigInt(0) || isInsufficientBalance || (simulatedHf !== -1 && simulatedHf < 1.05 && currentTotalBorrowsUSD > 0)}
+                    disabled={isActionLoading || !swapQuote || swapAmount === BigInt(0) || isInsufficientBalance || (simulatedHf !== -1 && simulatedHf < 1.05 && currentTotalBorrowsUSD > 0) || isBlockedByZeroLtv}
                     onClick={handleSwap}
                     className={`w-full py-3 h-auto font-bold rounded-xl mt-2 ${isInsufficientBalance ? 'bg-rose-500 hover:bg-rose-600 border-rose-600 text-white' : ''}`}
                 >
