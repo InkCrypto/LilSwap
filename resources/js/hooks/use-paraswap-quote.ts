@@ -294,7 +294,7 @@ export const useParaswapQuote = ({
 
                 const fromAddrApy = (fromToken?.address || fromToken?.underlyingAsset || '').toLowerCase();
                 const fromMarketToken = (marketAssets || []).find(m => (m.address || m.underlyingAsset || '').toLowerCase() === fromAddrApy);
-                
+
                 const apyPercentToSend = fromMarketToken?.variableBorrowRate !== undefined
                     ? fromMarketToken.variableBorrowRate * 100
                     : ((typeof fromToken?.variableBorrowRate === 'number')
@@ -312,15 +312,16 @@ export const useParaswapQuote = ({
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
                 }, signal);
 
-                const { priceRoute, srcAmount, version, augustus, bufferBps, apyPercent } = routeResult;
+                const { priceRoute, srcAmount, destAmount: quotedDestAmount, version, augustus, bufferBps, apyPercent } = routeResult;
                 const feeBps = resolveFeeBps(routeResult);
                 const discountPercent = resolveDiscountPercent(routeResult);
                 const srcAmountBigInt = BigInt(srcAmount);
+                const destAmountBigIntFinal = BigInt(quotedDestAmount ?? destAmount);
 
                 const quotePayload = {
                     priceRoute,
                     srcAmount: srcAmountBigInt,
-                    destAmount: BigInt(destAmount),
+                    destAmount: destAmountBigIntFinal,
                     fromToken,
                     toToken,
                     timestamp: Math.floor(Date.now() / 1000),
@@ -423,8 +424,10 @@ export const useParaswapQuote = ({
     }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote, isTabVisible, isUserActive]);
 
     const { priceImpact, recommendedSlippage } = useMemo(() => {
+        const baseMinSlippage = 10; // Standard floor
+
         if (!swapQuote?.priceRoute) {
-            return { priceImpact: 0, recommendedSlippage: 10 };
+            return { priceImpact: 0, recommendedSlippage: baseMinSlippage };
         }
 
         let impact = swapQuote.priceRoute.priceImpact || 0;
@@ -438,8 +441,8 @@ export const useParaswapQuote = ({
             }
         }
 
-        return { priceImpact: impact, recommendedSlippage: Math.max(10, Math.ceil(impact * 10000) + 10) };
-    }, [swapQuote]);
+        return { priceImpact: impact, recommendedSlippage: Math.max(baseMinSlippage, Math.ceil(impact * 10000) + baseMinSlippage) };
+    }, [swapQuote, selectedNetwork?.chainId]);
 
     useEffect(() => {
         if (isAutoSlippage && swapQuote) {

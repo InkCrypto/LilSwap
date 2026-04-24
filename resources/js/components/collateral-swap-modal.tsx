@@ -54,6 +54,7 @@ interface CollateralSwapModalProps {
     chainId?: number | null;
     marketKey?: string | null;
     donator?: any | null;
+    onOpenToggleCollateral?: (asset: any, summary: any, supplies: any[], marketAssets: any[]) => void;
 }
 
 const MAX_PREVALIDATIONS_PER_OPEN = 8;
@@ -67,6 +68,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     marketAssets: externalMarketAssets = null,
     marketKey: initialMarketKey = null,
     donator = null,
+    onOpenToggleCollateral,
 }) => {
     const { account, selectedNetwork } = useWeb3();
     const { addToast } = useToast();
@@ -810,7 +812,23 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                     Action Blocked by Aave
                                 </h4>
                                 <p className="text-xs text-red-800/80 dark:text-red-300/80 leading-relaxed">
-                                    You have assets with LTV 0 ({blockingZeroLtvAssets.join(', ')}) enabled as collateral.<br />
+                                    You have assets with LTV 0 enabled as collateral (
+                                    {blockingZeroLtvAssets.map((assetName: string, i: number) => {
+                                        // Find the original supply object to pass to the toggle modal
+                                        const supply = activeSupplies.find(s => getDisplaySymbol(s, localMarketAssets) === assetName);
+                                        return (
+                                            <React.Fragment key={assetName}>
+                                                <button
+                                                    onClick={() => supply && onOpenToggleCollateral?.(supply, summary, supplies || providedSupplies || [], localMarketAssets)}
+                                                    className="font-bold text-red-700 dark:text-red-400 hover:underline decoration-red-500/50 underline-offset-2 transition-all cursor-pointer"
+                                                >
+                                                    {assetName}
+                                                </button>
+                                                {i < blockingZeroLtvAssets.length - 1 ? ', ' : ''}
+                                            </React.Fragment>
+                                        );
+                                    })}
+                                    ).<br />
                                     Aave requires you to disable them as collateral or withdraw them before performing this action.
                                 </p>
                             </div>

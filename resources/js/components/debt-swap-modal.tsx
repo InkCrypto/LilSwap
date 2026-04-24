@@ -39,6 +39,7 @@ import { Modal } from './modal';
 import { TokenSelector } from './token-selector';
 import { Button } from './ui/button';
 import { formatUSD, formatCompactToken, getDisplaySymbol, formatAPY, formatHF, formatCompactNumber } from '../utils/formatters';
+import { CollateralToggleModal } from './collateral-toggle-modal';
 import logger from '../utils/logger';
 
 
@@ -54,6 +55,7 @@ interface DebtSwapModalProps {
     chainId?: number | null;
     marketKey?: string | null;
     donator?: any | null;
+    onOpenToggleCollateral?: (asset: any, summary: any, supplies: any[], marketAssets: any[]) => void;
 }
 
 const MAX_PREVALIDATIONS_PER_OPEN = 8;
@@ -68,6 +70,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     marketAssets: externalMarketAssets = null,
     marketKey: initialMarketKey = null,
     donator = null,
+    onOpenToggleCollateral,
 }) => {
     const { account, selectedNetwork } = useWeb3();
     const { addToast } = useToast();
@@ -788,7 +791,19 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     Action Blocked by Aave
                                 </h4>
                                 <p className="text-xs text-red-800/80 dark:text-red-300/80 leading-relaxed">
-                                    You have assets with LTV 0 ({blockingZeroLtvSymbols.join(', ')}) enabled as collateral.<br />
+                                    You have assets with LTV 0 enabled as collateral (
+                                    {blockingZeroLtvObjects.map((s: any, i: number) => (
+                                        <React.Fragment key={s.underlyingAsset || s.address}>
+                                            <button
+                                                onClick={() => onOpenToggleCollateral?.(s, summary, supplies || providedSupplies || [], localMarketAssets)}
+                                                className="font-bold text-red-700 dark:text-red-400 hover:underline decoration-red-500/50 underline-offset-2 transition-all cursor-pointer"
+                                            >
+                                                {getDisplaySymbol(s, localMarketAssets)}
+                                            </button>
+                                            {i < blockingZeroLtvObjects.length - 1 ? ', ' : ''}
+                                        </React.Fragment>
+                                    ))}
+                                    ).<br />
                                     Aave requires you to disable them as collateral or withdraw them before performing this action.
                                 </p>
                             </div>

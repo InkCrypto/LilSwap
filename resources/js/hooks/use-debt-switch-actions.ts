@@ -1,9 +1,9 @@
-import { 
-    getAddress, 
-    formatUnits, 
-    parseAbi, 
-    zeroAddress, 
-    encodeAbiParameters, 
+import {
+    getAddress,
+    formatUnits,
+    parseAbi,
+    zeroAddress,
+    encodeAbiParameters,
     Hex,
     zeroHash,
 } from 'viem';
@@ -234,7 +234,7 @@ export const useDebtSwitchActions = ({
 
             const permitParams = { amount: value, deadline: Number(deadline), v, r, s };
             const sigData = { params: permitParams, token: debtTokenAddr, deadline: Number(deadline), value };
-            
+
             onSignatureCached?.(sigData);
             setForceRequirePermit(false);
 
@@ -254,13 +254,13 @@ export const useDebtSwitchActions = ({
         try {
             setIsActionLoading(true);
             setIsSigning(true);
-            
+
             if (!skipNetworkCheck) {
                 if (!(await ensureWalletNetwork())) return;
             }
 
             let debtTokenAddress = debtTokenAddressOverride || providedDebtTokenAddress || toToken?.variableDebtTokenAddress;
-            
+
             if (!debtTokenAddress || debtTokenAddress === zeroAddress) {
                 // Only if missing entirely, then we call reserve data
                 const toReserveData = await publicClient?.readContract({
@@ -338,7 +338,7 @@ export const useDebtSwitchActions = ({
 
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
             let newDebtTokenAddr = providedDebtTokenAddress || toToken?.variableDebtTokenAddress || qTo?.variableDebtTokenAddress;
-            
+
             if (!newDebtTokenAddr || newDebtTokenAddr === zeroAddress) {
                 addLog?.('Resolving debt token address...', 'info');
                 const toReserveData = await publicClient?.readContract({
@@ -409,6 +409,10 @@ export const useDebtSwitchActions = ({
                 chainId,
                 walletAddress: account,
             });
+            const executionSrcAmount = txResult?.srcAmount ? BigInt(txResult.srcAmount) : srcAmountBigInt;
+            const executionBufferBps = txResult?.bufferBps ?? bufferBps;
+            const executionMaxNewDebt = calcApprovalAmount(executionSrcAmount, executionBufferBps);
+            const executionDebtRepayAmount = txResult?.destAmount ? BigInt(txResult.destAmount) : BigInt(exactDebtRepayAmount);
             updateCurrentTransactionId(txResult.transactionId?.toString?.() || null);
             swapDebugMeta = txResult?.debugFlags || null;
             const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
@@ -418,6 +422,12 @@ export const useDebtSwitchActions = ({
                 account,
                 transactionId: txResult?.transactionId || null,
                 swapDebug: swapDebugMeta,
+                dynamicOffset: txResult?.dynamicOffset ?? null,
+                augustus: txResult?.augustus ?? null,
+                contractMethod: txResult?.contractMethod ?? null,
+                quoteSrcAmount: srcAmountBigInt.toString(),
+                executionSrcAmount: executionSrcAmount.toString(),
+                executionMaxNewDebt: executionMaxNewDebt.toString(),
             });
 
             const encodedParaswapData = encodeAbiParameters(
@@ -427,10 +437,10 @@ export const useDebtSwitchActions = ({
 
             const swapParams = {
                 debtAsset: getAddress(qFrom.address || qFrom.underlyingAsset),
-                debtRepayAmount: BigInt(exactDebtRepayAmount),
+                debtRepayAmount: executionDebtRepayAmount,
                 debtRateMode: 2n,
                 newDebtAsset: getAddress(qTo.address || qTo.underlyingAsset),
-                maxNewDebtAmount: maxNewDebt,
+                maxNewDebtAmount: executionMaxNewDebt,
                 extraCollateralAsset: zeroAddress,
                 extraCollateralAmount: 0n,
                 offset: BigInt(txResult.dynamicOffset || 0),
@@ -448,13 +458,17 @@ export const useDebtSwitchActions = ({
 
             const collateralPermit = { aToken: zeroAddress, value: 0n, deadline: 0n, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
 
+            if (creditPermit.debtToken !== zeroAddress && creditPermit.value < executionMaxNewDebt) {
+                throw new Error(`Signed delegation is below refreshed route requirement. Signed: ${creditPermit.value.toString()} Required: ${executionMaxNewDebt.toString()}`);
+            }
+
             if (shouldSimulateBeforeSwap) {
                 addLog?.('Running debug simulation before sending transaction...', 'info');
                 simulationInProgress = true;
                 await publicClient?.simulateContract({
                     account: getAddress(account),
                     address: getAddress(adapterAddress),
-                    abi: parseAbi(ABIS.ADAPTER),
+                    abi: ABIS.ADAPTER,
                     functionName: 'swapDebt',
                     args: [swapParams, creditPermit, collateralPermit],
                 });
@@ -462,11 +476,11 @@ export const useDebtSwitchActions = ({
             }
 
             addLog?.('Confirm in your wallet...', 'warning');
-            
+
             const hash = await walletClient.writeContract({
                 account: getAddress(account),
                 address: getAddress(adapterAddress),
-                abi: parseAbi(ABIS.ADAPTER),
+                abi: ABIS.ADAPTER,
                 functionName: 'swapDebt',
                 args: [swapParams, creditPermit, collateralPermit],
             });
@@ -482,7 +496,7 @@ export const useDebtSwitchActions = ({
             onTxSent?.(hash);
 
             const receipt = await publicClient?.waitForTransactionReceipt({ hash });
-            
+
             if (receipt?.status === 'reverted') throw new Error('Transaction reverted on-chain.');
 
             addLog?.('🚀 Swap Complete!', 'success');
@@ -490,7 +504,7 @@ export const useDebtSwitchActions = ({
                 confirmTransactionOnChain(txResult.transactionId.toString(), {
                     gasUsed: receipt?.gasUsed ? receipt.gasUsed.toString() : '0',
                     actualPaid: exactDebtRepayAmount ? exactDebtRepayAmount.toString() : '0',
-                }).catch(() => {});
+                }).catch(() => { });
             }
 
             clearQuote();
@@ -499,7 +513,7 @@ export const useDebtSwitchActions = ({
             if (isUserRejectedError(error)) {
                 setUserRejected(true);
                 addLog?.('Cancelled by user.', 'warning');
-                if (currentTransactionId) rejectTransaction(currentTransactionId, 'wallet_rejected').catch(() => {});
+                if (currentTransactionId) rejectTransaction(currentTransactionId, 'wallet_rejected').catch(() => { });
             } else {
                 const diagnostic = Array.from(new Set([
                     error?.shortMessage,

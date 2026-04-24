@@ -1,5 +1,5 @@
 import { AlertCircle, ArrowDownRight, ArrowUpRight, CircleDashed, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, RefreshCw } from 'lucide-react';
-import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
 import { getMarketByKey } from '../constants/networks';
 import type { DonatorInfo, ChainInfo, PositionInfo } from '../hooks/use-all-positions';
@@ -11,10 +11,12 @@ import { PortfolioOverviewCard } from './portfolio-overview-card';
 import type { PortfolioOverview } from './portfolio-overview-card';
 import { Button } from './ui/button';
 import { Card } from './ui/card';
+import { Switch } from './ui/switch';
 
 // Lazy load Swap Modals - Note: We'll migrate these next
 const DebtSwapModal = lazy(() => import('./debt-swap-modal').then(module => ({ default: module.DebtSwapModal })));
 const CollateralSwapModal = lazy(() => import('./collateral-swap-modal').then(module => ({ default: module.CollateralSwapModal })));
+const CollateralToggleModal = lazy(() => import('./collateral-toggle-modal').then(module => ({ default: module.CollateralToggleModal })));
 
 // Formatting helpers removed in favor of centralized ones in ../utils/formatters.ts
 
@@ -27,6 +29,15 @@ interface ModalState {
     supplies: PositionInfo[];
     marketKey: string | null;
     isCollateral: boolean;
+}
+
+interface ToggleModalState {
+    open: boolean;
+    asset: PositionInfo | null;
+    marketKey: string | null;
+    summary: any;
+    supplies?: PositionInfo[];
+    marketAssets?: any[];
 }
 
 interface PositionsAccordionProps {
@@ -79,12 +90,18 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         supplies: [],
         isCollateral: false
     });
+    const [toggleModal, setToggleModal] = useState<ToggleModalState>({
+        open: false,
+        asset: null,
+        marketKey: null,
+        summary: null
+    });
     const [timeTick, setTimeTick] = useState(() => Date.now());
 
-    // Preload swap modal chunks so the first open feels instant.
     useEffect(() => {
         void import('./debt-swap-modal');
         void import('./collateral-swap-modal');
+        void import('./collateral-toggle-modal');
     }, []);
 
     useEffect(() => {
@@ -143,6 +160,32 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
     const handleCloseModal = () => {
         setModalState(prev => ({ ...prev, open: false }));
+    };
+
+    const handleOpenToggleCollateral = (marketKey: string, asset: PositionInfo, summary: any, supplies?: PositionInfo[], marketAssets?: any[]) => {
+        setToggleModal({
+            open: true,
+            asset,
+            marketKey,
+            summary,
+            supplies,
+            marketAssets
+        });
+
+        const market = getMarketByKey(marketKey);
+        if (market) {
+            void setSelectedNetwork(market.key).catch((err: any) => {
+                logger.debug('Chain switch did not complete during collateral toggle open', {
+                    marketKey,
+                    errorCode: err?.code,
+                    errorMessage: err?.message || String(err),
+                });
+            });
+        }
+    };
+
+    const handleCloseToggleModal = () => {
+        setToggleModal(prev => ({ ...prev, open: false }));
     };
 
     const getLastFetchText = () => {
@@ -526,9 +569,25 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                 <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(supply.formattedAmount, supply.symbol)}</div>
                                                             </div>
                                                         </div>
-                                                        <Button size="sm" onClick={() => handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
-                                                            <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                        </Button>
+                                                        <div className="flex items-center gap-4 shrink-0 px-2">
+                                                            {/* Shadcn Switch */}
+                                                            <div className="flex flex-col items-center gap-1">
+                                                                <span className="text-[7px] font-black uppercase tracking-widest text-slate-500/80">Collateral</span>
+                                                                <Switch
+                                                                    checked={supply.usageAsCollateralEnabledOnUser}
+                                                                    onCheckedChange={() => handleOpenToggleCollateral(chain.marketKey, supply, {
+                                                                        healthFactor: chain.healthFactor?.toString(),
+                                                                        totalCollateralUSD: chain.totalSuppliedUSD.toString(),
+                                                                        totalBorrowsUSD: chain.totalBorrowedUSD.toString(),
+                                                                        currentLiquidationThreshold: chain.currentLiquidationThreshold?.toString()
+                                                                    }, chain.supplies, chain.marketAssets)}
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                />
+                                                            </div>
+                                                            <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0 h-8 px-3 text-xs">
+                                                                <ArrowLeftRight className="w-3 h-3" /> Swap
+                                                            </Button>
+                                                        </div>
                                                     </div>
                                                 </div>
                                             ))}
@@ -643,9 +702,25 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                             <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(parseFloat(supply.formattedAmount), supply.symbol)}</div>
                                                                         </div>
                                                                     </div>
-                                                                    <Button size="sm" onClick={() => handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true)} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0">
-                                                                        <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                                    </Button>
+                                                                    <div className="flex items-center gap-5 shrink-0">
+                                                                        {/* Shadcn Switch */}
+                                                                        <div className="flex flex-col items-center gap-1">
+                                                                            <span className="text-[7px] font-black uppercase tracking-widest text-slate-500/80">Collateral</span>
+                                                                            <Switch
+                                                                                checked={supply.usageAsCollateralEnabledOnUser}
+                                                                                onCheckedChange={() => handleOpenToggleCollateral(chain.marketKey, supply, {
+                                                                                    healthFactor: chain.healthFactor?.toString(),
+                                                                                    totalCollateralUSD: chain.totalSuppliedUSD.toString(),
+                                                                                    totalBorrowsUSD: chain.totalBorrowedUSD.toString(),
+                                                                                    currentLiquidationThreshold: chain.currentLiquidationThreshold?.toString()
+                                                                                }, chain.supplies, chain.marketAssets)}
+                                                                                onClick={(e) => e.stopPropagation()}
+                                                                            />
+                                                                        </div>
+                                                                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0 h-8 px-3 text-xs">
+                                                                            <ArrowLeftRight className="w-3 h-3" /> Swap
+                                                                        </Button>
+                                                                    </div>
                                                                 </div>
                                                             </div>
                                                         );
@@ -786,17 +861,23 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
             )}
 
             <Suspense fallback={null}>
-                {modalState.open && (
-                    modalState.isCollateral ? (
+                {modalState.open && (() => {
+                    const currentChain = positionsByChain && modalState.marketKey ? positionsByChain[modalState.marketKey] : null;
+
+                    return modalState.isCollateral ? (
                         <CollateralSwapModal
                             isOpen={modalState.open}
                             onClose={handleCloseModal}
                             initialFromToken={modalState.initialFromToken}
                             marketKey={modalState.marketKey}
                             chainId={modalState.chainId!}
-                            marketAssets={modalState.marketAssets}
-                            providedSupplies={modalState.supplies}
+                            marketAssets={currentChain?.marketAssets || modalState.marketAssets}
+                            providedSupplies={currentChain?.supplies || modalState.supplies}
                             donator={donator}
+                            onOpenToggleCollateral={(asset, summary, supplies, marketAssets) => {
+                                handleCloseModal();
+                                handleOpenToggleCollateral(modalState.marketKey!, asset, summary, supplies, marketAssets);
+                            }}
                         />
                     ) : (
                         <DebtSwapModal
@@ -805,12 +886,33 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                             initialFromToken={modalState.initialFromToken}
                             marketKey={modalState.marketKey}
                             chainId={modalState.chainId!}
-                            marketAssets={modalState.marketAssets}
-                            providedBorrows={modalState.borrows}
-                            providedSupplies={modalState.supplies}
+                            marketAssets={currentChain?.marketAssets || modalState.marketAssets}
+                            providedBorrows={currentChain?.borrows || modalState.borrows}
+                            providedSupplies={currentChain?.supplies || modalState.supplies}
                             donator={donator}
+                            onOpenToggleCollateral={(asset, summary, supplies, marketAssets) => {
+                                handleCloseModal();
+                                handleOpenToggleCollateral(modalState.marketKey!, asset, summary, supplies, marketAssets);
+                            }}
                         />
-                    )
+                    );
+                })()}
+
+                {toggleModal.open && toggleModal.asset && (
+                    <CollateralToggleModal
+                        isOpen={toggleModal.open}
+                        onClose={handleCloseToggleModal}
+                        asset={toggleModal.asset}
+                        account={walletAddress}
+                        selectedNetwork={getMarketByKey(toggleModal.marketKey || '')}
+                        summary={toggleModal.summary}
+                        supplies={toggleModal.supplies}
+                        marketAssets={toggleModal.marketAssets}
+                        onSuccess={() => refresh(true)}
+                        onSwitchAsset={(newAsset) => {
+                            handleOpenToggleCollateral(toggleModal.marketKey!, newAsset, toggleModal.summary, toggleModal.supplies, toggleModal.marketAssets);
+                        }}
+                    />
                 )}
             </Suspense>
 
