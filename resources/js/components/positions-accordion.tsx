@@ -807,6 +807,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                             chainId={modalState.chainId!}
                             marketAssets={modalState.marketAssets}
                             providedBorrows={modalState.borrows}
+                            providedSupplies={modalState.supplies}
                             donator={donator}
                         />
                     )

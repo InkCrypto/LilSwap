@@ -49,6 +49,7 @@ interface DebtSwapModalProps {
     initialFromToken?: any | null;
     initialToToken?: any | null;
     providedBorrows?: any[] | null;
+    providedSupplies?: any[] | null;
     marketAssets?: any[] | null;
     chainId?: number | null;
     marketKey?: string | null;
@@ -63,6 +64,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     initialFromToken = null,
     initialToToken = null,
     providedBorrows = null,
+    providedSupplies = null,
     marketAssets: externalMarketAssets = null,
     marketKey: initialMarketKey = null,
     donator = null,
@@ -441,7 +443,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
     // --- Zero LTV Detection ---
     const blockingZeroLtvObjects = useMemo(() => {
-        const suppliesToUse = supplies || [];
+        const suppliesToUse = providedSupplies && providedSupplies.length > 0 ? providedSupplies : (supplies || []);
         const marketsToUse = localMarketAssets || [];
 
         if (suppliesToUse.length === 0 || marketsToUse.length === 0) return [];
@@ -467,7 +469,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 const ltv = parseFloat(asset.baseLTVasCollateral);
                 return Number.isFinite(ltv) && ltv === 0;
             });
-    }, [supplies, localMarketAssets]);
+    }, [providedSupplies, supplies, localMarketAssets]);
 
     const blockingZeroLtvSymbols = useMemo(() =>
         blockingZeroLtvObjects.map(s => s.symbol),

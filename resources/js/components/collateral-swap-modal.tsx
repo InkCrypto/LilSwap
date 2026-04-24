@@ -431,7 +431,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     }, [selectorTokens, oppositeToken, selectingForFrom, summary?.eModeCategoryId, localMarketAssets]);
 
     const blockingZeroLtvAssets = useMemo(() => {
-        const suppliesToUse = supplies || [];
+        const suppliesToUse = activeSupplies || [];
         const marketsToUse = localMarketAssets || [];
 
         if (suppliesToUse.length === 0 || marketsToUse.length === 0) return [];
@@ -453,7 +453,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 return Number.isFinite(ltv) && ltv === 0;
             })
             .map(s => s.symbol);
-    }, [supplies, localMarketAssets]);
+    }, [activeSupplies, localMarketAssets]);
 
     const isBlockedByZeroLtv = blockingZeroLtvAssets.length > 0;
 
