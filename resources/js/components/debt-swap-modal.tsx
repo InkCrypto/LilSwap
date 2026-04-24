@@ -440,26 +440,40 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     }, []);
 
     // --- Zero LTV Detection ---
-    const blockingZeroLtvAssets = useMemo(() => {
+    const blockingZeroLtvObjects = useMemo(() => {
         const suppliesToUse = supplies || [];
         const marketsToUse = localMarketAssets || [];
-        
+
         if (suppliesToUse.length === 0 || marketsToUse.length === 0) return [];
-        
+
         return suppliesToUse
-            .filter(s => s.usageAsCollateralEnabledOnUser)
             .filter(s => {
-                const asset = marketsToUse.find(m => 
-                    m.underlyingAsset.toLowerCase() === s.underlyingAsset.toLowerCase() ||
-                    m.symbol.toLowerCase() === s.symbol.toLowerCase()
-                );
-                const ltv = asset ? parseFloat(asset.baseLTVasCollateral || '0') : 1; // Default to 1 if not found to not block
-                return asset && ltv === 0;
+                const hasPositiveSupply = parseFloat(s.formattedAmount || '0') > 0 || parseFloat(s.amount || '0') > 0;
+                return s.usageAsCollateralEnabledOnUser && hasPositiveSupply;
             })
-            .map(s => s.symbol);
+            .map(s => {
+                const supplyAddress = (s.underlyingAsset || s.address || '').toLowerCase();
+                if (!supplyAddress) return null;
+
+                const marketAsset = marketsToUse.find(m => {
+                    const marketAddress = (m.underlyingAsset || m.address || '').toLowerCase();
+                    return marketAddress === supplyAddress;
+                });
+
+                return marketAsset ? { ...s, ...marketAsset } : s;
+            })
+            .filter(Boolean)
+            .filter(asset => {
+                const ltv = parseFloat(asset.baseLTVasCollateral);
+                return Number.isFinite(ltv) && ltv === 0;
+            });
     }, [supplies, localMarketAssets]);
 
-    const isBlockedByZeroLtv = blockingZeroLtvAssets.length > 0;
+    const blockingZeroLtvSymbols = useMemo(() =>
+        blockingZeroLtvObjects.map(s => s.symbol),
+        [blockingZeroLtvObjects]);
+
+    const isBlockedByZeroLtv = blockingZeroLtvObjects.length > 0;
 
 
 
@@ -754,10 +768,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
 
     return (
-        <Modal 
-            isOpen={isOpen} 
-            onClose={onClose} 
-            title={modalTitle} 
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={modalTitle}
             headerBorder={false}
             preventAutoFocus={true}
         >
@@ -1545,6 +1559,18 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 {swapQuote && fromToken && toToken && (
                     <div className="space-y-2 mt-2">
                         {/* High Price Impact Alert */}
+                        {isBlockedByZeroLtv && (
+                            <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
+                                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                                <div className="flex-1 min-w-0">
+                                    <p className="text-xs text-red-800/80 dark:text-red-300/80 leading-relaxed">
+                                        You have assets with LTV 0 ({blockingZeroLtvSymbols.join(', ')}) enabled as collateral.<br />
+                                        Aave requires you to disable them as collateral or withdraw them before performing this action.
+                                    </p>
+                                </div>
+                            </div>
+                        )}
+
                         {priceImpact > 0.05 && (
                             <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />

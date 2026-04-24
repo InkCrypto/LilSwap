@@ -433,18 +433,24 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     const blockingZeroLtvAssets = useMemo(() => {
         const suppliesToUse = supplies || [];
         const marketsToUse = localMarketAssets || [];
-        
+
         if (suppliesToUse.length === 0 || marketsToUse.length === 0) return [];
-        
+
         return suppliesToUse
-            .filter(s => s.usageAsCollateralEnabledOnUser)
             .filter(s => {
-                const asset = marketsToUse.find(m => 
-                    m.underlyingAsset.toLowerCase() === s.underlyingAsset.toLowerCase() ||
-                    m.symbol.toLowerCase() === s.symbol.toLowerCase()
-                );
-                const ltv = asset ? parseFloat(asset.baseLTVasCollateral || '0') : 1;
-                return asset && ltv === 0;
+                const hasPositiveSupply = parseFloat(s.formattedAmount || '0') > 0 || parseFloat(s.amount || '0') > 0;
+                return s.usageAsCollateralEnabledOnUser && hasPositiveSupply;
+            })
+            .filter(s => {
+                const supplyAddress = (s.underlyingAsset || s.address || '').toLowerCase();
+                if (!supplyAddress) return false;
+
+                const asset = marketsToUse.find(m => {
+                    const marketAddress = (m.underlyingAsset || m.address || '').toLowerCase();
+                    return marketAddress === supplyAddress;
+                });
+                const ltv = asset ? parseFloat(asset.baseLTVasCollateral) : NaN;
+                return Number.isFinite(ltv) && ltv === 0;
             })
             .map(s => s.symbol);
     }, [supplies, localMarketAssets]);
@@ -782,10 +788,10 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
 
     return (
-        <Modal 
-            isOpen={isOpen} 
-            onClose={onClose} 
-            title={modalTitle} 
+        <Modal
+            isOpen={isOpen}
+            onClose={onClose}
+            title={modalTitle}
             headerBorder={false}
             preventAutoFocus={true}
         >
@@ -800,7 +806,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                     Action Blocked by Aave
                                 </h4>
                                 <p className="text-xs text-red-800/80 dark:text-red-300/80 leading-relaxed">
-                                    You have assets with zero LTV ({blockingZeroLtvAssets.join(', ')}) enabled as collateral. 
+                                    You have assets with LTV 0 ({blockingZeroLtvAssets.join(', ')}) enabled as collateral.<br />
                                     Aave requires you to disable them as collateral or withdraw them before performing this action.
                                 </p>
                             </div>
