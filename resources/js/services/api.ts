@@ -260,6 +260,181 @@ export const buildDebtSwapTx = async (params: any) => {
     }
 };
 
+// Debt Limit Swap Types
+
+export interface DebtLimitPrepareParams {
+    walletAddress: string;
+    chainId: number;
+    marketKey?: string | null;
+    fromToken: {
+        address: string;
+        decimals: number;
+        symbol: string;
+    };
+    toToken: {
+        address: string;
+        decimals: number;
+        symbol: string;
+        /** variableDebtToken of the destination asset — required for delegation approval */
+        variableDebtTokenAddress: string;
+    };
+    /** Raw BigInt string — new debt underlying (sell side) */
+    sellAmount: string;
+    /** Raw BigInt string — old debt underlying (buy side) */
+    buyAmount: string;
+    /** Unix timestamp for order expiry */
+    validTo: number;
+    orderType?: 'limit' | 'market';
+    slippageBps?: number;
+    quoteId?: number;
+    partnerFee?: { volumeBps: number; recipient: string };
+}
+
+export interface DebtLimitPrepareResult {
+    provider: 'limitSwap';
+    swapType: 'debt';
+    orderType: 'limit' | 'market';
+    chainId: number;
+    marketKey: string | null;
+    validTo: number;
+    instanceAddress: string;
+    approval: {
+        /** Always 'delegation' for Debt Swap */
+        type: 'delegation';
+        /** Destination variableDebtToken address — NOT the underlying */
+        token: string;
+        /** Calculated adapter instance address */
+        spender: string;
+        amount: string;
+    };
+    orderDraft: {
+        sellToken: string;
+        buyToken: string;
+        sellAmount: string;
+        buyAmount: string;
+        kind: 'buy';
+    };
+    debug: Record<string, unknown>;
+}
+
+export interface DebtLimitSubmitParams extends DebtLimitPrepareParams {
+    approvedAddress?: string | null;
+    delegationPermit: {
+        amount: string;
+        deadline: number;
+        v: number;
+        r: `0x${string}` | string;
+        s: `0x${string}` | string;
+    };
+}
+
+export interface DebtLimitSubmitResult {
+    provider: 'limit';
+    swapType: 'debt';
+    orderType: 'limit';
+    status: 'submitted' | 'signature_required';
+    chainId: number;
+    marketKey: string | null;
+    orderId?: string | null;
+    instanceAddress: string;
+    requiredSignature?: {
+        type: string;
+        reason?: string;
+    };
+    signatureRequest?: {
+        type: 'typedData';
+        domain: Record<string, unknown>;
+        types: Record<string, Array<{ name: string; type: string }>>;
+        primaryType: string;
+        message: Record<string, unknown>;
+    };
+    limitOrder?: Record<string, unknown>;
+    swapSettings?: Record<string, unknown>;
+    debug?: Record<string, unknown>;
+}
+
+export interface DebtLimitPostParams {
+    walletAddress: string;
+    chainId: number;
+    marketKey?: string | null;
+    signature: `0x${string}` | string;
+    limitOrder: Record<string, unknown>;
+    swapSettings: Record<string, unknown>;
+    instanceAddress: string;
+}
+
+export interface DebtLimitPostResult {
+    provider: 'limit';
+    swapType: 'debt';
+    orderType: 'limit';
+    status: 'submitted';
+    chainId: number;
+    marketKey: string | null;
+    orderId: string;
+    instanceAddress: string;
+    debug?: Record<string, unknown>;
+}
+
+/**
+ * Prepare an Aave Debt Swap limit order.
+ *
+ * Returns the adapter instance address and the delegation approval target.
+ * Does NOT post an order. Does NOT trigger wallet signing.
+ *
+ * Guard: only call when swapType === 'debt' && orderType === 'limit'
+ */
+export const prepareDebtLimitSwap = async (
+    params: DebtLimitPrepareParams,
+): Promise<DebtLimitPrepareResult> => {
+    try {
+        const response = await apiClient.post('/aave/v3/build/debt/limit/prepare', params);
+
+        return response.data as DebtLimitPrepareResult;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error preparing limit swap');
+
+        throw new Error(errorMessage);
+    }
+};
+
+export const submitDebtLimitSwap = async (
+    params: DebtLimitSubmitParams,
+): Promise<DebtLimitSubmitResult> => {
+    try {
+        const response = await apiClient.post('/aave/v3/build/debt/limit/submit', params);
+
+        return response.data as DebtLimitSubmitResult;
+    } catch (error: any) {
+        const responseData = error?.response?.data;
+        const errorMessage = responseData?.error === 'INSTANCE_ADDRESS_CHANGED'
+            ? 'Limit order parameters changed. Please review the limit swap and sign again.'
+            : getPublicApiErrorMessage(error, 'Error submitting limit order');
+
+        const submitError = new Error(errorMessage) as Error & {
+            code?: string;
+            responseData?: any;
+        };
+        submitError.code = responseData?.error;
+        submitError.responseData = responseData;
+
+        throw submitError;
+    }
+};
+
+export const postDebtLimitSwap = async (
+    params: DebtLimitPostParams,
+): Promise<DebtLimitPostResult> => {
+    try {
+        const response = await apiClient.post('/aave/v3/build/debt/limit/post', params);
+
+        return response.data as DebtLimitPostResult;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error posting limit order');
+
+        throw new Error(errorMessage);
+    }
+};
+
 export const getUserPosition = async (walletAddress: string, marketKey?: string, chainId?: number) => {
     try {
         const response = await apiClient.post('/aave/v3/positions', {
@@ -348,6 +523,9 @@ export const verifyDonationByWallet = async (params: {
 export default {
     getDebtQuote,
     buildDebtSwapTx,
+    prepareDebtLimitSwap,
+    submitDebtLimitSwap,
+    postDebtLimitSwap,
     getCollateralQuote,
     buildCollateralSwapTx,
     getUserPosition,
