@@ -1,4 +1,4 @@
-import { ChevronDown, X, ArrowUpDown } from 'lucide-react';
+import { ChevronDown, X, ArrowUpDown, RefreshCw } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
@@ -27,6 +27,8 @@ interface CompactAmountInputProps {
     isError?: boolean;
     readOnly?: boolean;
     placeholder?: string;
+    isLoading?: boolean;
+    loadingLabel?: string;
 }
 
 /**
@@ -53,6 +55,8 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
     isError = false,
     readOnly = false,
     placeholder = '0.00',
+    isLoading = false,
+    loadingLabel = 'Loading...',
 }) => {
     const [popoverOpen, setPopoverOpen] = useState(false);
     const popoverRef = useRef<HTMLDivElement>(null);
@@ -109,27 +113,34 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
             {/* Top row: input and token badge */}
             <div className="flex items-center gap-2 sm:gap-3">
                 <div className="flex-1 relative overflow-hidden flex items-center pl-0.5 focus-within:z-10">
-                    {isUSDMode && (
+                    {isLoading ? (
+                        <div className="flex items-center gap-2 text-purple-400 py-0.5 min-h-8">
+                            <RefreshCw className="w-4 h-4 animate-spin text-primary" />
+                            <span className="text-sm font-medium">{loadingLabel}</span>
+                        </div>
+                    ) : isUSDMode && (
                         <span className={`text-2xl font-mono font-bold mr-0.5 select-none transition-colors ${isError ? 'text-rose-500' : (value && value !== '0' ? 'text-slate-900 dark:text-white' : 'text-muted-foreground')}`}>$</span>
                     )}
-                    <input
-                        ref={inputRef}
-                        type="text"
-                        value={value}
-                        onChange={(e) => {
-                            onChange(normalizeDecimalInput(e.target.value));
-                        }}
-                        onPaste={(e) => {
-                            const pastedText = e.clipboardData?.getData('text') || '';
-                            e.preventDefault();
-                            onChange(normalizeDecimalInput(pastedText));
-                        }}
-                        placeholder={placeholder}
-                        disabled={disabled || readOnly}
-                        className={`w-full bg-transparent text-2xl font-mono font-bold text-left focus:outline-none disabled:opacity-50 py-0.5 pr-6 text-ellipsis overflow-hidden ${isError ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}
-                    />
+                    {!isLoading && (
+                        <input
+                            ref={inputRef}
+                            type="text"
+                            value={value}
+                            onChange={(e) => {
+                                onChange(normalizeDecimalInput(e.target.value));
+                            }}
+                            onPaste={(e) => {
+                                const pastedText = e.clipboardData?.getData('text') || '';
+                                e.preventDefault();
+                                onChange(normalizeDecimalInput(pastedText));
+                            }}
+                            placeholder={placeholder}
+                            disabled={disabled || readOnly}
+                            className={`w-full bg-transparent text-2xl font-mono font-bold text-left focus:outline-none disabled:opacity-50 py-0.5 pr-6 text-ellipsis overflow-hidden ${isError ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}
+                        />
+                    )}
                     {/* Clear button (X) - shows when there's a value */}
-                    {value && value !== '0' && value !== '0.' && !readOnly && (
+                    {value && value !== '0' && value !== '0.' && !readOnly && !isLoading && (
                         <button
                             type="button"
                             onClick={() => onChange('')}

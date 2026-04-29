@@ -38,6 +38,7 @@ const isProtectedProxyEndpoint = (url?: string | null) => {
         normalized.startsWith('/aave/') ||
         normalized.startsWith('/rpc/') ||
         normalized.startsWith('/transactions/') ||
+        normalized.startsWith('/limit-orders') ||
         normalized.startsWith('/api/')
     );
 };
@@ -411,6 +412,22 @@ export interface DebtLimitPostParams {
     quoteSellAmount?: string;
     quoteFeeAmount?: string;
     finalMaxSellAmount?: string;
+    fromToken?: {
+        address: string;
+        decimals: number;
+        symbol: string;
+    };
+    toToken?: {
+        address: string;
+        decimals: number;
+        symbol: string;
+    };
+    fromAmount?: string;
+    toAmount?: string;
+    limitPrice?: string;
+    priceSource?: 'limit_quote' | string;
+    priceInverted?: boolean;
+    rawQuote?: DebtLimitQuoteResult | null;
 }
 
 export interface DebtLimitPostResult {
@@ -496,6 +513,81 @@ export const postDebtLimitSwap = async (
         const errorMessage = getPublicApiErrorMessage(error, 'Error posting limit order');
 
         throw new Error(errorMessage);
+    }
+};
+
+export interface LimitOrderHistoryItem {
+    id: number | string;
+    wallet_address: string;
+    chain_id: number | string;
+    market_key?: string | null;
+    swap_context: 'debt' | string;
+    order_mode: 'limit' | string;
+    execution_path: string;
+    kind: 'buy' | 'sell' | string;
+    from_token_symbol: string;
+    from_token_address: string;
+    from_amount?: string | null;
+    to_token_symbol: string;
+    to_token_address: string;
+    to_amount?: string | null;
+    order_sell_token_symbol?: string | null;
+    order_sell_token_address?: string | null;
+    order_sell_amount?: string | null;
+    order_buy_token_symbol?: string | null;
+    order_buy_token_address?: string | null;
+    order_buy_amount?: string | null;
+    limit_price?: string | null;
+    price_source?: string | null;
+    price_inverted?: number | boolean;
+    order_uid: string;
+    quote_id?: string | null;
+    instance_address?: string | null;
+    valid_to: number | string;
+    app_data_hash?: string | null;
+    app_code?: string | null;
+    signing_scheme?: string | null;
+    fee_bps?: number | string | null;
+    status: string;
+    created_at: string;
+    updated_at?: string;
+}
+
+export interface LimitOrdersResponse {
+    orders: LimitOrderHistoryItem[];
+    pagination: {
+        limit: number;
+        offset: number;
+        count: number;
+    };
+}
+
+export const getLimitOrders = async (params: {
+    walletAddress: string;
+    chainId?: number;
+    status?: string;
+    limit?: number;
+    offset?: number;
+}): Promise<LimitOrdersResponse> => {
+    if (!params.walletAddress) {
+        throw new Error('Wallet address is required to fetch limit orders');
+    }
+
+    try {
+        const response = await apiClient.get('/limit-orders', { params });
+
+        return response.data as LimitOrdersResponse;
+    } catch (error) {
+        logger.error('Failed to fetch limit orders', error);
+
+        return {
+            orders: [],
+            pagination: {
+                limit: params.limit || 50,
+                offset: params.offset || 0,
+                count: 0,
+            },
+        };
     }
 };
 

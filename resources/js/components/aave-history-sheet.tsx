@@ -1,5 +1,5 @@
 import { CheckCircle2, History, ExternalLink, RefreshCw, AlertTriangle, Loader2, MoveRight } from 'lucide-react';
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { getNetworkByChainId } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useAaveHistory } from '../hooks/use-aave-history';
@@ -27,7 +27,20 @@ export const AaveHistorySheet: React.FC = () => {
     } = useAaveHistory(address);
     const observerTarget = useRef<HTMLDivElement>(null);
     const [showAbsolute, setShowAbsolute] = useState(false);
+    const [activityFilter, setActivityFilter] = useState<'all' | 'swaps' | 'limit-orders'>('all');
     const [touchStart, setTouchStart] = React.useState({ x: 0, y: 0 });
+
+    const displayedHistory = useMemo(() => {
+        if (activityFilter === 'swaps') {
+            return combinedHistory.filter((item: any) => item.itemType !== 'limit-order');
+        }
+
+        if (activityFilter === 'limit-orders') {
+            return combinedHistory.filter((item: any) => item.itemType === 'limit-order');
+        }
+
+        return combinedHistory;
+    }, [activityFilter, combinedHistory]);
 
     const handleTouchStart = (e: React.TouchEvent) => {
         setTouchStart({
@@ -91,6 +104,22 @@ export const AaveHistorySheet: React.FC = () => {
         return `${months}mo ago`;
     };
 
+    const getOrderExplorerUrl = (chainId: number, orderUid?: string) => {
+        if (!orderUid) return '#';
+
+        const chainSlugById: Record<number, string> = {
+            1: 'eth',
+            100: 'gno',
+            137: 'pol',
+            42161: 'arb1',
+            8453: 'base',
+            43114: 'avax',
+        };
+        const chainSlug = chainSlugById[chainId] || String(chainId);
+
+        return `https://explorer.cow.fi/${chainSlug}/orders/${orderUid}`;
+    };
+
     return (
         <Sheet open={isSheetOpen} onOpenChange={setSheetOpen}>
             <SheetContent
@@ -119,6 +148,26 @@ export const AaveHistorySheet: React.FC = () => {
                             <RefreshCw className={`w-3.5 h-3.5 ${isSyncingHistory || (isLoadingHistory && combinedHistory.length === 0) ? 'animate-spin' : ''}`} />
                         </button>
                     </div>
+                    <div className="mt-3 flex items-center gap-1 rounded-xl bg-slate-100 dark:bg-slate-900 p-1">
+                        {[
+                            { key: 'all', label: 'All' },
+                            { key: 'swaps', label: 'Swaps' },
+                            { key: 'limit-orders', label: 'Limit Orders' },
+                        ].map((option) => (
+                            <button
+                                key={option.key}
+                                type="button"
+                                onClick={() => setActivityFilter(option.key as typeof activityFilter)}
+                                className={`flex-1 rounded-lg px-2 py-1.5 text-xs font-bold transition-colors ${
+                                    activityFilter === option.key
+                                        ? 'bg-white text-slate-900 shadow-sm dark:bg-slate-800 dark:text-white'
+                                        : 'text-slate-500 hover:text-slate-800 dark:text-slate-400 dark:hover:text-slate-200'
+                                }`}
+                            >
+                                {option.label}
+                            </button>
+                        ))}
+                    </div>
                 </SheetHeader>
 
                 <div className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-slate-200 dark:[&::-webkit-scrollbar-thumb]:bg-slate-800/60 [&::-webkit-scrollbar-thumb]:rounded-full">
@@ -127,7 +176,7 @@ export const AaveHistorySheet: React.FC = () => {
                             {error}
                         </div>
                     )}
-                    {combinedHistory.length === 0 && !isLoadingHistory ? (
+                    {displayedHistory.length === 0 && !isLoadingHistory ? (
                         <div className="h-full flex flex-col items-center justify-center text-center space-y-4 text-slate-500 dark:text-slate-400">
                             <div className="w-16 h-16 rounded-full bg-slate-100 dark:bg-slate-900 flex items-center justify-center">
                                 <RefreshCw className="w-8 h-8 opacity-50" />
@@ -139,10 +188,12 @@ export const AaveHistorySheet: React.FC = () => {
                         </div>
                     ) : (
                         <div className="divide-y divide-slate-200 dark:divide-slate-800/60">
-                            {combinedHistory.map((tx) => {
+                            {displayedHistory.map((tx: any) => {
                                 const network = getNetworkByChainId(tx.chainId);
                                 const isMockHash = tx.hash.startsWith('backend-id-');
+                                const isLimitOrder = tx.itemType === 'limit-order';
                                 const explorerUrl = !isMockHash && network ? `${network.explorer}/tx/${tx.hash}` : '#';
+                                const orderExplorerUrl = isLimitOrder ? getOrderExplorerUrl(tx.chainId, tx.orderUid) : '#';
 
                                 return (
                                     <div
@@ -177,8 +228,9 @@ export const AaveHistorySheet: React.FC = () => {
                                                     <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${tx.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' :
                                                         tx.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' :
                                                             'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
-                                                        }`}>
-                                                        {tx.status === 'pending' ? 'Processing...' :
+                                                    }`}>
+                                                        {isLimitOrder ? (tx.txStatus === 'OPEN' ? 'Open' : tx.txStatus) :
+                                                        tx.status === 'pending' ? 'Processing...' :
                                                             tx.status === 'success' ? 'Confirmed' :
                                                                 tx.revertReason === 'hash_missing' || tx.revertReason === 'hash_sync_failed' || tx.txStatus === 'HASH_MISSING' ? 'Hash Missing' :
                                                                 (tx.revertReason === 'reverted' ? 'Reverted' :
@@ -235,7 +287,17 @@ export const AaveHistorySheet: React.FC = () => {
                                                         </span>
                                                     )}
 
-                                                    {!isMockHash && (
+                                                    {isLimitOrder ? (
+                                                        <a
+                                                            href={orderExplorerUrl}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="ml-auto inline-flex shrink-0 items-center gap-1 text-[10px] font-medium uppercase tracking-[0.12em] text-slate-500 hover:text-primary dark:text-slate-400 dark:hover:text-primary transition-colors"
+                                                        >
+                                                            View order
+                                                            <ExternalLink className="w-3 h-3" />
+                                                        </a>
+                                                    ) : !isMockHash && (
                                                         <a
                                                             href={explorerUrl}
                                                             target="_blank"
@@ -247,6 +309,33 @@ export const AaveHistorySheet: React.FC = () => {
                                                         </a>
                                                     )}
                                                 </div>
+
+                                                {isLimitOrder && (
+                                                    <div className="space-y-1 text-[11px] text-slate-500 dark:text-slate-400">
+                                                        {(tx.fromAmount || tx.toAmount) && (
+                                                            <p>
+                                                                {[tx.fromAmount, tx.fromTokenSymbol].filter(Boolean).join(' ')}
+                                                                {' -> '}
+                                                                {[tx.toAmount, tx.toTokenSymbol].filter(Boolean).join(' ')}
+                                                            </p>
+                                                        )}
+                                                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                                                            {tx.limitPrice && (
+                                                                <span>Limit price {tx.limitPrice}</span>
+                                                            )}
+                                                            {tx.validTo > 0 && (
+                                                                <span>
+                                                                    Expires {new Intl.DateTimeFormat('en-US', {
+                                                                        month: 'short',
+                                                                        day: 'numeric',
+                                                                        hour: 'numeric',
+                                                                        minute: 'numeric',
+                                                                    }).format(new Date(tx.validTo * 1000))}
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                )}
 
                                                 {tx.status === 'error' && tx.revertReason && (
                                                     <p className="mt-2 text-xs text-red-500 dark:text-red-400">

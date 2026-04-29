@@ -3,7 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useUserActivity } from '../contexts/user-activity-context';
 import { useWeb3 } from '../contexts/web3-context';
-import { bootstrapProxySession } from '../services/api';
+import { bootstrapProxySession, getLimitOrders, type LimitOrderHistoryItem } from '../services/api';
 import logger from '../utils/logger';
 
 type PersistedHistoryItem = {
@@ -91,11 +91,13 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
     const needsBootstrapReload = !!normalizedWallet && isProxyReady && historyWallet !== normalizedWallet;
 
     const [persistedHistory, setPersistedHistory] = useState<PersistedHistoryItem[]>([]);
+    const [limitOrders, setLimitOrders] = useState<LimitOrderHistoryItem[]>([]);
     const [hasMore, setHasMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
     const [activeHistoryVisits, setActiveHistoryVisits] = useState(0);
     const [historyLoadedForWallet, setHistoryLoadedForWallet] = useState<string | null>(null);
+    const [limitOrdersLoadedForWallet, setLimitOrdersLoadedForWallet] = useState<string | null>(null);
     const requestedOffsetRef = useRef(0);
     const activeWalletRef = useRef<string | null>(normalizedWallet);
     const reloadArmedWalletRef = useRef<string | null>(normalizedWallet);
@@ -105,10 +107,12 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
             activeWalletRef.current = normalizedWallet;
             reloadArmedWalletRef.current = null;
             setPersistedHistory([]);
+            setLimitOrders([]);
             setHasMore(false);
             setError(null);
             setLastSyncTime(null);
             setHistoryLoadedForWallet(null);
+            setLimitOrdersLoadedForWallet(null);
             requestedOffsetRef.current = 0;
         }
     }, [normalizedWallet]);
@@ -151,6 +155,26 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
         });
     }, [historyPayload, isCurrentWalletPage, normalizedWallet]);
 
+    const reloadLimitOrders = useCallback(async () => {
+        if (!walletAddress || !isProxyReady) {
+            return;
+        }
+
+        const targetWallet = normalizeWallet(walletAddress);
+        if (!targetWallet) {
+            return;
+        }
+
+        const result = await getLimitOrders({
+            walletAddress: targetWallet,
+            limit: 50,
+            offset: 0,
+        });
+
+        setLimitOrders(result.orders || []);
+        setLimitOrdersLoadedForWallet(targetWallet);
+    }, [isProxyReady, walletAddress]);
+
     const reloadHistory = useCallback((options?: { force?: boolean; includeWallet?: boolean; offset?: number; limit?: number }) => {
         return new Promise<void>((resolve) => {
             if (!walletAddress || !isProxyReady) {
@@ -170,6 +194,7 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
 
             requestedOffsetRef.current = offset;
             setError(null);
+            void reloadLimitOrders();
 
             router.reload({
                 only: options?.includeWallet ? HISTORY_KEYS : ['historyPayload'],
@@ -188,7 +213,7 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
                 },
             });
         });
-    }, [historyWallet, isProxyReady, walletAddress]);
+    }, [historyWallet, isProxyReady, reloadLimitOrders, walletAddress]);
 
     const refresh = useCallback((force = false) => {
         return reloadHistory({ force, offset: 0, limit: Math.max(persistedHistory.length, 20) });
@@ -230,6 +255,19 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
             void reloadHistory({ offset: 0, limit: 20 });
         }
     }, [historyLoadedForWallet, isProxyReady, isSheetOpen, needsBootstrapReload, normalizedWallet, reloadHistory, walletAddress]);
+
+    useEffect(() => {
+        if (
+            !isSheetOpen ||
+            !walletAddress ||
+            !isProxyReady ||
+            limitOrdersLoadedForWallet === normalizedWallet
+        ) {
+            return;
+        }
+
+        void reloadLimitOrders();
+    }, [isProxyReady, isSheetOpen, limitOrdersLoadedForWallet, normalizedWallet, reloadLimitOrders, walletAddress]);
 
     useEffect(() => {
         const removeStart = router.on('start', (event) => {
@@ -315,6 +353,7 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
                 isApi: true,
                 revertReason: tx.revert_reason || undefined,
                 txStatus: tx.tx_status,
+                itemType: 'swap' as const,
             };
         });
 
@@ -326,8 +365,33 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
             return true;
         });
 
-        return [...localTransactions, ...filteredPersistedHistory].sort((a, b) => b.timestamp - a.timestamp);
-    }, [localTransactions, persistedHistory]);
+        const mappedLimitOrders = limitOrders.map((order) => {
+            let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
+            const status = String(order.status || '').toUpperCase();
+            if (status === 'FILLED') mappedStatus = 'success';
+            else if (['EXPIRED', 'CANCELLED', 'FAILED'].includes(status)) mappedStatus = 'error';
+
+            return {
+                hash: `limit-order-${order.order_uid}`,
+                chainId: Number(order.chain_id || 1),
+                description: 'Debt Limit Order',
+                status: mappedStatus,
+                timestamp: parseDbTimestampUtcToMillis(order.created_at),
+                fromTokenSymbol: order.from_token_symbol || undefined,
+                toTokenSymbol: order.to_token_symbol || undefined,
+                isApi: true,
+                txStatus: status,
+                itemType: 'limit-order' as const,
+                orderUid: order.order_uid,
+                limitPrice: order.limit_price || undefined,
+                validTo: Number(order.valid_to || 0),
+                fromAmount: order.from_amount || undefined,
+                toAmount: order.to_amount || undefined,
+            };
+        });
+
+        return [...localTransactions, ...filteredPersistedHistory, ...mappedLimitOrders].sort((a, b) => b.timestamp - a.timestamp);
+    }, [localTransactions, persistedHistory, limitOrders]);
 
     return {
         combinedHistory,
