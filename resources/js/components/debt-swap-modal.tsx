@@ -4,6 +4,7 @@ import {
     RefreshCw,
     CheckCircle2,
     AlertTriangle,
+    ExternalLink,
     X,
     ChevronDown,
     ChevronUp,
@@ -113,11 +114,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const [limitInputAmount, setLimitInputAmount] = useState<bigint>(0n);
     const [limitPrice, setLimitPrice] = useState('');
     const [marketLimitPrice, setMarketLimitPrice] = useState('');
+    const [isPriceInverted, setIsPriceInverted] = useState(false);
     const [limitExpirySeconds, setLimitExpirySeconds] = useState(600);
     const [debtLimitQuote, setDebtLimitQuote] = useState<DebtLimitQuoteResult | null>(null);
     const [isDebtLimitQuoteLoading, setIsDebtLimitQuoteLoading] = useState(false);
     const [debtLimitQuoteError, setDebtLimitQuoteError] = useState<string | null>(null);
     const [hasCustomLimitPrice, setHasCustomLimitPrice] = useState(false);
+    const [showLimitExpiryMenu, setShowLimitExpiryMenu] = useState(false);
     const [debtLimitValidTo, setDebtLimitValidTo] = useState<number | null>(null);
     const [debtLimitPrepareResult, setDebtLimitPrepareResult] = useState<DebtLimitPrepareResult | null>(null);
     const [debtLimitPrepareError, setDebtLimitPrepareError] = useState<string | null>(null);
@@ -139,12 +142,29 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     // Refs
     const methodMenuRef = useRef<HTMLDivElement>(null);
     const slippageMenuRef = useRef<HTMLDivElement>(null);
+    const limitExpiryMenuRef = useRef<HTMLDivElement>(null);
     const prevFromTokenAddrRef = useRef('');
     const validatingPairsRef = useRef<Set<string>>(new Set());
     const prevalidationBudgetRef = useRef(0);
     const lastToastErrorRef = useRef<string | null>(null);
     const debtLimitPrepareRequestRef = useRef(0);
     const debtLimitQuoteRequestRef = useRef(0);
+
+    const limitExpiryOptions = useMemo(() => [
+        { label: '10 minutes', value: 600 },
+        { label: 'Half hour', value: 1800 },
+        { label: 'One hour', value: 3600 },
+        { label: 'One day', value: 86400 },
+        { label: 'One week', value: 604800 },
+        { label: 'One month', value: 2592000 },
+        { label: 'Three months', value: 7776000 },
+        { label: 'One year', value: 31536000 },
+    ], []);
+
+    const selectedLimitExpiry = useMemo(
+        () => limitExpiryOptions.find((option) => option.value === limitExpirySeconds) || limitExpiryOptions[0],
+        [limitExpiryOptions, limitExpirySeconds],
+    );
 
     // Derived values needed for hooks
     const adapterAddress = useMemo(() => {
@@ -312,8 +332,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             return '';
         }
 
-        return formatPlainAmount(sourceAmount * price);
-    }, [debtLimitQuote, toToken, limitInputValue, limitPrice, formatPlainAmount]);
+        // If inverted, price is "from per to", so we divide source by price.
+        // Standard: toAmount = fromAmount * (to/from)
+        // Inverted: toAmount = fromAmount / (from/to)
+        return formatPlainAmount(isPriceInverted ? (sourceAmount / price) : (sourceAmount * price));
+    }, [debtLimitQuote, toToken, limitInputValue, limitPrice, formatPlainAmount, isPriceInverted]);
 
     const limitOutputAmount = useMemo(() => {
         if (debtLimitQuote?.sellAmount) {
@@ -380,6 +403,20 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         setDebtLimitPostError(null);
     }, []);
 
+    const togglePriceInversion = useCallback(() => {
+        setIsPriceInverted(prev => !prev);
+
+        const p = parseFloat(limitPrice);
+        if (p > 0) {
+            setLimitPrice(formatPlainAmount(1 / p));
+        }
+
+        const mp = parseFloat(marketLimitPrice);
+        if (mp > 0) {
+            setMarketLimitPrice(formatPlainAmount(1 / mp));
+        }
+    }, [limitPrice, marketLimitPrice, formatPlainAmount]);
+
     useEffect(() => {
         if (swapMode !== 'limit') return;
 
@@ -434,10 +471,17 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 const quoteValidTo = typeof result.validTo === 'number' ? result.validTo : nextValidTo;
                 setDebtLimitQuote(result);
                 setDebtLimitValidTo(quoteValidTo);
-                setMarketLimitPrice(result.marketLimitPrice || '');
 
-                if (!hasCustomLimitPrice && result.marketLimitPrice) {
-                    setLimitPrice(result.marketLimitPrice);
+                let mPrice = result.marketLimitPrice || '';
+                if (isPriceInverted && mPrice) {
+                    const mp = parseFloat(mPrice);
+                    if (mp > 0) mPrice = formatPlainAmount(1 / mp);
+                }
+
+                setMarketLimitPrice(mPrice);
+
+                if (!hasCustomLimitPrice && mPrice) {
+                    setLimitPrice(mPrice);
                 }
             } catch (err: any) {
                 if (requestId !== debtLimitQuoteRequestRef.current) return;
@@ -556,13 +600,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
      * Scoped 100% to Limit tab. Does NOT post any order.
      */
     const handleSignLimitDelegation = useCallback(async () => {
-        if (swapMode !== 'limit') return;
-        if (!debtLimitPrepareResult || !account || !walletClient || !publicClient) return;
+        if (swapMode !== 'limit') return null;
+        if (!debtLimitPrepareResult || !account || !walletClient || !publicClient) return null;
 
         const { token: debtTokenAddr, spender: delegatee, amount } = debtLimitPrepareResult.approval;
         if (!debtTokenAddr || !delegatee || !amount) {
             logger.warn('[DebtSwapModal][Limit] Sign delegation skipped: missing approval fields');
-            return;
+            return null;
         }
 
         const chainId = effectiveNetwork.chainId;
@@ -575,7 +619,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         } catch (err: any) {
             logger.warn('[DebtSwapModal][Limit] Chain switch failed', { message: err.message });
             setLimitDelegationStatus('failed');
-            return;
+            setDebtLimitSubmitError(err?.message || 'Unable to switch network.');
+            return null;
         }
 
         // Read nonce + token name from the variableDebtToken contract
@@ -610,7 +655,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         } catch (err: any) {
             logger.warn('[DebtSwapModal][Limit] Failed to read debt token nonce/name', { message: err.message });
             setLimitDelegationStatus('failed');
-            return;
+            setDebtLimitSubmitError(err?.message || 'Unable to prepare delegation signature.');
+            return null;
         }
 
         // Use validTo from the prepare result as the permit deadline
@@ -664,15 +710,21 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 r: r.slice(0, 12) + '…',
                 s: s.slice(0, 12) + '…',
             });
+            return permit;
         } catch (err: any) {
             logger.warn('[DebtSwapModal][Limit] Delegation signature failed', { message: err.message });
             setLimitDelegationStatus('failed');
+            setDebtLimitSubmitError(err?.message || 'Unable to sign delegation.');
+            return null;
         }
     }, [swapMode, debtLimitPrepareResult, account, walletClient, publicClient, effectiveNetwork]);
 
-    const handleSubmitLimitOrder = useCallback(async () => {
+    const handleSubmitLimitOrder = useCallback(async (
+        delegationSignatureOverride?: NonNullable<typeof debtLimitDelegationSignature>,
+    ) => {
         if (swapMode !== 'limit') return null;
-        if (!debtLimitPrepareResult || !debtLimitDelegationSignature || !account || !fromToken || !toToken) return null;
+        const delegationSignature = delegationSignatureOverride || debtLimitDelegationSignature;
+        if (!debtLimitPrepareResult || !delegationSignature || !account || !fromToken || !toToken) return null;
         if (!debtLimitQuote) {
             setDebtLimitSubmitError('Limit quote required before signing limit order.');
             return null;
@@ -718,11 +770,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 orderType: 'limit',
                 approvedAddress: debtLimitPrepareResult.instanceAddress,
                 delegationPermit: {
-                    amount: debtLimitDelegationSignature.amount.toString(),
-                    deadline: debtLimitDelegationSignature.deadline,
-                    v: debtLimitDelegationSignature.v,
-                    r: debtLimitDelegationSignature.r,
-                    s: debtLimitDelegationSignature.s,
+                    amount: delegationSignature.amount.toString(),
+                    deadline: delegationSignature.deadline,
+                    v: delegationSignature.v,
+                    r: delegationSignature.r,
+                    s: delegationSignature.s,
                 },
             });
 
@@ -762,25 +814,29 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         debtLimitQuote,
     ]);
 
-    const handleSignLimitOrder = useCallback(async () => {
-        if (swapMode !== 'limit') return;
-        if (!walletClient || !account || !debtLimitPrepareResult || !debtLimitDelegationSignature) return;
+    const handleSignLimitOrder = useCallback(async (
+        submitResultOverride?: DebtLimitSubmitResult | null,
+    ) => {
+        if (swapMode !== 'limit') return null;
+        if (!walletClient || !account || !debtLimitPrepareResult || (!debtLimitDelegationSignature && !submitResultOverride)) return null;
 
-        const submitResult = debtLimitSubmitResult?.signatureRequest
+        const submitResult = submitResultOverride?.signatureRequest
+            ? submitResultOverride
+            : debtLimitSubmitResult?.signatureRequest
             ? debtLimitSubmitResult
             : await handleSubmitLimitOrder();
 
-        if (!submitResult) return;
+        if (!submitResult) return null;
 
         const { signatureRequest } = submitResult;
         if (!signatureRequest) {
             setDebtLimitOrderSignatureError('Unable to sign limit order. Missing backend typed-data signature request.');
-            return;
+            return null;
         }
 
         if (signatureRequest.type !== 'typedData') {
             setDebtLimitOrderSignatureError(`Unable to sign limit order. Unsupported signature request type: ${signatureRequest.type}`);
-            return;
+            return null;
         }
 
         setIsSigningDebtLimitOrder(true);
@@ -796,12 +852,15 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 message: signatureRequest.message as any,
             });
 
-            setDebtLimitOrderSignatureResult({
+            const signedOrder = {
                 signature,
                 signatureRequest,
-            });
+            };
+            setDebtLimitOrderSignatureResult(signedOrder);
+            return signedOrder;
         } catch (err: any) {
             setDebtLimitOrderSignatureError(err?.message || 'Unable to sign limit order.');
+            return null;
         } finally {
             setIsSigningDebtLimitOrder(false);
         }
@@ -815,21 +874,26 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         handleSubmitLimitOrder,
     ]);
 
-    const handlePostLimitOrder = useCallback(async () => {
-        if (swapMode !== 'limit') return;
-        if (!account || !debtLimitSubmitResult || !debtLimitOrderSignatureResult) return;
+    const handlePostLimitOrder = useCallback(async (
+        orderSignatureOverride?: NonNullable<typeof debtLimitOrderSignatureResult>,
+        submitResultOverride?: DebtLimitSubmitResult | null,
+    ) => {
+        if (swapMode !== 'limit') return null;
+        const submitResult = submitResultOverride || debtLimitSubmitResult;
+        const orderSignatureResult = orderSignatureOverride || debtLimitOrderSignatureResult;
+        if (!account || !submitResult || !orderSignatureResult) return null;
 
         // Posting is allowed only when this Limit flow has a backend Debt Limit
         // quote. This prevents submitting orders from stale spot/market amounts.
         if (debtLimitQuoteState !== 'quoteReady' || !debtLimitQuote) {
             setDebtLimitPostError('Limit quote required before submitting.');
-            return;
+            return null;
         }
 
-        const { limitOrder, swapSettings, instanceAddress } = debtLimitSubmitResult;
+        const { limitOrder, swapSettings, instanceAddress } = submitResult;
         if (!limitOrder || !swapSettings || !instanceAddress) {
             setDebtLimitPostError('Unable to post limit order. Missing signed order payload from submit response.');
-            return;
+            return null;
         }
 
         setIsPostingDebtLimitOrder(true);
@@ -841,7 +905,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 walletAddress: account,
                 chainId: effectiveNetwork.chainId,
                 marketKey: initialMarketKey || effectiveNetwork?.key || null,
-                signature: debtLimitOrderSignatureResult.signature,
+                signature: orderSignatureResult.signature,
                 limitOrder,
                 swapSettings,
                 instanceAddress,
@@ -854,8 +918,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             setDebtLimitSubmitResult((current) => current
                 ? { ...current, status: 'submitted', orderId: result.orderId, instanceAddress: result.instanceAddress }
                 : current);
+            return result;
         } catch (err: any) {
             setDebtLimitPostError(err?.message || 'Unable to post limit order.');
+            return null;
         } finally {
             setIsPostingDebtLimitOrder(false);
         }
@@ -868,6 +934,109 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         debtLimitQuote,
         effectiveNetwork,
         initialMarketKey,
+    ]);
+
+    const debtLimitOrderLink = useMemo(() => {
+        const orderId = debtLimitPostResult?.orderId || debtLimitSubmitResult?.orderId;
+        if (!orderId) return null;
+
+        const chainSlugById: Record<number, string> = {
+            1: 'eth',
+            100: 'gno',
+            137: 'pol',
+            42161: 'arb1',
+            8453: 'base',
+            43114: 'avax',
+        };
+        const chainSlug = chainSlugById[effectiveNetwork.chainId] || String(effectiveNetwork.chainId);
+        return `https://explorer.cow.fi/${chainSlug}/orders/${orderId}`;
+    }, [debtLimitPostResult?.orderId, debtLimitSubmitResult?.orderId, effectiveNetwork.chainId]);
+
+    const isDebtLimitMainActionBusy =
+        limitDelegationStatus === 'pending' ||
+        isSubmittingDebtLimit ||
+        isSigningDebtLimitOrder ||
+        isPostingDebtLimitOrder;
+
+    const debtLimitMainActionLabel = useMemo(() => {
+        if (debtLimitSubmitResult?.status === 'submitted' || debtLimitPostResult?.status === 'submitted') {
+            return 'Limit order submitted';
+        }
+        if (limitDelegationStatus === 'pending') return 'Signing delegation...';
+        if (isSigningDebtLimitOrder) return 'Signing limit order...';
+        if (isPostingDebtLimitOrder) return 'Submitting limit order...';
+        if (isSubmittingDebtLimit) return 'Preparing signature...';
+        if (!fromToken || !toToken || limitInputAmount <= 0n) return 'Enter amount';
+        if (isDebtLimitQuoteLoading) return 'Getting quote...';
+        if (debtLimitQuoteError || debtLimitQuoteState === 'quoteError') return 'Limit quote unavailable';
+        if (isPreparingDebtLimit) return 'Preparing limit swap...';
+        return 'Sign & Submit Limit Order';
+    }, [
+        debtLimitSubmitResult?.status,
+        debtLimitPostResult?.status,
+        limitDelegationStatus,
+        isSigningDebtLimitOrder,
+        isPostingDebtLimitOrder,
+        isSubmittingDebtLimit,
+        fromToken,
+        toToken,
+        limitInputAmount,
+        isDebtLimitQuoteLoading,
+        debtLimitQuoteError,
+        debtLimitQuoteState,
+        isPreparingDebtLimit,
+    ]);
+
+    const isDebtLimitMainActionDisabled =
+        debtLimitSubmitResult?.status === 'submitted' ||
+        debtLimitPostResult?.status === 'submitted' ||
+        isDebtLimitMainActionBusy ||
+        !account ||
+        !fromToken ||
+        !toToken ||
+        limitInputAmount <= 0n ||
+        limitInputAmount > (debtBalance || 0n) ||
+        debtLimitQuoteState !== 'quoteReady' ||
+        !debtLimitQuote ||
+        isPreparingDebtLimit ||
+        !debtLimitPrepareResult ||
+        !!debtLimitPrepareError ||
+        !walletClient;
+
+    const handleLimitMainAction = useCallback(async () => {
+        if (isDebtLimitMainActionDisabled) return;
+
+        setDebtLimitSubmitError(null);
+        setDebtLimitOrderSignatureError(null);
+        setDebtLimitPostError(null);
+
+        let delegationSignature = debtLimitDelegationSignature;
+        if (!delegationSignature) {
+            delegationSignature = await handleSignLimitDelegation();
+            if (!delegationSignature) return;
+        }
+
+        const submitResult = debtLimitSubmitResult?.signatureRequest
+            ? debtLimitSubmitResult
+            : await handleSubmitLimitOrder(delegationSignature);
+        if (!submitResult) return;
+
+        let orderSignatureResult = debtLimitOrderSignatureResult;
+        if (!orderSignatureResult) {
+            orderSignatureResult = await handleSignLimitOrder(submitResult);
+            if (!orderSignatureResult) return;
+        }
+
+        await handlePostLimitOrder(orderSignatureResult, submitResult);
+    }, [
+        isDebtLimitMainActionDisabled,
+        debtLimitDelegationSignature,
+        handleSignLimitDelegation,
+        debtLimitSubmitResult,
+        handleSubmitLimitOrder,
+        debtLimitOrderSignatureResult,
+        handleSignLimitOrder,
+        handlePostLimitOrder,
     ]);
 
     // Use Approval Hook for ToToken Debt
@@ -1382,6 +1551,21 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     }, [showMethodMenu]);
 
     useEffect(() => {
+        if (!showLimitExpiryMenu) {
+            return;
+        }
+
+        const onClickOutside = (e: MouseEvent) => {
+            if (limitExpiryMenuRef.current && !limitExpiryMenuRef.current.contains(e.target as Node)) {
+                setShowLimitExpiryMenu(false);
+            }
+        };
+
+        document.addEventListener('mousedown', onClickOutside);
+        return () => document.removeEventListener('mousedown', onClickOutside);
+    }, [showLimitExpiryMenu]);
+
+    useEffect(() => {
         if (txError || userRejected) {
             clearTxError();
             clearUserRejected();
@@ -1556,7 +1740,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 </div>
 
                 {/* ── Market Tab ─────────────────────────────────────────────────────── */}
-                {swapMode === 'market' && (<>
+                {swapMode === 'market' && (
+                    <>
                 {/* Slippage Settings Toggle & Label */}
                 <div className="flex justify-end items-center mb-2 relative">
                     <div className={`flex items-center gap-1.5 transition-all ${!swapQuote ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
@@ -2417,8 +2602,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                     </div>
                 )}
 
-                {/* Limit flow is isolated from Market mode. */}
-
                 {/* Action Button */}
                 {(() => {
                     const userEmodeCategoryId = summary?.eModeCategoryId || 0;
@@ -2450,84 +2633,188 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         </Button>
                     );
                 })()}
-                </>)}
+                    </>
+                )}
 
-                {/* ── Limit Tab ──────────────────────────────────────────────────────── */}
+                {/* Limit Tab */}
                 {swapMode === 'limit' && (
                     <div className="space-y-3">
-                        <CompactAmountInput
-                            token={fromToken}
-                            value={limitInputValue}
-                            secondaryValue={limitInputSecondaryValue}
-                            isError={limitInputAmount > (debtBalance || 0n)}
-                            onChange={(value) => {
-                                const normalized = normalizeDecimalInput(value);
-                                setLimitInputValue(normalized);
-                                setDebtLimitPrepareResult(null);
-                                setLimitDelegationStatus('idle');
-                                setDebtLimitDelegationSignature(null);
-                                setDebtLimitSubmitResult(null);
-                                setDebtLimitSubmitError(null);
+                        {/* Source Input Section */}
+                        <div className="space-y-2">
+                            <div className="flex items-center justify-between px-1">
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Swap at most</span>
 
-                                try {
-                                    setLimitInputAmount(normalized ? parseUnits(normalized, fromToken?.decimals || 18) : 0n);
-                                } catch {
-                                    setLimitInputAmount(0n);
-                                }
-                            }}
-                            onApplyMax={() => {
-                                if (!debtBalance || debtBalance === 0n || !fromToken) return;
-                                const maxTokenAmount = formatUnits(debtBalance, fromToken.decimals || 18);
-                                setLimitInputValue(maxTokenAmount);
-                                setLimitInputAmount(debtBalance);
-                                setDebtLimitPrepareResult(null);
-                                setLimitDelegationStatus('idle');
-                                setDebtLimitDelegationSignature(null);
-                                setDebtLimitSubmitResult(null);
-                                setDebtLimitSubmitError(null);
-                            }}
-                            onApplyPct={(pct) => {
-                                if (!debtBalance || debtBalance === 0n || !fromToken) return;
-                                const amountBI = (debtBalance * BigInt(pct)) / 100n;
-                                setLimitInputValue(formatUnits(amountBI, fromToken.decimals || 18));
-                                setLimitInputAmount(amountBI);
-                                setDebtLimitPrepareResult(null);
-                                setLimitDelegationStatus('idle');
-                                setDebtLimitDelegationSignature(null);
-                                setDebtLimitSubmitResult(null);
-                                setDebtLimitSubmitError(null);
-                            }}
-                            maxAmount={debtBalance}
-                            decimals={fromToken?.decimals || 18}
-                            formattedBalance={formattedDebt}
-                            onTokenSelect={() => {
-                                setSelectingForFrom(true);
-                                setTokenSelectorOpen(true);
-                            }}
-                            displaySymbol={getDisplaySymbol(fromToken, localMarketAssets)}
-                        />
+                                <div ref={limitExpiryMenuRef} className="relative">
+                                    <div className="flex items-center gap-1.5 transition-all">
+                                        <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500">Expires in</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => setShowLimitExpiryMenu((value) => !value)}
+                                            className={`inline-flex items-center gap-1 text-[11px] font-bold transition-colors ${showLimitExpiryMenu
+                                                ? 'text-primary'
+                                                : 'text-slate-900 dark:text-white hover:text-primary'
+                                            }`}
+                                        >
+                                            <span>{selectedLimitExpiry.label}</span>
+                                            <ChevronDown className={`w-3.5 h-3.5 text-slate-500 transition-transform ${showLimitExpiryMenu ? 'rotate-180' : ''}`} />
+                                        </button>
+                                    </div>
 
-                        <CompactAmountInput
-                            token={toToken}
-                            value={limitOutputValue}
-                            secondaryValue={limitOutputSecondaryValue}
-                            onChange={() => undefined}
-                            maxAmount={0n}
-                            decimals={toToken?.decimals || 18}
-                            readOnly
-                            placeholder="0.00"
-                            onTokenSelect={() => {
-                                setSelectingForFrom(false);
-                                setTokenSelectorOpen(true);
-                            }}
-                            displaySymbol={getDisplaySymbol(toToken, localMarketAssets)}
-                        />
+                                    {showLimitExpiryMenu && (
+                                        <div className="absolute right-0 top-full mt-2 z-40 overflow-hidden rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 shadow-xl w-48 animate-in fade-in slide-in-from-top-2 duration-150">
+                                            {limitExpiryOptions.map((option) => (
+                                                <button
+                                                    key={option.value}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        setLimitExpirySeconds(option.value);
+                                                        setShowLimitExpiryMenu(false);
+                                                        resetDebtLimitPreparedState();
+                                                    }}
+                                                    className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${
+                                                        limitExpirySeconds === option.value
+                                                            ? 'bg-slate-50 dark:bg-slate-800 text-primary'
+                                                            : 'text-slate-600 dark:text-slate-400'
+                                                    }`}
+                                                >
+                                                    {option.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
 
-                        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-3 space-y-2.5">
-                            <div className="flex items-center justify-between gap-3">
-                                <label className="text-xs font-bold text-slate-500 dark:text-slate-400">
-                                    When 1 {getDisplaySymbol(fromToken, localMarketAssets) || 'source'} is worth:
+                            <CompactAmountInput
+                                token={fromToken}
+                                value={limitInputValue}
+                                secondaryValue={limitInputSecondaryValue}
+                                isError={limitInputAmount > (debtBalance || 0n)}
+                                onChange={(value) => {
+                                    const normalized = normalizeDecimalInput(value);
+                                    setLimitInputValue(normalized);
+                                    setDebtLimitPrepareResult(null);
+                                    setLimitDelegationStatus('idle');
+                                    setDebtLimitDelegationSignature(null);
+                                    setDebtLimitSubmitResult(null);
+                                    setDebtLimitSubmitError(null);
+
+                                    try {
+                                        setLimitInputAmount(normalized ? parseUnits(normalized, fromToken?.decimals || 18) : 0n);
+                                    } catch {
+                                        setLimitInputAmount(0n);
+                                    }
+                                }}
+                                onApplyMax={() => {
+                                    if (!debtBalance || debtBalance === 0n || !fromToken) return;
+                                    const maxTokenAmount = formatUnits(debtBalance, fromToken.decimals || 18);
+                                    setLimitInputValue(maxTokenAmount);
+                                    setLimitInputAmount(debtBalance);
+                                    setDebtLimitPrepareResult(null);
+                                    setLimitDelegationStatus('idle');
+                                    setDebtLimitDelegationSignature(null);
+                                    setDebtLimitSubmitResult(null);
+                                    setDebtLimitSubmitError(null);
+                                }}
+                                onApplyPct={(pct) => {
+                                    if (!debtBalance || debtBalance === 0n || !fromToken) return;
+                                    const amountBI = (debtBalance * BigInt(pct)) / 100n;
+                                    setLimitInputValue(formatUnits(amountBI, fromToken.decimals || 18));
+                                    setLimitInputAmount(amountBI);
+                                    setDebtLimitPrepareResult(null);
+                                    setLimitDelegationStatus('idle');
+                                    setDebtLimitDelegationSignature(null);
+                                    setDebtLimitSubmitResult(null);
+                                    setDebtLimitSubmitError(null);
+                                }}
+                                maxAmount={debtBalance}
+                                decimals={fromToken?.decimals || 18}
+                                formattedBalance={formattedDebt}
+                                onTokenSelect={() => {
+                                    setSelectingForFrom(true);
+                                    setTokenSelectorOpen(true);
+                                }}
+                                displaySymbol={getDisplaySymbol(fromToken, localMarketAssets)}
+                            />
+                        </div>
+
+                        {/* Destination Input Section */}
+                        <div className="space-y-2">
+                            <div className="flex items-center px-1">
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Receive</span>
+                            </div>
+
+                            <CompactAmountInput
+                                token={toToken}
+                                value={limitOutputValue}
+                                secondaryValue={limitOutputSecondaryValue}
+                                onChange={() => undefined}
+                                maxAmount={0n}
+                                decimals={toToken?.decimals || 18}
+                                readOnly
+                                placeholder="0.00"
+                                onTokenSelect={() => {
+                                    setSelectingForFrom(false);
+                                    setTokenSelectorOpen(true);
+                                }}
+                                displaySymbol={getDisplaySymbol(toToken, localMarketAssets)}
+                            />
+                        </div>
+
+                        {/* Price Settings Section */}
+                        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-1 px-2.5 group transition-colors focus-within:border-purple-500/50">
+                            <div className="flex items-center justify-between pt-1 pl-0.5 pr-0.5">
+                                <label className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase">
+                                    When 1 {getDisplaySymbol(isPriceInverted ? toToken : fromToken, localMarketAssets) || '...'} is worth
                                 </label>
+                            </div>
+
+                            <div className="flex items-center gap-2 sm:gap-3">
+                                <div className="flex-1 relative overflow-hidden flex items-center pl-0.5 focus-within:z-10">
+                                    <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={limitPrice}
+                                        onChange={(event) => {
+                                            setLimitPrice(normalizeDecimalInput(event.target.value));
+                                            setHasCustomLimitPrice(true);
+                                            resetDebtLimitPreparedState();
+                                        }}
+                                        placeholder="0.00"
+                                        className="w-full bg-transparent text-2xl font-mono font-bold text-left focus:outline-none py-0.5 pr-6 text-slate-900 dark:text-white placeholder:text-muted-foreground text-ellipsis overflow-hidden"
+                                    />
+                                </div>
+
+                                <button
+                                    type="button"
+                                    onClick={togglePriceInversion}
+                                    className="flex items-center gap-1.5 py-1 px-1 hover:opacity-75 transition-opacity"
+                                    title="Switch price direction"
+                                >
+                                    {(isPriceInverted ? fromToken : toToken)?.symbol ? (
+                                        <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-border-light dark:border-slate-600/30">
+                                            <img
+                                                src={getTokenLogo((isPriceInverted ? fromToken : toToken).symbol)}
+                                                alt={(isPriceInverted ? fromToken : toToken).symbol}
+                                                className="w-full h-full object-cover"
+                                                onError={onTokenImgError((isPriceInverted ? fromToken : toToken).symbol)}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <span className="text-xs font-bold text-slate-400">?</span>
+                                    )}
+                                    <span className="text-lg font-bold text-slate-900 dark:text-white leading-none">
+                                        {getDisplaySymbol(isPriceInverted ? fromToken : toToken, localMarketAssets)}
+                                    </span>
+                                    <ArrowRightLeft className="w-4 h-4 text-slate-400" />
+                                </button>
+                            </div>
+
+                            <div className="flex items-center justify-between mt-0 pl-0.5 min-h-5">
+                                <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
+                                    {limitOutputValue ? `Est. output ${formatCompactNumber(limitOutputValue)} ${getDisplaySymbol(toToken, localMarketAssets)}` : 'Enter amount to see output'}
+                                </span>
+
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -2537,65 +2824,15 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                         resetDebtLimitPreparedState();
                                     }}
                                     disabled={!marketLimitPrice || isDebtLimitQuoteLoading}
-                                    className="text-[10px] font-black tracking-wide text-violet-600 dark:text-violet-400 disabled:text-slate-400 dark:disabled:text-slate-600"
+                                    className="flex items-center gap-1.5 p-0 bg-transparent border-none appearance-none transition-opacity hover:opacity-75 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
-                                    MARKET
+                                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
+                                        {marketLimitPrice || '0'}
+                                    </span>
+                                    <span className="text-[10px] font-black text-violet-600 dark:text-violet-400 uppercase tracking-widest bg-violet-100 dark:bg-violet-900/40 px-1.5 py-0.5 rounded">
+                                        MARKET
+                                    </span>
                                 </button>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <input
-                                    type="text"
-                                    inputMode="decimal"
-                                    value={limitPrice}
-                                    onChange={(event) => {
-                                        setLimitPrice(normalizeDecimalInput(event.target.value));
-                                        setHasCustomLimitPrice(true);
-                                        resetDebtLimitPreparedState();
-                                    }}
-                                    placeholder="0.00"
-                                    className="min-w-0 flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-base font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-violet-500"
-                                />
-                                <span className="shrink-0 text-sm font-bold text-slate-700 dark:text-slate-300">
-                                    {getDisplaySymbol(toToken, localMarketAssets) || 'destination'}
-                                </span>
-                            </div>
-                            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400">
-                                <span>
-                                    Estimated output {limitOutputValue ? `${formatCompactNumber(limitOutputValue)} ${getDisplaySymbol(toToken, localMarketAssets)}` : '0'}
-                                </span>
-                                {isDebtLimitQuoteLoading && <span>Getting limit quote...</span>}
-                            </div>
-                        </div>
-
-                        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-3 space-y-2">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Expiry</span>
-                                <span className="text-xs font-mono font-medium text-slate-700 dark:text-slate-300">
-                                    {limitExpirySeconds < 3600 ? `${limitExpirySeconds / 60}m` : `${limitExpirySeconds / 3600}h`}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-3 gap-1.5">
-                                {[
-                                    { label: '10m', value: 600 },
-                                    { label: '30m', value: 1800 },
-                                    { label: '1h', value: 3600 },
-                                ].map((option) => (
-                                    <button
-                                        key={option.value}
-                                        type="button"
-                                        onClick={() => {
-                                            setLimitExpirySeconds(option.value);
-                                            resetDebtLimitPreparedState();
-                                        }}
-                                        className={`h-8 rounded-lg text-xs font-bold transition-colors ${
-                                            limitExpirySeconds === option.value
-                                                ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                                                : 'text-slate-500 dark:text-slate-400 hover:bg-white/70 dark:hover:bg-slate-700/70'
-                                        }`}
-                                    >
-                                        {option.label}
-                                    </button>
-                                ))}
                             </div>
                         </div>
 
@@ -2650,26 +2887,21 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             </div>
                         )}
 
-                        {debtLimitPrepareResult && (
-                            <Button
-                                onClick={handleSignLimitDelegation}
-                                disabled={limitDelegationStatus === 'pending' || limitDelegationStatus === 'signed'}
-                                className={`w-full py-3 h-auto font-bold rounded-xl ${
-                                    limitDelegationStatus === 'signed'
-                                        ? 'bg-emerald-600 border-emerald-700 text-white opacity-80 cursor-not-allowed'
-                                        : 'bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 dark:text-slate-950 text-white'
-                                }`}
-                            >
-                                {limitDelegationStatus === 'pending' ? (
-                                    <><RefreshCw className="w-4 h-4 animate-spin" />Waiting for signature...</>
-                                ) : limitDelegationStatus === 'signed' ? (
-                                    <>Sign Delegation complete</>
-                                ) : (
-                                    <>Sign Delegation</>
-                                )}
-                            </Button>
-                        )}
+                        {/* Action Button */}
+                        <Button
+                            onClick={handleLimitMainAction}
+                            disabled={isDebtLimitMainActionDisabled}
+                            className={`w-full py-3 h-auto font-bold rounded-xl ${
+                                debtLimitSubmitResult?.status === 'submitted' || debtLimitPostResult?.status === 'submitted'
+                                    ? 'bg-emerald-600 border-emerald-700 text-white opacity-80 cursor-not-allowed'
+                                    : 'bg-violet-600 hover:bg-violet-700 disabled:bg-slate-300 dark:disabled:bg-slate-700 text-white disabled:text-slate-500 dark:disabled:text-slate-400'
+                            }`}
+                        >
+                            {isDebtLimitMainActionBusy && <RefreshCw className="w-4 h-4 animate-spin" />}
+                            {debtLimitMainActionLabel}
+                        </Button>
 
+                        {/* Errors and Success Messages */}
                         {debtLimitSubmitError && (
                             <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
@@ -2677,60 +2909,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             </div>
                         )}
 
-                        {debtLimitPrepareResult && debtLimitDelegationSignature && limitDelegationStatus === 'signed' && (
-                            <Button
-                                onClick={handleSignLimitOrder}
-                                disabled={isSigningDebtLimitOrder || isSubmittingDebtLimit || !walletClient || !!debtLimitOrderSignatureResult}
-                                className="w-full py-3 h-auto font-bold rounded-xl bg-slate-900 hover:bg-slate-800 dark:bg-white dark:hover:bg-slate-200 dark:text-slate-950 text-white"
-                            >
-                                {isSubmittingDebtLimit ? (
-                                    <><RefreshCw className="w-4 h-4 animate-spin" />Preparing signature...</>
-                                ) : isSigningDebtLimitOrder ? (
-                                    <><RefreshCw className="w-4 h-4 animate-spin" />Waiting for signature...</>
-                                ) : debtLimitOrderSignatureResult ? (
-                                    <>Limit Order Signed</>
-                                ) : (
-                                    <>Sign Limit Order</>
-                                )}
-                            </Button>
-                        )}
-
                         {debtLimitOrderSignatureError && (
                             <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                                 <p className="text-xs text-red-800 dark:text-red-300 font-medium">{debtLimitOrderSignatureError}</p>
-                            </div>
-                        )}
-
-                        {debtLimitOrderSignatureResult && !debtLimitSubmitResult?.orderId && (
-                            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg">
-                                <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">Limit order signed</p>
-                            </div>
-                        )}
-
-                        {debtLimitOrderSignatureResult && !debtLimitSubmitResult?.orderId && (
-                            <Button
-                                onClick={handlePostLimitOrder}
-                                disabled={isPostingDebtLimitOrder || debtLimitQuoteState !== 'quoteReady'}
-                                className="w-full py-3 h-auto font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white"
-                            >
-                                {isPostingDebtLimitOrder ? (
-                                    <><RefreshCw className="w-4 h-4 animate-spin" />Submitting...</>
-                                ) : (
-                                    <>Submit Limit Order</>
-                                )}
-                            </Button>
-                        )}
-
-                        {debtLimitOrderSignatureResult && !debtLimitSubmitResult?.orderId && debtLimitQuoteState !== 'quoteReady' && (
-                            <div className="px-1 -mt-1">
-                                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
-                                    {debtLimitQuoteState === 'quoteLoading'
-                                        ? 'Getting limit quote...'
-                                        : debtLimitQuoteState === 'quoteError'
-                                            ? 'Limit quote unavailable'
-                                            : 'Limit quote required before submitting.'}
-                                </p>
                             </div>
                         )}
 
@@ -2742,14 +2924,23 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         )}
 
                         {debtLimitSubmitResult?.status === 'submitted' && debtLimitSubmitResult.orderId && (
-                            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg">
-                                <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium break-all">
-                                    Limit order submitted: {debtLimitSubmitResult.orderId}
+                            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-800 rounded-lg flex items-center justify-between gap-3">
+                                <p className="text-xs text-emerald-800 dark:text-emerald-300 font-medium">
+                                    Limit order submitted
                                 </p>
+                                {debtLimitOrderLink && (
+                                    <a
+                                        href={debtLimitOrderLink}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-1 text-xs font-black text-emerald-700 dark:text-emerald-300 hover:underline"
+                                    >
+                                        View order
+                                        <ExternalLink className="w-3 h-3" />
+                                    </a>
+                                )}
                             </div>
                         )}
-
-
                     </div>
                 )}
             </div>
