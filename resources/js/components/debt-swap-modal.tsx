@@ -134,7 +134,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const [isPostingDebtLimitOrder, setIsPostingDebtLimitOrder] = useState(false);
     const [debtLimitPostResult, setDebtLimitPostResult] = useState<DebtLimitPostResult | null>(null);
     const [debtLimitPostError, setDebtLimitPostError] = useState<string | null>(null);
-    const [showLimitDebug, setShowLimitDebug] = useState(false);
+
 
     // Refs
     const methodMenuRef = useRef<HTMLDivElement>(null);
@@ -2749,49 +2749,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             </div>
                         )}
 
-                        {import.meta.env.DEV && debtLimitPrepareResult && (
-                            <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/40">
-                                <button
-                                    type="button"
-                                    onClick={() => setShowLimitDebug((value) => !value)}
-                                    className="w-full px-3 py-2 flex items-center justify-between text-xs font-bold text-slate-500 dark:text-slate-400"
-                                >
-                                    <span>Limit details</span>
-                                    {showLimitDebug ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                </button>
-                                {showLimitDebug && (
-                                    <div className="border-t border-slate-200 dark:border-slate-700 px-3 py-2 space-y-1 text-[11px] font-mono text-slate-600 dark:text-slate-400">
-                                        <div><span className="font-bold">instance: </span><span className="break-all">{debtLimitPrepareResult.instanceAddress}</span></div>
-                                        <div><span className="font-bold">approval.token: </span><span className="break-all">{debtLimitPrepareResult.approval.token}</span></div>
-                                        <div><span className="font-bold">approval.spender: </span><span className="break-all">{debtLimitPrepareResult.approval.spender}</span></div>
-                                        {debtLimitDelegationSignature && (
-                                            <div><span className="font-bold">signature deadline: </span><span>{new Date(debtLimitDelegationSignature.deadline * 1000).toLocaleTimeString()}</span></div>
-                                        )}
-                                        <div><span className="font-bold">order kind: </span><span>{debtLimitPrepareResult.orderDraft.kind}</span></div>
-                                        <div><span className="font-bold">validTo: </span><span>{debtLimitPrepareResult.validTo}</span></div>
-                                        <div><span className="font-bold">selectedExpirySeconds: </span><span>{limitExpirySeconds}</span></div>
-                                        {debtLimitQuote?.quoteId && (
-                                            <div><span className="font-bold">quoteId: </span><span>{debtLimitQuote.quoteId}</span></div>
-                                        )}
-                                        {debtLimitQuote && (
-                                            <div><span className="font-bold">adapterAwareQuote: </span><span>{String(debtLimitQuote.adapterAwareQuote)}</span></div>
-                                        )}
-                                        {debtLimitSubmitResult && (
-                                            <div><span className="font-bold">submit status: </span><span>{debtLimitSubmitResult.status}</span></div>
-                                        )}
-                                        {debtLimitSubmitResult?.instanceAddress && (
-                                            <div><span className="font-bold">submit instance: </span><span className="break-all">{debtLimitSubmitResult.instanceAddress}</span></div>
-                                        )}
-                                        {debtLimitPostResult?.orderId && (
-                                            <div><span className="font-bold">order id: </span><span className="break-all">{debtLimitPostResult.orderId}</span></div>
-                                        )}
-                                        {debtLimitOrderSignatureResult?.signature && (
-                                            <div><span className="font-bold">order signature: </span><span className="break-all">{debtLimitOrderSignatureResult.signature}</span></div>
-                                        )}
-                                    </div>
-                                )}
-                            </div>
-                        )}
+
                     </div>
                 )}
             </div>
