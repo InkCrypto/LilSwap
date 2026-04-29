@@ -26,8 +26,8 @@ import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useDebtSwitchActions } from '../hooks/use-debt-switch-actions';
 import { useParaswapQuote } from '../hooks/use-paraswap-quote';
 import { useUserPosition } from '../hooks/use-user-position';
-import { postDebtLimitSwap, prepareDebtLimitSwap, submitDebtLimitSwap } from '../services/api';
-import type { DebtLimitPostResult, DebtLimitPrepareResult, DebtLimitSubmitResult } from '../services/api';
+import { getDebtLimitQuote, postDebtLimitSwap, prepareDebtLimitSwap, submitDebtLimitSwap } from '../services/api';
+import type { DebtLimitPostResult, DebtLimitPrepareResult, DebtLimitQuoteResult, DebtLimitSubmitResult } from '../services/api';
 
 
 import { getPairStatus, checkPairSwappable } from '../services/token-pair-cache';
@@ -114,6 +114,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const [limitPrice, setLimitPrice] = useState('');
     const [marketLimitPrice, setMarketLimitPrice] = useState('');
     const [limitExpirySeconds, setLimitExpirySeconds] = useState(600);
+    const [debtLimitQuote, setDebtLimitQuote] = useState<DebtLimitQuoteResult | null>(null);
+    const [isDebtLimitQuoteLoading, setIsDebtLimitQuoteLoading] = useState(false);
+    const [debtLimitQuoteError, setDebtLimitQuoteError] = useState<string | null>(null);
+    const [hasCustomLimitPrice, setHasCustomLimitPrice] = useState(false);
+    const [debtLimitValidTo, setDebtLimitValidTo] = useState<number | null>(null);
     const [debtLimitPrepareResult, setDebtLimitPrepareResult] = useState<DebtLimitPrepareResult | null>(null);
     const [debtLimitPrepareError, setDebtLimitPrepareError] = useState<string | null>(null);
     /** Delegation state for the Limit tab. Never modified from Market mode. */
@@ -139,6 +144,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const prevalidationBudgetRef = useRef(0);
     const lastToastErrorRef = useRef<string | null>(null);
     const debtLimitPrepareRequestRef = useRef(0);
+    const debtLimitQuoteRequestRef = useRef(0);
 
     // Derived values needed for hooks
     const adapterAddress = useMemo(() => {
@@ -176,27 +182,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         adapterAddress,
         enabled: isOpen,
         freezeQuote,
-        marketAssets: localMarketAssets,
-    });
-
-    // Temporary market reference for the Limit tab's MARKET price reset.
-    // This intentionally remains separate from the Market tab quote state.
-    const {
-        swapQuote: limitMarketQuote,
-        isQuoteLoading: isLimitMarketQuoteLoading,
-        quoteError: limitMarketQuoteError,
-        clearQuote: clearLimitMarketQuote,
-    } = useParaswapQuote({
-        debtAmount: limitInputAmount,
-        isCollateral: false,
-        fromToken,
-        toToken,
-        selectedNetwork: effectiveNetwork,
-        marketKey: initialMarketKey || effectiveNetwork?.key,
-        account,
-        adapterAddress,
-        enabled: isOpen && swapMode === 'limit',
-        freezeQuote: true,
         marketAssets: localMarketAssets,
     });
 
@@ -316,6 +301,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     }, []);
 
     const limitOutputValue = useMemo(() => {
+        if (debtLimitQuote?.sellAmount && toToken) {
+            return formatPlainAmount(parseFloat(formatUnits(BigInt(debtLimitQuote.sellAmount), toToken.decimals || 18)));
+        }
+
         const sourceAmount = parseFloat(limitInputValue || '0');
         const price = parseFloat(limitPrice || '0');
 
@@ -324,9 +313,17 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         }
 
         return formatPlainAmount(sourceAmount * price);
-    }, [limitInputValue, limitPrice, formatPlainAmount]);
+    }, [debtLimitQuote, toToken, limitInputValue, limitPrice, formatPlainAmount]);
 
     const limitOutputAmount = useMemo(() => {
+        if (debtLimitQuote?.sellAmount) {
+            try {
+                return BigInt(debtLimitQuote.sellAmount);
+            } catch {
+                return 0n;
+            }
+        }
+
         if (!limitOutputValue || !toToken) {
             return 0n;
         }
@@ -336,7 +333,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         } catch {
             return 0n;
         }
-    }, [limitOutputValue, toToken]);
+    }, [debtLimitQuote, limitOutputValue, toToken]);
 
     const limitInputSecondaryValue = useMemo(() => {
         if (!fromToken) {
@@ -362,23 +359,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         return formatUSD(amount * (Number.isFinite(price) ? price : 0));
     }, [toToken, limitOutputValue]);
 
-    useEffect(() => {
-        if (!limitMarketQuote?.srcAmount || !limitInputAmount || !toToken || !fromToken) {
-            setMarketLimitPrice('');
-            return;
-        }
-
-        try {
-            const sourceAmount = parseFloat(formatUnits(limitInputAmount, fromToken.decimals || 18));
-            const destinationAmount = parseFloat(formatUnits(BigInt(limitMarketQuote.srcAmount), toToken.decimals || 18));
-            const nextMarketLimitPrice = sourceAmount > 0 ? formatPlainAmount(destinationAmount / sourceAmount) : '';
-
-            setMarketLimitPrice(nextMarketLimitPrice);
-            setLimitPrice((current) => current || nextMarketLimitPrice);
-        } catch {
-            setMarketLimitPrice('');
-        }
-    }, [limitMarketQuote, limitInputAmount, fromToken, toToken, formatPlainAmount]);
+    const debtLimitQuoteState = useMemo(() => {
+        if (isDebtLimitQuoteLoading) return 'quoteLoading';
+        if (debtLimitQuoteError) return 'quoteError';
+        if (debtLimitQuote) return 'quoteReady';
+        return 'quoteMissing';
+    }, [isDebtLimitQuoteLoading, debtLimitQuoteError, debtLimitQuote]);
+    const customLimitPriceKey = hasCustomLimitPrice ? limitPrice : '';
 
     const resetDebtLimitPreparedState = useCallback(() => {
         setDebtLimitPrepareResult(null);
@@ -393,10 +380,103 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         setDebtLimitPostError(null);
     }, []);
 
+    useEffect(() => {
+        if (swapMode !== 'limit') return;
+
+        const canQuote =
+            isOpen &&
+            !!account &&
+            !!effectiveNetwork.chainId &&
+            !!fromToken &&
+            !!toToken &&
+            limitInputAmount > 0n &&
+            limitInputAmount <= (debtBalance || 0n);
+
+        setDebtLimitQuote(null);
+        setDebtLimitQuoteError(null);
+        setMarketLimitPrice('');
+        setDebtLimitValidTo(null);
+        resetDebtLimitPreparedState();
+        debtLimitQuoteRequestRef.current += 1;
+
+        if (!canQuote) {
+            setIsDebtLimitQuoteLoading(false);
+            return;
+        }
+
+        const requestId = debtLimitQuoteRequestRef.current;
+        const nextValidTo = Math.floor(Date.now() / 1000) + limitExpirySeconds;
+
+        setIsDebtLimitQuoteLoading(true);
+
+        const timeout = window.setTimeout(async () => {
+            try {
+                const result = await getDebtLimitQuote({
+                    walletAddress: account,
+                    chainId: effectiveNetwork.chainId,
+                    marketKey: initialMarketKey || effectiveNetwork?.key || null,
+                    fromToken: {
+                        address: fromToken.address || fromToken.underlyingAsset || '',
+                        decimals: fromToken.decimals ?? 18,
+                        symbol: fromToken.symbol ?? '',
+                    },
+                    toToken: {
+                        address: toToken.address || toToken.underlyingAsset || '',
+                        decimals: toToken.decimals ?? 18,
+                        symbol: toToken.symbol ?? '',
+                    },
+                    buyAmount: limitInputAmount.toString(),
+                    validTo: nextValidTo,
+                });
+
+                if (requestId !== debtLimitQuoteRequestRef.current) return;
+
+                const quoteValidTo = typeof result.validTo === 'number' ? result.validTo : nextValidTo;
+                setDebtLimitQuote(result);
+                setDebtLimitValidTo(quoteValidTo);
+                setMarketLimitPrice(result.marketLimitPrice || '');
+
+                if (!hasCustomLimitPrice && result.marketLimitPrice) {
+                    setLimitPrice(result.marketLimitPrice);
+                }
+            } catch (err: any) {
+                if (requestId !== debtLimitQuoteRequestRef.current) return;
+                setDebtLimitQuoteError(err?.message || 'Unable to fetch limit quote.');
+            } finally {
+                if (requestId === debtLimitQuoteRequestRef.current) {
+                    setIsDebtLimitQuoteLoading(false);
+                }
+            }
+        }, 600);
+
+        return () => window.clearTimeout(timeout);
+    }, [
+        swapMode,
+        isOpen,
+        account,
+        effectiveNetwork.chainId,
+        effectiveNetwork?.key,
+        initialMarketKey,
+        fromToken?.address,
+        fromToken?.underlyingAsset,
+        fromToken?.decimals,
+        fromToken?.symbol,
+        toToken?.address,
+        toToken?.underlyingAsset,
+        toToken?.decimals,
+        toToken?.symbol,
+        limitInputAmount,
+        customLimitPriceKey,
+        limitExpirySeconds,
+        debtBalance,
+        hasCustomLimitPrice,
+        resetDebtLimitPreparedState,
+    ]);
+
     const handlePrepareLimitSwap = useCallback(async () => {
         if (swapMode !== 'limit') return;
-        if (!isOpen) return;
-        if (!account || !fromToken || !toToken || limitInputAmount <= 0n || limitOutputAmount <= 0n) return;
+        if (!isOpen || !debtLimitQuote) return;
+        if (!account || !fromToken || !toToken || !debtLimitValidTo || limitInputAmount <= 0n || limitOutputAmount <= 0n) return;
 
         const varDebtToken = toDebtTokenAddress || toToken.variableDebtTokenAddress;
         if (!varDebtToken) {
@@ -406,7 +486,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
         const chainId = effectiveNetwork.chainId;
         const marketKeyToUse = initialMarketKey || effectiveNetwork?.key || null;
-        const validTo = Math.floor(Date.now() / 1000) + limitExpirySeconds;
+        const validTo = debtLimitValidTo;
 
         const params = {
             walletAddress: account,
@@ -426,6 +506,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             sellAmount: limitOutputAmount.toString(),
             buyAmount: limitInputAmount.toString(),
             validTo,
+            quoteId: debtLimitQuote?.quoteId,
+            quoteSellAmount: debtLimitQuote?.quoteSellAmount,
+            quoteFeeAmount: debtLimitQuote?.quoteFeeAmount,
+            finalMaxSellAmount: debtLimitQuote?.finalMaxSellAmount || debtLimitQuote?.sellAmount,
             orderType: 'limit' as const,
         };
 
@@ -456,7 +540,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 setIsPreparingDebtLimit(false);
             }
         }
-    }, [swapMode, isOpen, account, fromToken, toToken, limitInputAmount, limitOutputAmount, limitExpirySeconds, toDebtTokenAddress, effectiveNetwork, initialMarketKey]);
+    }, [swapMode, isOpen, account, fromToken, toToken, limitInputAmount, limitOutputAmount, debtLimitValidTo, hasCustomLimitPrice, debtLimitQuote, toDebtTokenAddress, effectiveNetwork, initialMarketKey]);
 
     /**
      * Phase 4 (revised): Sign an EIP-712 DelegationWithSig permit for the destination variableDebtToken.
@@ -589,6 +673,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const handleSubmitLimitOrder = useCallback(async () => {
         if (swapMode !== 'limit') return null;
         if (!debtLimitPrepareResult || !debtLimitDelegationSignature || !account || !fromToken || !toToken) return null;
+        if (!debtLimitQuote) {
+            setDebtLimitSubmitError('Limit quote required before signing limit order.');
+            return null;
+        }
 
         const varDebtToken = toDebtTokenAddress || toToken.variableDebtTokenAddress;
         if (!varDebtToken) {
@@ -623,6 +711,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 sellAmount: limitOutputAmount.toString(),
                 buyAmount: limitInputAmount.toString(),
                 validTo: debtLimitPrepareResult.validTo,
+                quoteId: debtLimitQuote?.quoteId,
+                quoteSellAmount: debtLimitQuote?.quoteSellAmount,
+                quoteFeeAmount: debtLimitQuote?.quoteFeeAmount,
+                finalMaxSellAmount: debtLimitQuote?.finalMaxSellAmount || debtLimitQuote?.sellAmount,
                 orderType: 'limit',
                 approvedAddress: debtLimitPrepareResult.instanceAddress,
                 delegationPermit: {
@@ -666,6 +758,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         toDebtTokenAddress,
         limitOutputAmount,
         limitInputAmount,
+        hasCustomLimitPrice,
+        debtLimitQuote,
     ]);
 
     const handleSignLimitOrder = useCallback(async () => {
@@ -725,6 +819,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         if (swapMode !== 'limit') return;
         if (!account || !debtLimitSubmitResult || !debtLimitOrderSignatureResult) return;
 
+        // Posting is allowed only when this Limit flow has a backend Debt Limit
+        // quote. This prevents submitting orders from stale spot/market amounts.
+        if (debtLimitQuoteState !== 'quoteReady' || !debtLimitQuote) {
+            setDebtLimitPostError('Limit quote required before submitting.');
+            return;
+        }
+
         const { limitOrder, swapSettings, instanceAddress } = debtLimitSubmitResult;
         if (!limitOrder || !swapSettings || !instanceAddress) {
             setDebtLimitPostError('Unable to post limit order. Missing signed order payload from submit response.');
@@ -744,6 +845,9 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 limitOrder,
                 swapSettings,
                 instanceAddress,
+                quoteSellAmount: debtLimitQuote.quoteSellAmount,
+                quoteFeeAmount: debtLimitQuote.quoteFeeAmount,
+                finalMaxSellAmount: debtLimitQuote.finalMaxSellAmount || debtLimitQuote.sellAmount,
             });
 
             setDebtLimitPostResult(result);
@@ -760,6 +864,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         account,
         debtLimitSubmitResult,
         debtLimitOrderSignatureResult,
+        debtLimitQuoteState,
+        debtLimitQuote,
         effectiveNetwork,
         initialMarketKey,
     ]);
@@ -1016,6 +1122,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             !!fromToken &&
             !!toToken &&
             !!varDebtToken &&
+            !!debtLimitQuote &&
+            !!debtLimitValidTo &&
             limitInputAmount > 0n &&
             limitOutputAmount > 0n &&
             limitInputAmount <= (debtBalance || 0n) &&
@@ -1048,6 +1156,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         toToken?.decimals,
         toToken?.variableDebtTokenAddress,
         toDebtTokenAddress,
+        debtLimitQuote,
+        debtLimitValidTo,
         limitInputAmount,
         limitOutputAmount,
         limitPrice,
@@ -1118,13 +1228,12 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     useEffect(() => {
         setLimitPrice('');
         setMarketLimitPrice('');
-        setDebtLimitPrepareResult(null);
-        setLimitDelegationStatus('idle');
-        setDebtLimitDelegationSignature(null);
-        setDebtLimitSubmitResult(null);
-        setDebtLimitSubmitError(null);
-        clearLimitMarketQuote();
-    }, [toToken?.address, toToken?.underlyingAsset, clearLimitMarketQuote]);
+        setHasCustomLimitPrice(false);
+        setDebtLimitQuote(null);
+        setDebtLimitQuoteError(null);
+        setDebtLimitValidTo(null);
+        resetDebtLimitPreparedState();
+    }, [toToken?.address, toToken?.underlyingAsset, resetDebtLimitPreparedState]);
 
     // Reset pair validation state when fromToken changes
 
@@ -1149,14 +1258,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         setLimitInputAmount(0n);
         setLimitPrice('');
         setMarketLimitPrice('');
-        setDebtLimitPrepareResult(null);
-        setLimitDelegationStatus('idle');
-        setDebtLimitDelegationSignature(null);
-        setDebtLimitSubmitResult(null);
-        setDebtLimitSubmitError(null);
-        clearLimitMarketQuote();
+        setHasCustomLimitPrice(false);
+        setDebtLimitQuote(null);
+        setDebtLimitQuoteError(null);
+        setDebtLimitValidTo(null);
+        resetDebtLimitPreparedState();
         clearQuote();
-    }, [fromToken, isOpen, clearQuote, clearLimitMarketQuote]);
+    }, [fromToken, isOpen, clearQuote, resetDebtLimitPreparedState]);
 
     const modalTitle = useMemo(() => {
         const fromSym = getDisplaySymbol(fromToken, localMarketAssets);
@@ -2425,13 +2533,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     onClick={() => {
                                         if (!marketLimitPrice) return;
                                         setLimitPrice(marketLimitPrice);
-                                        setDebtLimitPrepareResult(null);
-                                        setLimitDelegationStatus('idle');
-                                        setDebtLimitDelegationSignature(null);
-                                        setDebtLimitSubmitResult(null);
-                                        setDebtLimitSubmitError(null);
+                                        setHasCustomLimitPrice(false);
+                                        resetDebtLimitPreparedState();
                                     }}
-                                    disabled={!marketLimitPrice || isLimitMarketQuoteLoading}
+                                    disabled={!marketLimitPrice || isDebtLimitQuoteLoading}
                                     className="text-[10px] font-black tracking-wide text-violet-600 dark:text-violet-400 disabled:text-slate-400 dark:disabled:text-slate-600"
                                 >
                                     MARKET
@@ -2444,11 +2549,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     value={limitPrice}
                                     onChange={(event) => {
                                         setLimitPrice(normalizeDecimalInput(event.target.value));
-                                        setDebtLimitPrepareResult(null);
-                                        setLimitDelegationStatus('idle');
-                                        setDebtLimitDelegationSignature(null);
-                                        setDebtLimitSubmitResult(null);
-                                        setDebtLimitSubmitError(null);
+                                        setHasCustomLimitPrice(true);
+                                        resetDebtLimitPreparedState();
                                     }}
                                     placeholder="0.00"
                                     className="min-w-0 flex-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg px-3 py-2 text-base font-mono font-bold text-slate-900 dark:text-white focus:outline-none focus:border-violet-500"
@@ -2461,7 +2563,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                 <span>
                                     Estimated output {limitOutputValue ? `${formatCompactNumber(limitOutputValue)} ${getDisplaySymbol(toToken, localMarketAssets)}` : '0'}
                                 </span>
-                                {isLimitMarketQuoteLoading && <span>Updating market...</span>}
+                                {isDebtLimitQuoteLoading && <span>Getting limit quote...</span>}
                             </div>
                         </div>
 
@@ -2483,11 +2585,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                         type="button"
                                         onClick={() => {
                                             setLimitExpirySeconds(option.value);
-                                            setDebtLimitPrepareResult(null);
-                                            setLimitDelegationStatus('idle');
-                                            setDebtLimitDelegationSignature(null);
-                                            setDebtLimitSubmitResult(null);
-                                            setDebtLimitSubmitError(null);
+                                            resetDebtLimitPreparedState();
                                         }}
                                         className={`h-8 rounded-lg text-xs font-bold transition-colors ${
                                             limitExpirySeconds === option.value
@@ -2508,10 +2606,16 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             </div>
                         )}
 
-                        {limitMarketQuoteError && (
+                        {debtLimitQuoteError && (
                             <div className="p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-lg flex items-start gap-2">
                                 <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
-                                <p className="text-xs text-amber-800 dark:text-amber-300 font-medium">Market reference unavailable. Enter a price manually.</p>
+                                <p className="text-xs text-amber-800 dark:text-amber-300 font-medium">Limit quote unavailable</p>
+                            </div>
+                        )}
+
+                        {debtLimitQuoteState === 'quoteMissing' && limitInputAmount <= 0n && (
+                            <div className="px-1 -mt-1">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Enter amount to get limit quote</p>
                             </div>
                         )}
 
@@ -2607,7 +2711,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         {debtLimitOrderSignatureResult && !debtLimitSubmitResult?.orderId && (
                             <Button
                                 onClick={handlePostLimitOrder}
-                                disabled={isPostingDebtLimitOrder}
+                                disabled={isPostingDebtLimitOrder || debtLimitQuoteState !== 'quoteReady'}
                                 className="w-full py-3 h-auto font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white"
                             >
                                 {isPostingDebtLimitOrder ? (
@@ -2616,6 +2720,18 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     <>Submit Limit Order</>
                                 )}
                             </Button>
+                        )}
+
+                        {debtLimitOrderSignatureResult && !debtLimitSubmitResult?.orderId && debtLimitQuoteState !== 'quoteReady' && (
+                            <div className="px-1 -mt-1">
+                                <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                                    {debtLimitQuoteState === 'quoteLoading'
+                                        ? 'Getting limit quote...'
+                                        : debtLimitQuoteState === 'quoteError'
+                                            ? 'Limit quote unavailable'
+                                            : 'Limit quote required before submitting.'}
+                                </p>
+                            </div>
                         )}
 
                         {debtLimitPostError && (
@@ -2654,6 +2770,12 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                         <div><span className="font-bold">order kind: </span><span>{debtLimitPrepareResult.orderDraft.kind}</span></div>
                                         <div><span className="font-bold">validTo: </span><span>{debtLimitPrepareResult.validTo}</span></div>
                                         <div><span className="font-bold">selectedExpirySeconds: </span><span>{limitExpirySeconds}</span></div>
+                                        {debtLimitQuote?.quoteId && (
+                                            <div><span className="font-bold">quoteId: </span><span>{debtLimitQuote.quoteId}</span></div>
+                                        )}
+                                        {debtLimitQuote && (
+                                            <div><span className="font-bold">adapterAwareQuote: </span><span>{String(debtLimitQuote.adapterAwareQuote)}</span></div>
+                                        )}
                                         {debtLimitSubmitResult && (
                                             <div><span className="font-bold">submit status: </span><span>{debtLimitSubmitResult.status}</span></div>
                                         )}

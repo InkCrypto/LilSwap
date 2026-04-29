@@ -287,6 +287,9 @@ export interface DebtLimitPrepareParams {
     orderType?: 'limit' | 'market';
     slippageBps?: number;
     quoteId?: number;
+    quoteSellAmount?: string;
+    quoteFeeAmount?: string;
+    finalMaxSellAmount?: string;
     partnerFee?: { volumeBps: number; recipient: string };
 }
 
@@ -315,6 +318,50 @@ export interface DebtLimitPrepareResult {
         kind: 'buy';
     };
     debug: Record<string, unknown>;
+}
+
+export interface DebtLimitQuoteParams {
+    walletAddress: string;
+    chainId: number;
+    marketKey?: string | null;
+    fromToken: {
+        address: string;
+        decimals: number;
+        symbol: string;
+    };
+    toToken: {
+        address: string;
+        decimals: number;
+        symbol: string;
+    };
+    buyAmount: string;
+    validTo?: number;
+}
+
+export interface DebtLimitQuoteResult {
+    provider: 'limit';
+    swapType: 'debt';
+    orderType: 'limit';
+    chainId: number;
+    marketKey: string | null;
+    kind: 'buy';
+    quoteId?: number;
+    sellToken: string;
+    buyToken: string;
+    orderToSign?: Record<string, unknown>;
+    amountsAndCosts?: Record<string, unknown> | null;
+    sellAmount: string;
+    buyAmount: string;
+    quoteSellAmount?: string;
+    quoteFeeAmount?: string;
+    finalMaxSellAmount?: string;
+    sellTokenDecimals: number;
+    buyTokenDecimals: number;
+    marketLimitPrice: string | null;
+    validTo?: number | null;
+    adapterAwareQuote: boolean;
+    adapterAwareQuoteReason?: string;
+    debug?: Record<string, unknown>;
 }
 
 export interface DebtLimitSubmitParams extends DebtLimitPrepareParams {
@@ -361,6 +408,9 @@ export interface DebtLimitPostParams {
     limitOrder: Record<string, unknown>;
     swapSettings: Record<string, unknown>;
     instanceAddress: string;
+    quoteSellAmount?: string;
+    quoteFeeAmount?: string;
+    finalMaxSellAmount?: string;
 }
 
 export interface DebtLimitPostResult {
@@ -392,6 +442,20 @@ export const prepareDebtLimitSwap = async (
         return response.data as DebtLimitPrepareResult;
     } catch (error: any) {
         const errorMessage = getPublicApiErrorMessage(error, 'Error preparing limit swap');
+
+        throw new Error(errorMessage);
+    }
+};
+
+export const getDebtLimitQuote = async (
+    params: DebtLimitQuoteParams,
+): Promise<DebtLimitQuoteResult> => {
+    try {
+        const response = await apiClient.post('/aave/v3/quote/debt/limit', params);
+
+        return response.data as DebtLimitQuoteResult;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching limit quote');
 
         throw new Error(errorMessage);
     }
@@ -522,6 +586,7 @@ export const verifyDonationByWallet = async (params: {
 
 export default {
     getDebtQuote,
+    getDebtLimitQuote,
     buildDebtSwapTx,
     prepareDebtLimitSwap,
     submitDebtLimitSwap,
