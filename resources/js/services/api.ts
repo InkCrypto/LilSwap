@@ -301,7 +301,17 @@ export interface DebtLimitPrepareParams {
     priceQuoteTokenDecimals?: number;
     priceInverted?: boolean;
     priceDirection?: string;
-    partnerFee?: { volumeBps: number; recipient: string };
+}
+
+export interface DebtLimitFeeInfo {
+    enabled: boolean;
+    volumeBps: number;
+    recipient: string | null;
+    baseFeeBps: number;
+    discountPercent: number;
+    finalFeeBps: number;
+    estimatedAmountRaw?: string | null;
+    estimatedAmountToken?: string | null;
 }
 
 export interface DebtLimitPrepareResult {
@@ -328,6 +338,7 @@ export interface DebtLimitPrepareResult {
         buyAmount: string;
         kind: 'buy';
     };
+    fee?: DebtLimitFeeInfo;
     debug: Record<string, unknown>;
 }
 
@@ -371,6 +382,9 @@ export interface DebtLimitQuoteResult {
     buyToken: string;
     orderToSign?: Record<string, unknown>;
     amountsAndCosts?: Record<string, unknown> | null;
+    feeBps?: number;
+    discountPercent?: number;
+    lilSwapFee?: DebtLimitFeeInfo | null;
     orderSellAmount?: string;
     orderBuyAmount?: string;
     displaySourceAmount?: string;
@@ -430,6 +444,7 @@ export interface DebtLimitSubmitResult {
     };
     limitOrder?: Record<string, unknown>;
     swapSettings?: Record<string, unknown>;
+    fee?: DebtLimitFeeInfo;
     debug?: Record<string, unknown>;
 }
 
@@ -480,6 +495,7 @@ export interface DebtLimitPostResult {
     marketKey: string | null;
     orderId: string;
     instanceAddress: string;
+    fee?: DebtLimitFeeInfo;
     debug?: Record<string, unknown>;
 }
 

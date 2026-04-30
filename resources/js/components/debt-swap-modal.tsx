@@ -63,6 +63,79 @@ interface DebtSwapModalProps {
 
 const MAX_PREVALIDATIONS_PER_OPEN = 8;
 
+type TransactionOverviewRow = {
+    key: string;
+    label: React.ReactNode;
+    tooltip?: string;
+    value: React.ReactNode;
+    className?: string;
+};
+
+type DebtSwapTransactionOverviewProps = {
+    expanded: boolean;
+    onToggle: () => void;
+    discountPercent?: number;
+    totalCostsLabel?: React.ReactNode;
+    costsRows: TransactionOverviewRow[];
+    impactRows: TransactionOverviewRow[];
+};
+
+const OverviewRow: React.FC<TransactionOverviewRow> = ({ label, tooltip, value, className = '' }) => (
+    <div className={`flex justify-between items-center group ${className}`}>
+        <div className="flex items-center gap-1.5 text-slate-500">
+            <span>{label}</span>
+            {tooltip && <InfoTooltip content={tooltip} size={12} />}
+        </div>
+        <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+            {value}
+        </div>
+    </div>
+);
+
+const DebtSwapTransactionOverview: React.FC<DebtSwapTransactionOverviewProps> = ({
+    expanded,
+    onToggle,
+    discountPercent = 0,
+    totalCostsLabel,
+    costsRows,
+    impactRows,
+}) => (
+    <div className="mt-1 mb-1">
+        <div className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-0.5 px-1">Transaction overview</div>
+        <div className="transition-all">
+            <button
+                onClick={onToggle}
+                className="w-full flex items-center justify-between px-1 py-1 transition-colors"
+            >
+                <div className="flex items-center gap-2">
+                    <span className="font-medium text-[13px] text-slate-600 dark:text-slate-300">Costs & Fees</span>
+                    {discountPercent > 0 && (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold whitespace-nowrap">
+                            Discount Applied
+                        </span>
+                    )}
+                </div>
+                <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
+                    {totalCostsLabel != null && <span className="font-medium">{totalCostsLabel}</span>}
+                    {expanded ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </div>
+            </button>
+
+            {expanded && costsRows.length > 0 && (
+                <div className="relative ml-4 pl-4 pr-3 pb-1 pt-2 space-y-3 text-xs border-l border-dashed border-slate-300 dark:border-slate-700/50">
+                    {costsRows.map(({ key, ...row }) => <OverviewRow key={key} {...row} />)}
+                </div>
+            )}
+
+            {impactRows.length > 0 && (
+                <div className="px-1 pb-1 pt-1 space-y-2">
+                    {impactRows.map(({ key, ...row }) => <OverviewRow key={key} {...row} />)}
+                </div>
+            )}
+        </div>
+    </div>
+);
+
 export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     isOpen,
     onClose,
@@ -441,6 +514,29 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const displayDestinationRawAmount = hasCustomLimitPrice
         ? customOrderSellRawAmount
         : (debtLimitQuote?.displayDestinationAmountRaw || debtLimitQuote?.displayDestinationAmount || null);
+    const debtLimitLilSwapFee = debtLimitQuote?.lilSwapFee?.finalFeeBps && debtLimitQuote.lilSwapFee.finalFeeBps > 0
+        ? debtLimitQuote.lilSwapFee
+        : null;
+    const debtLimitLilSwapFeeAmount = useMemo(() => {
+        if (!debtLimitLilSwapFee?.estimatedAmountRaw || !toToken) {
+            return null;
+        }
+
+        try {
+            const formatted = formatUnits(BigInt(debtLimitLilSwapFee.estimatedAmountRaw), toToken.decimals || 18);
+            const numeric = parseFloat(formatted);
+
+            if (!Number.isFinite(numeric)) {
+                return null;
+            }
+
+            return numeric < 0.00001
+                ? `< 0.00001 ${getDisplaySymbol(toToken, localMarketAssets) || toToken.symbol}`
+                : `${numeric.toLocaleString('en-US', { maximumFractionDigits: 6 })} ${getDisplaySymbol(toToken, localMarketAssets) || toToken.symbol}`;
+        } catch {
+            return null;
+        }
+    }, [debtLimitLilSwapFee?.estimatedAmountRaw, toToken, localMarketAssets]);
 
     const limitOutputValue = useMemo(() => {
         if (displayDestinationRawAmount && toToken) {
@@ -1667,6 +1763,252 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
     const isBusy = isActionLoading;
     const isInsufficientBalance = swapAmount > (debtBalance || 0n);
+
+    const getHfColor = useCallback((hf: number) => {
+        if (hf === -1 || hf >= 3) return 'text-emerald-500';
+        if (hf >= 1.1) return 'text-orange-500';
+        return 'text-red-500';
+    }, []);
+
+    const formatBalanceAmount = useCallback((value: number) => {
+        if (!Number.isFinite(value) || value <= 0) return '0';
+        return value >= 1000
+            ? `${(value / 1000).toFixed(2)}K`
+            : value.toLocaleString('en-US', { maximumFractionDigits: 6 });
+    }, []);
+
+    const getTokenUsdPrice = useCallback((token: any) => {
+        const rawPrice = parseFloat(token?.priceInUSD || '0');
+        const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
+        return Number.isFinite(price) && price > 0 ? price : 0;
+    }, []);
+
+    const getRawAmountUsd = useCallback((rawAmount: string | undefined | null, token: any) => {
+        if (!rawAmount || !token) return null;
+        const price = getTokenUsdPrice(token);
+        if (price <= 0) return null;
+
+        try {
+            const amount = parseFloat(formatUnits(BigInt(rawAmount), token.decimals || 18));
+            return Number.isFinite(amount) ? amount * price : null;
+        } catch {
+            return null;
+        }
+    }, [getTokenUsdPrice]);
+
+    const buildBorrowImpactRows = useCallback(({
+        repaidRawAmount,
+        newDebtRawAmount,
+        repaidDebtUsd,
+        newDebtUsd,
+        unavailable = false,
+    }: {
+        repaidRawAmount?: string | null;
+        newDebtRawAmount?: string | null;
+        repaidDebtUsd?: number | null;
+        newDebtUsd?: number | null;
+        unavailable?: boolean;
+    }): TransactionOverviewRow[] => {
+        if (!fromToken || !toToken) return [];
+
+        const rows: TransactionOverviewRow[] = [];
+        const currentHfRaw = summary ? parseFloat(summary.healthFactor) : NaN;
+        const currentHf = (!Number.isFinite(currentHfRaw) || currentHfRaw > 100) ? -1 : currentHfRaw;
+        let simulatedHf = currentHf;
+
+        if (summary && repaidDebtUsd != null && newDebtUsd != null) {
+            try {
+                const currentTotalCollateralUSD = parseFloat(summary.totalCollateralUSD) || 0;
+                const currentLiquidationThreshold = parseFloat(summary.currentLiquidationThreshold) || 0;
+                const currentTotalBorrowsUSD = parseFloat(summary.totalBorrowsUSD) || 0;
+                const simulatedTotalBorrowsUSD = Math.max(0, currentTotalBorrowsUSD - repaidDebtUsd + newDebtUsd);
+                simulatedHf = simulatedTotalBorrowsUSD > 0.01
+                    ? (currentTotalCollateralUSD * currentLiquidationThreshold) / simulatedTotalBorrowsUSD
+                    : -1;
+            } catch (err) {
+                logger.error('HF Simulation Error', err);
+            }
+        }
+
+        rows.push({
+            key: 'health-factor',
+            label: (
+                <>
+                    <span>Health factor</span>
+                    {summary?.eModeCategoryId && summary.eModeCategoryId !== 0 && (
+                        <span className="px-1 py-0.5 rounded-sm bg-sky-100 dark:bg-sky-900/40 text-sky-600 dark:text-sky-400 text-[9px] font-black uppercase tracking-tighter leading-none border border-sky-200 dark:border-sky-800/50">
+                            E-Mode
+                        </span>
+                    )}
+                </>
+            ),
+            tooltip: 'Safety of your collateral against borrowed assets.',
+            className: 'text-[13px] text-slate-600 dark:text-slate-300 font-medium items-start',
+            value: summary ? (
+                <div className="flex items-center gap-1.5 font-bold text-sm">
+                    <span className={getHfColor(currentHf)}>{formatHF(currentHf)}</span>
+                    <span className="text-slate-400 font-normal">→</span>
+                    <InfoTooltip content="Liquidation < 1.0" size={12}>
+                        <span className={getHfColor(simulatedHf)}>
+                            {unavailable ? '—' : formatHF(simulatedHf)}
+                        </span>
+                    </InfoTooltip>
+                </div>
+            ) : <span>-</span>,
+        });
+
+        const fromAddr = (fromToken?.underlyingAsset || fromToken?.address || '').toLowerCase();
+        const fromMarketToken = (localMarketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === fromAddr);
+        const currentApy = (fromMarketToken?.variableBorrowRate ?? 0) * 100;
+        const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
+        const toMarketToken = (localMarketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === toAddr);
+        const newApy = (toMarketToken?.variableBorrowRate ?? 0) * 100;
+
+        rows.push({
+            key: 'borrow-apy',
+            label: 'Borrow APY',
+            tooltip: 'Annual interest on borrowed assets.',
+            className: 'text-[13px] text-slate-600 dark:text-slate-300 font-medium',
+            value: (
+                <div className="text-right flex items-center gap-1.5">
+                    <span className="text-slate-900 dark:text-slate-100">{formatAPY(currentApy)}</span>
+                    <span className="text-slate-400 font-normal">→</span>
+                    <span className="text-slate-900 dark:text-slate-100">{formatAPY(newApy)}</span>
+                </div>
+            ),
+        });
+
+        const activeBorrows = providedBorrows || borrows || [];
+        let fromRemaining = 0;
+        let toTotal = 0;
+
+        try {
+            const existingFromBorrow = activeBorrows.find(b => (b.underlyingAsset || '').toLowerCase() === fromAddr);
+            const existingFromBalance = existingFromBorrow ? parseFloat(existingFromBorrow.formattedAmount || '0') : 0;
+            const repaidAmount = repaidRawAmount ? parseFloat(formatUnits(BigInt(repaidRawAmount), fromToken.decimals || 18)) : 0;
+            fromRemaining = Math.max(0, existingFromBalance - repaidAmount);
+        } catch {
+            fromRemaining = 0;
+        }
+
+        try {
+            const existingToBorrow = activeBorrows.find(b => (b.underlyingAsset || '').toLowerCase() === toAddr);
+            const existingToBalance = existingToBorrow ? parseFloat(existingToBorrow.formattedAmount || '0') : 0;
+            const newDebt = newDebtRawAmount ? parseFloat(formatUnits(BigInt(newDebtRawAmount), toToken.decimals || 18)) : 0;
+            toTotal = existingToBalance + newDebt;
+        } catch {
+            toTotal = 0;
+        }
+
+        rows.push({
+            key: 'borrow-balance',
+            label: 'Borrow balance after switch',
+            tooltip: 'Estimated debt balance after swap.',
+            className: 'text-[13px] text-slate-600 dark:text-slate-300 font-medium pb-1',
+            value: (
+                <div className="text-right flex items-center gap-1.5">
+                    <div className="flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
+                        <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center border border-slate-200 dark:border-slate-700">
+                            <img src={getTokenLogo(fromToken.symbol)} className="w-full h-full object-cover" />
+                        </div>
+                        <span>{formatBalanceAmount(fromRemaining)}</span>
+                    </div>
+                    <span className="text-slate-400 font-normal">→</span>
+                    {unavailable ? (
+                        <span className="text-slate-400 font-medium">—</span>
+                    ) : (
+                        <div className="flex items-center gap-1.5 text-slate-900 dark:text-slate-100 font-medium">
+                            <div className="w-4 h-4 rounded-full overflow-hidden flex items-center justify-center border border-slate-200 dark:border-slate-700">
+                                <img src={getTokenLogo(toToken.symbol)} className="w-full h-full object-cover" />
+                            </div>
+                            <span>{formatBalanceAmount(toTotal)}</span>
+                        </div>
+                    )}
+                </div>
+            ),
+        });
+
+        return rows;
+    }, [fromToken, toToken, summary, localMarketAssets, providedBorrows, borrows, getHfColor, formatBalanceAmount]);
+
+    const limitOverviewCostsRows = useMemo<TransactionOverviewRow[]>(() => {
+        if (!debtLimitQuote || !toToken) return [];
+
+        const rows: TransactionOverviewRow[] = [];
+        const costs = (debtLimitQuote.amountsAndCosts?.costs || {}) as Record<string, any>;
+        const networkCost = costs.networkFee || costs.networkCosts || costs.networkCost;
+        const protocolCost = costs.protocolFee || costs.executionFee;
+        const partnerFeeCost = costs.partnerFee;
+
+        if (networkCost?.amount) {
+            rows.push({
+                key: 'network-costs',
+                label: 'Network costs',
+                tooltip: 'Estimated network gas cost.',
+                value: <span>{formatCompactToken(formatUnits(BigInt(networkCost.amount), toToken.decimals || 18), getDisplaySymbol(toToken, localMarketAssets) || toToken.symbol)}</span>,
+            });
+        }
+
+        if (protocolCost?.amount) {
+            rows.push({
+                key: 'execution-fee',
+                label: 'Execution fee',
+                tooltip: 'Estimated protocol execution cost.',
+                value: <span>{formatCompactToken(formatUnits(BigInt(protocolCost.amount), toToken.decimals || 18), getDisplaySymbol(toToken, localMarketAssets) || toToken.symbol)}</span>,
+            });
+        }
+
+        const fee = debtLimitQuote.lilSwapFee;
+        if (fee?.finalFeeBps && fee.finalFeeBps > 0) {
+            rows.push({
+                key: 'lilswap-fee',
+                label: (
+                    <>
+                        <span>LilSwap fee ({(fee.finalFeeBps / 100).toLocaleString('en-US', { maximumFractionDigits: 4 })}%)</span>
+                        {fee.discountPercent > 0 && (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
+                                {fee.discountPercent}% OFF
+                            </span>
+                        )}
+                    </>
+                ),
+                value: partnerFeeCost?.amount || fee.estimatedAmountRaw ? (
+                    <>
+                        <div className="w-3.5 h-3.5 rounded-full overflow-hidden">
+                            <img src={getTokenLogo(toToken.symbol)} className="w-full h-full object-cover" />
+                        </div>
+                        <span>{debtLimitLilSwapFeeAmount || '< 0.00001'}</span>
+                    </>
+                ) : <span>{(fee.finalFeeBps / 100).toLocaleString('en-US', { maximumFractionDigits: 4 })}%</span>,
+            });
+        }
+
+        return rows;
+    }, [debtLimitQuote, toToken, localMarketAssets, debtLimitLilSwapFeeAmount]);
+
+    const limitOverviewImpactRows = useMemo(() => {
+        if (!debtLimitQuote) return [];
+
+        const repaidRawAmount = orderBuyRawAmount || limitInputAmount.toString();
+        const newDebtRawAmount = displayDestinationRawAmount || orderSellRawAmount;
+        return buildBorrowImpactRows({
+            repaidRawAmount,
+            newDebtRawAmount,
+            repaidDebtUsd: getRawAmountUsd(repaidRawAmount, fromToken),
+            newDebtUsd: getRawAmountUsd(newDebtRawAmount, toToken),
+            unavailable: limitInputAmount > (debtBalance || 0n),
+        });
+    }, [debtLimitQuote, orderBuyRawAmount, limitInputAmount, displayDestinationRawAmount, orderSellRawAmount, buildBorrowImpactRows, getRawAmountUsd, fromToken, toToken, debtBalance]);
+
+    const limitTotalCostsLabel = useMemo(() => {
+        const fee = debtLimitQuote?.lilSwapFee;
+        if (!fee?.estimatedAmountRaw || !toToken) {
+            return limitOverviewCostsRows.length > 0 ? null : undefined;
+        }
+
+        const feeUsd = getRawAmountUsd(fee.estimatedAmountRaw, toToken);
+        return feeUsd == null ? null : formatUSD(feeUsd);
+    }, [debtLimitQuote?.lilSwapFee, toToken, getRawAmountUsd, limitOverviewCostsRows.length]);
 
     // --- Helpers ---
 
@@ -3500,6 +3842,17 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             <div className="px-1 -mt-1">
                                 <p className="text-xs text-slate-500 dark:text-slate-400 font-medium">Enter amount to get limit quote</p>
                             </div>
+                        )}
+
+                        {debtLimitQuote && fromToken && toToken && (
+                            <DebtSwapTransactionOverview
+                                expanded={showTransactionOverview}
+                                onToggle={() => setShowTransactionOverview(!showTransactionOverview)}
+                                discountPercent={Number(debtLimitQuote.lilSwapFee?.discountPercent || 0)}
+                                totalCostsLabel={limitTotalCostsLabel}
+                                costsRows={limitOverviewCostsRows}
+                                impactRows={limitOverviewImpactRows}
+                            />
                         )}
 
                         {(isPreparingDebtLimit || debtLimitPrepareResult || debtLimitPrepareError) && (
