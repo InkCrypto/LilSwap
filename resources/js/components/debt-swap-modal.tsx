@@ -34,7 +34,7 @@ import type { DebtLimitPostResult, DebtLimitPrepareResult, DebtLimitQuoteResult,
 import { getPairStatus, checkPairSwappable } from '../services/token-pair-cache';
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
-import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
+import { normalizeDecimalInput, parseCanonicalDecimalInput, assertPriceParserInvariants, computeLimitOutputDisplay } from '../utils/normalize-decimal-input';
 import { saveTokenSelection, getSavedTokenSelection } from '../utils/token-selection-memory';
 import { CompactAmountInput } from './compact-amount-input';
 import { InfoTooltip } from './info-tooltip';
@@ -110,9 +110,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
      */
     const [swapMode, setSwapMode] = useState<'market' | 'limit'>('market');
     const [isPreparingDebtLimit, setIsPreparingDebtLimit] = useState(false);
-    const [limitInputValue, setLimitInputValue] = useState('');
-    const [limitInputAmount, setLimitInputAmount] = useState<bigint>(0n);
     const [limitPrice, setLimitPrice] = useState('');
+    const [limitPriceInput, setLimitPriceInput] = useState('');
+    const [canonicalLimitPrice, setCanonicalLimitPrice] = useState('');
+    const [limitPriceInputError, setLimitPriceInputError] = useState<string | null>(null);
+    const [limitPriceCommitNonce, setLimitPriceCommitNonce] = useState(0);
     const [marketLimitPrice, setMarketLimitPrice] = useState('');
     const [priceLimitDisplayInverted, setPriceLimitDisplayInverted] = useState(false);
     const [limitExpirySeconds, setLimitExpirySeconds] = useState(600);
@@ -137,6 +139,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const [isPostingDebtLimitOrder, setIsPostingDebtLimitOrder] = useState(false);
     const [debtLimitPostResult, setDebtLimitPostResult] = useState<DebtLimitPostResult | null>(null);
     const [debtLimitPostError, setDebtLimitPostError] = useState<string | null>(null);
+    const [limitOutputInputValue, setLimitOutputInputValue] = useState('');
+    const isEditingLimitOutputRef = useRef(false);
 
 
     // Refs
@@ -149,6 +153,17 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const lastToastErrorRef = useRef<string | null>(null);
     const debtLimitPrepareRequestRef = useRef(0);
     const debtLimitQuoteRequestRef = useRef(0);
+    const skipNextLimitPriceInputDebounceRef = useRef(false);
+    const hasCustomLimitPriceRef = useRef(false);
+
+    useEffect(() => {
+        if ((import.meta as any).env.DEV) {
+            const errors = assertPriceParserInvariants();
+            if (errors.length > 0) {
+                logger.error('[DebtSwapModal][DEV] Price parser invariant failures', { errors });
+            }
+        }
+    }, []);
 
     const limitExpiryOptions = useMemo(() => [
         { label: '10 minutes', value: 600 },
@@ -200,12 +215,14 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         marketKey: initialMarketKey || effectiveNetwork?.key,
         account,
         adapterAddress,
-        enabled: isOpen,
+        enabled: isOpen && swapMode === 'market',
         freezeQuote,
         marketAssets: localMarketAssets,
     });
 
     // --- Computed Values ---
+    const limitInputValue = inputValue;
+    const limitInputAmount = swapAmount;
 
     const activeDebtAssets = useMemo(() => {
         const sourceBorrows = providedBorrows || borrows || [];
@@ -320,40 +337,153 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             .replace(/\.?0+$/, '');
     }, []);
 
+    const formatRawAmountForDisplay = useCallback((rawAmount: string | undefined | null, decimals: number) => {
+        if (!rawAmount) {
+            return '';
+        }
+
+        try {
+            return formatPlainAmount(parseFloat(formatUnits(BigInt(rawAmount), decimals)));
+        } catch {
+            return '';
+        }
+    }, [formatPlainAmount]);
+
+    const getUserLimitPrice = useCallback(() => {
+        const canonicalDestinationPerSource = parseFloat(canonicalLimitPrice || '0');
+
+        if (!Number.isFinite(canonicalDestinationPerSource) || canonicalDestinationPerSource <= 0) {
+            return '';
+        }
+
+        return priceLimitDisplayInverted
+            ? formatPlainAmount(1 / canonicalDestinationPerSource)
+            : canonicalLimitPrice;
+    }, [canonicalLimitPrice, priceLimitDisplayInverted, formatPlainAmount]);
+
+    const priceBaseToken = priceLimitDisplayInverted ? toToken : fromToken;
+    const priceQuoteToken = priceLimitDisplayInverted ? fromToken : toToken;
+    const priceDirection = priceLimitDisplayInverted ? 'sell_to_buy' : 'buy_to_sell';
+
+    const getPriceMetadata = useCallback(() => ({
+        userLimitPrice: hasCustomLimitPrice ? getUserLimitPrice() : undefined,
+        isLimitPriceCustom: hasCustomLimitPrice,
+        priceBaseTokenAddress: priceBaseToken?.address || priceBaseToken?.underlyingAsset || undefined,
+        priceBaseTokenSymbol: priceBaseToken?.symbol || undefined,
+        priceBaseTokenDecimals: priceBaseToken?.decimals ?? undefined,
+        priceQuoteTokenAddress: priceQuoteToken?.address || priceQuoteToken?.underlyingAsset || undefined,
+        priceQuoteTokenSymbol: priceQuoteToken?.symbol || undefined,
+        priceQuoteTokenDecimals: priceQuoteToken?.decimals ?? undefined,
+        priceInverted: priceLimitDisplayInverted,
+        priceDirection,
+    }), [
+        hasCustomLimitPrice,
+        getUserLimitPrice,
+        priceBaseToken,
+        priceQuoteToken,
+        priceLimitDisplayInverted,
+        priceDirection,
+    ]);
+
+    const calculateBuyLimitSellAmount = useCallback((
+        buyAmountRaw: bigint,
+        userLimitPrice: string,
+        buyDecimals: number,
+        sellDecimals: number,
+        direction: string,
+    ) => {
+        if (buyAmountRaw <= 0n || !userLimitPrice) {
+            return 0n;
+        }
+
+        try {
+            const priceScale = 18;
+            const priceRaw = parseUnits(userLimitPrice, priceScale);
+
+            if (priceRaw <= 0n) {
+                return 0n;
+            }
+
+            if (direction === 'buy_to_sell') {
+                const numerator = buyAmountRaw * priceRaw * (10n ** BigInt(sellDecimals));
+                const denominator = (10n ** BigInt(priceScale)) * (10n ** BigInt(buyDecimals));
+
+                return numerator / denominator;
+            }
+
+            const numerator = buyAmountRaw * (10n ** BigInt(sellDecimals)) * (10n ** BigInt(priceScale));
+            const denominator = priceRaw * (10n ** BigInt(buyDecimals));
+
+            return numerator / denominator;
+        } catch {
+            return 0n;
+        }
+    }, []);
+
+    const orderSellRawAmount = debtLimitQuote?.orderSellAmountRaw || debtLimitQuote?.orderSellAmount || debtLimitQuote?.finalMaxSellAmount || debtLimitQuote?.sellAmount || null;
+    const orderBuyRawAmount = debtLimitQuote?.orderBuyAmountRaw || debtLimitQuote?.orderBuyAmount || debtLimitQuote?.buyAmount || null;
+    const customUserLimitPrice = hasCustomLimitPrice ? getUserLimitPrice() : '';
+    const customOrderSellRawAmount = useMemo(() => {
+        if (!hasCustomLimitPrice || !customUserLimitPrice || !fromToken || !toToken || limitInputAmount <= 0n) {
+            return null;
+        }
+
+        const raw = calculateBuyLimitSellAmount(
+            limitInputAmount,
+            customUserLimitPrice,
+            fromToken.decimals ?? 18,
+            toToken.decimals ?? 18,
+            priceDirection,
+        );
+
+        return raw > 0n ? raw.toString() : null;
+    }, [hasCustomLimitPrice, customUserLimitPrice, fromToken, toToken, limitInputAmount, calculateBuyLimitSellAmount, priceDirection]);
+    const displayDestinationRawAmount = hasCustomLimitPrice
+        ? customOrderSellRawAmount
+        : (debtLimitQuote?.displayDestinationAmountRaw || debtLimitQuote?.displayDestinationAmount || null);
+
     const limitOutputValue = useMemo(() => {
-        if (debtLimitQuote?.sellAmount && toToken) {
-            return formatPlainAmount(parseFloat(formatUnits(BigInt(debtLimitQuote.sellAmount), toToken.decimals || 18)));
+        if (displayDestinationRawAmount && toToken) {
+            return formatRawAmountForDisplay(displayDestinationRawAmount, toToken.decimals || 18);
+        }
+
+        const computed = computeLimitOutputDisplay(
+            limitInputValue,
+            canonicalLimitPrice,
+            priceBaseToken?.symbol || '',
+            priceQuoteToken?.symbol || '',
+            priceLimitDisplayInverted,
+        );
+
+        if (computed) {
+            return computed;
         }
 
         const sourceAmount = parseFloat(limitInputValue || '0');
-        const price = parseFloat(limitPrice || '0');
+        const price = parseFloat(canonicalLimitPrice || '0');
 
         if (!Number.isFinite(sourceAmount) || !Number.isFinite(price) || sourceAmount <= 0 || price <= 0) {
             return '';
         }
 
         return formatPlainAmount(sourceAmount * price);
-    }, [debtLimitQuote, toToken, limitInputValue, limitPrice, formatPlainAmount]);
+    }, [displayDestinationRawAmount, toToken, limitInputValue, canonicalLimitPrice, priceBaseToken, priceQuoteToken, priceLimitDisplayInverted, formatPlainAmount, formatRawAmountForDisplay]);
 
     const limitOutputAmount = useMemo(() => {
-        if (debtLimitQuote?.sellAmount) {
-            try {
-                return BigInt(debtLimitQuote.sellAmount);
-            } catch {
-                return 0n;
-            }
+        if (hasCustomLimitPrice) {
+            return customOrderSellRawAmount ? BigInt(customOrderSellRawAmount) : 0n;
         }
 
-        if (!limitOutputValue || !toToken) {
+        if (!orderSellRawAmount) {
             return 0n;
         }
 
         try {
-            return parseUnits(limitOutputValue, toToken.decimals || 18);
+            return BigInt(orderSellRawAmount);
         } catch {
             return 0n;
         }
-    }, [debtLimitQuote, limitOutputValue, toToken]);
+    }, [orderSellRawAmount, hasCustomLimitPrice, customOrderSellRawAmount]);
 
     const limitInputSecondaryValue = useMemo(() => {
         if (!fromToken) {
@@ -382,25 +512,30 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         return formatUSD(amount * (Number.isFinite(price) ? price : 0));
     }, [fromToken, limitInputValue, isUSDMode, limitInputAmount, localMarketAssets]);
 
+    const limitOutputTokenAmount = useMemo(() => {
+        if (limitOutputInputValue) return limitOutputInputValue;
+        return limitOutputValue;
+    }, [limitOutputInputValue, limitOutputValue]);
+
     const limitOutputDisplayValue = useMemo(() => {
         if (!toToken) {
             return '';
         }
 
         if (!isUSDMode) {
-            return limitOutputValue;
+            return limitOutputTokenAmount;
         }
 
         const rawPrice = parseFloat(toToken.priceInUSD || '0');
         const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
-        const amount = parseFloat(limitOutputValue || '0');
+        const amount = parseFloat(limitOutputTokenAmount || '0');
 
         if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(amount) || amount <= 0) {
             return '';
         }
 
         return (amount * price).toFixed(2);
-    }, [isUSDMode, limitOutputValue, toToken]);
+    }, [isUSDMode, limitOutputTokenAmount, toToken]);
 
     const limitOutputSecondaryValue = useMemo(() => {
         if (!toToken) {
@@ -408,17 +543,17 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         }
 
         if (isUSDMode) {
-            return limitOutputValue
-                ? formatCompactToken(limitOutputValue, getDisplaySymbol(toToken, localMarketAssets) || toToken.symbol)
+            return limitOutputTokenAmount
+                ? formatCompactToken(limitOutputTokenAmount, getDisplaySymbol(toToken, localMarketAssets) || toToken.symbol)
                 : `0 ${getDisplaySymbol(toToken, localMarketAssets) || toToken.symbol}`;
         }
 
         const rawPrice = parseFloat(toToken.priceInUSD || '0');
         const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
-        const amount = parseFloat(limitOutputValue || '0');
+        const amount = parseFloat(limitOutputTokenAmount || '0');
 
         return formatUSD(amount * (Number.isFinite(price) ? price : 0));
-    }, [toToken, limitOutputValue, isUSDMode, localMarketAssets]);
+    }, [toToken, limitOutputTokenAmount, isUSDMode, localMarketAssets]);
 
     const debtLimitQuoteState = useMemo(() => {
         if (isDebtLimitQuoteLoading) return 'quoteLoading';
@@ -426,7 +561,55 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         if (debtLimitQuote) return 'quoteReady';
         return 'quoteMissing';
     }, [isDebtLimitQuoteLoading, debtLimitQuoteError, debtLimitQuote]);
-    const customLimitPriceKey = hasCustomLimitPrice ? limitPrice : '';
+
+    useEffect(() => {
+        hasCustomLimitPriceRef.current = hasCustomLimitPrice;
+    }, [hasCustomLimitPrice]);
+
+    useEffect(() => {
+        if (isEditingLimitOutputRef.current) return;
+        if (swapMode !== 'limit') return;
+
+        const computed = computeLimitOutputDisplay(
+            limitInputValue,
+            canonicalLimitPrice,
+            priceBaseToken?.symbol || '',
+            priceQuoteToken?.symbol || '',
+            priceLimitDisplayInverted,
+        );
+
+        if (computed) {
+            setLimitOutputInputValue(computed);
+        } else if (displayDestinationRawAmount && toToken) {
+            setLimitOutputInputValue(formatRawAmountForDisplay(displayDestinationRawAmount, toToken.decimals || 18));
+        } else {
+            setLimitOutputInputValue('');
+        }
+
+        if ((import.meta as any).env.DEV && computed) {
+            logger.debug('[DebtSwapModal][DEV] Output display computation', {
+                rawInput: limitPriceInput,
+                canonicalLimitPrice,
+                parsedLimitPriceNumber: parseFloat(canonicalLimitPrice || '0'),
+                formattedLimitPrice: formatPlainAmount(parseFloat(canonicalLimitPrice || '0')),
+                sourceAmount: limitInputValue,
+                expectedOutputByPrice: computed,
+                actualDisplayedOutput: computed,
+                priceBaseToken: priceBaseToken?.symbol,
+                priceQuoteToken: priceQuoteToken?.symbol,
+                priceInverted: priceLimitDisplayInverted,
+            });
+        }
+    }, [canonicalLimitPrice, limitInputValue, displayDestinationRawAmount, toToken, swapMode, formatPlainAmount, formatRawAmountForDisplay, priceBaseToken, priceQuoteToken, priceLimitDisplayInverted]);
+
+    useEffect(() => {
+        isEditingLimitOutputRef.current = false;
+    }, [isUSDMode]);
+
+    useEffect(() => {
+        if (swapMode !== 'limit') return;
+        isEditingLimitOutputRef.current = false;
+    }, [limitInputAmount, swapMode]);
 
     const resetDebtLimitPreparedState = useCallback(() => {
         setDebtLimitPrepareResult(null);
@@ -442,34 +625,147 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     }, []);
 
     const togglePriceLimitDisplay = useCallback(() => {
-        setPriceLimitDisplayInverted(prev => !prev);
-    }, []);
+        setPriceLimitDisplayInverted((prev) => {
+            const nextInverted = !prev;
+            const price = parseFloat(canonicalLimitPrice || '0');
+            skipNextLimitPriceInputDebounceRef.current = true;
+            setLimitPriceInput(Number.isFinite(price) && price > 0
+                ? formatPlainAmount(nextInverted ? 1 / price : price)
+                : ''
+            );
+            setLimitPriceInputError(null);
+            resetDebtLimitPreparedState();
+            return nextInverted;
+        });
+    }, [canonicalLimitPrice, formatPlainAmount, resetDebtLimitPreparedState]);
+
+    const handleLimitOutputChange = useCallback((rawValue: string) => {
+        const normalized = normalizeDecimalInput(rawValue);
+        isEditingLimitOutputRef.current = true;
+
+        let tokenAmount: number;
+
+        if (isUSDMode) {
+            const usdValue = parseFloat(normalized || '0');
+            const rawPrice = parseFloat(toToken?.priceInUSD || '0');
+            const tokenPrice = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
+            if (!Number.isFinite(usdValue) || !Number.isFinite(tokenPrice) || tokenPrice <= 0 || usdValue <= 0) {
+                setLimitOutputInputValue('');
+                return;
+            }
+            tokenAmount = usdValue / tokenPrice;
+            setLimitOutputInputValue(formatPlainAmount(tokenAmount));
+        } else {
+            tokenAmount = parseFloat(normalized || '0');
+            setLimitOutputInputValue(normalized);
+        }
+
+        const inputNum = parseFloat(limitInputValue || '0');
+
+        if (!Number.isFinite(tokenAmount) || !Number.isFinite(inputNum) || tokenAmount <= 0 || inputNum <= 0) {
+            return;
+        }
+
+        const canonicalPrice = tokenAmount / inputNum;
+        const nextLimitPrice = formatPlainAmount(canonicalPrice);
+        setLimitPrice(nextLimitPrice);
+        setCanonicalLimitPrice(nextLimitPrice);
+        setHasCustomLimitPrice(true);
+        skipNextLimitPriceInputDebounceRef.current = true;
+
+        if (priceLimitDisplayInverted) {
+            setLimitPriceInput(Number.isFinite(1 / canonicalPrice) && canonicalPrice > 0
+                ? formatPlainAmount(1 / canonicalPrice)
+                : ''
+            );
+        } else {
+            setLimitPriceInput(nextLimitPrice);
+        }
+        setLimitPriceInputError(null);
+
+        setLimitPriceCommitNonce((n) => n + 1);
+        resetDebtLimitPreparedState();
+    }, [limitInputValue, priceLimitDisplayInverted, isUSDMode, toToken, formatPlainAmount, resetDebtLimitPreparedState]);
 
     const displayLimitPrice = useMemo(() => {
-        if (!priceLimitDisplayInverted) {
-            return limitPrice;
-        }
-
-        const price = parseFloat(limitPrice || '0');
-        if (!Number.isFinite(price) || price <= 0) {
-            return '';
-        }
-
-        return formatPlainAmount(1 / price);
-    }, [priceLimitDisplayInverted, limitPrice, formatPlainAmount]);
+        return limitPriceInput;
+    }, [limitPriceInput]);
 
     const displayMarketLimitPrice = useMemo(() => {
-        if (!priceLimitDisplayInverted) {
-            return marketLimitPrice;
-        }
-
         const price = parseFloat(marketLimitPrice || '0');
         if (!Number.isFinite(price) || price <= 0) {
             return '';
         }
 
-        return formatPlainAmount(1 / price);
+        return priceLimitDisplayInverted ? marketLimitPrice : formatPlainAmount(1 / price);
     }, [priceLimitDisplayInverted, marketLimitPrice, formatPlainAmount]);
+
+    useEffect(() => {
+        if (skipNextLimitPriceInputDebounceRef.current) {
+            skipNextLimitPriceInputDebounceRef.current = false;
+            return;
+        }
+
+        if (swapMode !== 'limit') {
+            return;
+        }
+
+        const timeout = window.setTimeout(() => {
+            const parsedPrice = parseCanonicalDecimalInput(limitPriceInput);
+            setLimitPriceInputError(parsedPrice.error);
+
+            const displayPrice = parseFloat(parsedPrice.value || '0');
+            const nextCanonicalPrice = !parsedPrice.error && Number.isFinite(displayPrice) && displayPrice > 0
+                ? formatPlainAmount(priceLimitDisplayInverted ? 1 / displayPrice : displayPrice)
+                : '';
+
+            const nextCanonicalLimitPrice = !parsedPrice.error && parsedPrice.value && Number.isFinite(displayPrice) && displayPrice > 0
+                ? parsedPrice.value
+                : '';
+
+            if (nextCanonicalPrice === limitPrice && nextCanonicalLimitPrice === canonicalLimitPrice) {
+                return;
+            }
+
+            setLimitPrice(nextCanonicalPrice);
+            setCanonicalLimitPrice(nextCanonicalLimitPrice);
+            setLimitPriceCommitNonce((value) => value + 1);
+            resetDebtLimitPreparedState();
+
+            if ((import.meta as any).env.DEV) {
+                const sourceAmount = limitInputValue;
+                logger.debug('[DebtSwapModal][DEV] Price debounce', {
+                    rawInput: limitPriceInput,
+                    canonicalLimitPrice: nextCanonicalLimitPrice,
+                    parsedLimitPriceNumber: nextCanonicalPrice,
+                    sourceAmount,
+                    expectedOutputByPrice: computeLimitOutputDisplay(
+                        sourceAmount,
+                        nextCanonicalLimitPrice,
+                        priceBaseToken?.symbol || '',
+                        priceQuoteToken?.symbol || '',
+                        priceLimitDisplayInverted,
+                    ),
+                    priceBaseToken: priceBaseToken?.symbol,
+                    priceQuoteToken: priceQuoteToken?.symbol,
+                    priceInverted: priceLimitDisplayInverted,
+                });
+            }
+        }, 500);
+
+        return () => window.clearTimeout(timeout);
+    }, [
+        swapMode,
+        limitPriceInput,
+        priceLimitDisplayInverted,
+        limitPrice,
+        canonicalLimitPrice,
+        formatPlainAmount,
+        resetDebtLimitPreparedState,
+        limitInputValue,
+        priceBaseToken,
+        priceQuoteToken,
+    ]);
 
     useEffect(() => {
         if (swapMode !== 'limit') return;
@@ -518,19 +814,120 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                     },
                     buyAmount: limitInputAmount.toString(),
                     validTo: nextValidTo,
+                    ...getPriceMetadata(),
                 });
 
                 if (requestId !== debtLimitQuoteRequestRef.current) return;
 
-                const quoteValidTo = typeof result.validTo === 'number' ? result.validTo : nextValidTo;
+                const quoteValidTo = typeof result.orderValidTo === 'number' ? result.orderValidTo : nextValidTo;
                 setDebtLimitQuote(result);
                 setDebtLimitValidTo(quoteValidTo);
+                isEditingLimitOutputRef.current = false;
 
-                const quoteMarketLimitPrice = result.marketLimitPrice || '';
+                const quoteMarketLimitPrice = result.displayLimitPrice || result.marketLimitPrice || '';
                 setMarketLimitPrice(quoteMarketLimitPrice);
 
-                if (!hasCustomLimitPrice && quoteMarketLimitPrice) {
-                    setLimitPrice(quoteMarketLimitPrice);
+                if (!hasCustomLimitPriceRef.current && quoteMarketLimitPrice) {
+                    skipNextLimitPriceInputDebounceRef.current = true;
+                    const quoteDisplayPrice = parseFloat(quoteMarketLimitPrice);
+                    const invertedPrice = Number.isFinite(quoteDisplayPrice) && quoteDisplayPrice > 0
+                        ? formatPlainAmount(1 / quoteDisplayPrice)
+                        : '';
+                    const displayPrice = priceLimitDisplayInverted
+                        ? quoteMarketLimitPrice
+                        : invertedPrice;
+                    const nextCanonical = priceLimitDisplayInverted
+                        ? (Number.isFinite(quoteDisplayPrice) && quoteDisplayPrice > 0 ? quoteMarketLimitPrice : '')
+                        : invertedPrice;
+
+                    setLimitPriceInput(displayPrice);
+                    setLimitPriceInputError(null);
+                    setLimitPrice(invertedPrice);
+                    setCanonicalLimitPrice(
+                        priceLimitDisplayInverted
+                            ? (Number.isFinite(1 / parseFloat(quoteMarketLimitPrice || '0')) && parseFloat(quoteMarketLimitPrice || '0') > 0
+                                ? formatPlainAmount(1 / parseFloat(quoteMarketLimitPrice))
+                                : '')
+                            : (Number.isFinite(quoteDisplayPrice) && quoteDisplayPrice > 0
+                                ? formatPlainAmount(1 / quoteDisplayPrice)
+                                : '')
+                    );
+                    setLimitPriceCommitNonce((value) => value + 1);
+
+                    if ((import.meta as any).env.DEV) {
+                        logger.debug('[DebtSwapModal][DEV] Quote market price init', {
+                            rawQuoteMarketLimitPrice: quoteMarketLimitPrice,
+                            quoteDisplayPrice,
+                            invertedPrice,
+                            displayPrice,
+                            canonicalLimitPrice: priceLimitDisplayInverted
+                                ? formatPlainAmount(1 / parseFloat(quoteMarketLimitPrice))
+                                : invertedPrice,
+                            priceLimitDisplayInverted,
+                            expectedOutput: computeLimitOutputDisplay(
+                                limitInputValue,
+                                invertedPrice,
+                                priceBaseToken?.symbol || '',
+                                priceQuoteToken?.symbol || '',
+                                false,
+                            ),
+                        });
+                    }
+                }
+
+                logger.debug('[DebtSwapModal][Limit] Quote display amount selection', {
+                    sourceAmountRaw: result.displaySourceAmount || result.orderBuyAmount || result.buyAmount,
+                    displayReceiveAtMostRaw: result.displayDestinationAmountRaw || result.displayDestinationAmount,
+                    displayReceiveAtMostFormatted: result.displayDestinationAmountFormatted,
+                    orderSellAmountRaw: result.orderSellAmountRaw || result.orderSellAmount || result.finalMaxSellAmount || result.sellAmount,
+                    finalMaxSellAmount: result.finalMaxSellAmount,
+                    quoteSellAmount: result.quoteSellAmount,
+                    quoteFeeAmount: result.quoteFeeAmount,
+                    quoteResponseQuoteSellAmount: (result.debug?.amountSelection as any)?.sellTokenCandidatesRaw?.quoteResponseQuoteSellAmount,
+                    quoteResponseQuoteFeeAmount: (result.debug?.amountSelection as any)?.sellTokenCandidatesRaw?.quoteResponseQuoteFeeAmount,
+                    beforeAllFeesSellAmount: (result.amountsAndCosts?.beforeAllFees as any)?.sellAmount,
+                    amountsToSignSellAmount: (result.amountsAndCosts?.amountsToSign as any)?.sellAmount,
+                    orderToSignSellAmount: (result.orderToSign as any)?.sellAmount,
+                    beforeNetworkCostsSellAmount: (result.amountsAndCosts?.beforeNetworkCosts as any)?.sellAmount,
+                    afterNetworkCostsSellAmount: (result.amountsAndCosts?.afterNetworkCosts as any)?.sellAmount,
+                    afterPartnerFeesSellAmount: (result.amountsAndCosts?.afterPartnerFees as any)?.sellAmount,
+                    afterSlippageSellAmount: (result.amountsAndCosts?.afterSlippage as any)?.sellAmount,
+                    selectedDisplayAmountSource: result.debug?.amountSelection
+                        ? (result.debug.amountSelection as any).selectedDisplayAmountSource
+                        : 'quote.displayDestinationAmount',
+                    priceDisplayAmount: result.marketLimitPrice,
+                    displayLimitPrice: result.displayLimitPrice,
+                    normalizedCandidates: (result.debug?.amountSelection as any)?.sellTokenCandidatesFormatted,
+                });
+
+                const displayReceiveAtMostRaw = result.displayDestinationAmountRaw || result.displayDestinationAmount;
+                const orderSellAmountRaw = result.orderSellAmountRaw || result.orderSellAmount || result.finalMaxSellAmount || result.sellAmount;
+
+                if (
+                    (import.meta as any).env.DEV &&
+                    displayReceiveAtMostRaw &&
+                    orderSellAmountRaw &&
+                    displayReceiveAtMostRaw !== orderSellAmountRaw
+                ) {
+                    logger.warn('[DebtSwapModal][Limit] Display amount differs from order max sell amount', {
+                        displayReceiveAtMostRaw,
+                        orderSellAmountRaw,
+                    });
+                }
+
+                if (
+                    (import.meta as any).env.DEV &&
+                    displayReceiveAtMostRaw &&
+                    orderSellAmountRaw &&
+                    displayReceiveAtMostRaw === orderSellAmountRaw &&
+                    result.quoteSellAmount &&
+                    result.quoteSellAmount !== orderSellAmountRaw
+                ) {
+                    logger.warn('[DebtSwapModal][Limit] Display amount equals order max sell while quote sell differs', {
+                        displayReceiveAtMostRaw,
+                        orderSellAmountRaw,
+                        quoteSellAmount: result.quoteSellAmount,
+                    });
                 }
             } catch (err: any) {
                 if (requestId !== debtLimitQuoteRequestRef.current) return;
@@ -559,16 +956,19 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         toToken?.decimals,
         toToken?.symbol,
         limitInputAmount,
-        customLimitPriceKey,
         limitExpirySeconds,
         debtBalance,
-        hasCustomLimitPrice,
+        priceLimitDisplayInverted,
+        formatPlainAmount,
+        getUserLimitPrice,
+        getPriceMetadata,
         resetDebtLimitPreparedState,
     ]);
 
     const handlePrepareLimitSwap = useCallback(async () => {
         if (swapMode !== 'limit') return;
         if (!isOpen || !debtLimitQuote) return;
+        const orderBuyAmount = orderBuyRawAmount || limitInputAmount.toString();
         if (!account || !fromToken || !toToken || !debtLimitValidTo || limitInputAmount <= 0n || limitOutputAmount <= 0n) return;
 
         const varDebtToken = toDebtTokenAddress || toToken.variableDebtTokenAddress;
@@ -597,12 +997,15 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 variableDebtTokenAddress: varDebtToken,
             },
             sellAmount: limitOutputAmount.toString(),
-            buyAmount: limitInputAmount.toString(),
+            buyAmount: orderBuyAmount,
             validTo,
-            quoteId: debtLimitQuote?.quoteId,
-            quoteSellAmount: debtLimitQuote?.quoteSellAmount,
-            quoteFeeAmount: debtLimitQuote?.quoteFeeAmount,
-            finalMaxSellAmount: debtLimitQuote?.finalMaxSellAmount || debtLimitQuote?.sellAmount,
+            quoteId: hasCustomLimitPrice ? undefined : debtLimitQuote?.quoteId,
+            quoteSellAmount: hasCustomLimitPrice ? undefined : debtLimitQuote?.quoteSellAmount,
+            quoteFeeAmount: hasCustomLimitPrice ? undefined : debtLimitQuote?.quoteFeeAmount,
+            finalMaxSellAmount: hasCustomLimitPrice
+                ? limitOutputAmount.toString()
+                : debtLimitQuote?.orderSellAmountRaw || debtLimitQuote?.orderSellAmount || debtLimitQuote?.finalMaxSellAmount || debtLimitQuote?.sellAmount,
+            ...getPriceMetadata(),
             orderType: 'limit' as const,
         };
 
@@ -633,7 +1036,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 setIsPreparingDebtLimit(false);
             }
         }
-    }, [swapMode, isOpen, account, fromToken, toToken, limitInputAmount, limitOutputAmount, debtLimitValidTo, hasCustomLimitPrice, debtLimitQuote, toDebtTokenAddress, effectiveNetwork, initialMarketKey]);
+    }, [swapMode, isOpen, account, fromToken, toToken, limitInputAmount, limitOutputAmount, debtLimitValidTo, hasCustomLimitPrice, debtLimitQuote, toDebtTokenAddress, effectiveNetwork, initialMarketKey, orderBuyRawAmount, customUserLimitPrice, getUserLimitPrice, getPriceMetadata]);
 
     /**
      * Phase 4 (revised): Sign an EIP-712 DelegationWithSig permit for the destination variableDebtToken.
@@ -794,6 +1197,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         setDebtLimitPostError(null);
 
         try {
+            const orderBuyAmount = orderBuyRawAmount || limitInputAmount.toString();
             const result = await submitDebtLimitSwap({
                 walletAddress: account,
                 chainId: effectiveNetwork.chainId,
@@ -810,12 +1214,15 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                     variableDebtTokenAddress: varDebtToken,
                 },
                 sellAmount: limitOutputAmount.toString(),
-                buyAmount: limitInputAmount.toString(),
+                buyAmount: orderBuyAmount,
                 validTo: debtLimitPrepareResult.validTo,
-                quoteId: debtLimitQuote?.quoteId,
-                quoteSellAmount: debtLimitQuote?.quoteSellAmount,
-                quoteFeeAmount: debtLimitQuote?.quoteFeeAmount,
-                finalMaxSellAmount: debtLimitQuote?.finalMaxSellAmount || debtLimitQuote?.sellAmount,
+                quoteId: hasCustomLimitPrice ? undefined : debtLimitQuote?.quoteId,
+                quoteSellAmount: hasCustomLimitPrice ? undefined : debtLimitQuote?.quoteSellAmount,
+                quoteFeeAmount: hasCustomLimitPrice ? undefined : debtLimitQuote?.quoteFeeAmount,
+                finalMaxSellAmount: hasCustomLimitPrice
+                    ? limitOutputAmount.toString()
+                    : debtLimitQuote?.orderSellAmountRaw || debtLimitQuote?.orderSellAmount || debtLimitQuote?.finalMaxSellAmount || debtLimitQuote?.sellAmount,
+                ...getPriceMetadata(),
                 orderType: 'limit',
                 approvedAddress: debtLimitPrepareResult.instanceAddress,
                 delegationPermit: {
@@ -861,7 +1268,67 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         limitInputAmount,
         hasCustomLimitPrice,
         debtLimitQuote,
+        orderBuyRawAmount,
+        customUserLimitPrice,
+        getPriceMetadata,
     ]);
+
+    const validateSignedOrderLimitPrice = useCallback((limitOrder: Record<string, unknown> | undefined | null) => {
+        if (!hasCustomLimitPrice) {
+            return true;
+        }
+
+        const metadata = getPriceMetadata();
+        const userPrice = parseFloat(metadata.userLimitPrice || '0');
+        const sellTokenAddress = String(limitOrder?.sellToken || '').toLowerCase();
+        const buyTokenAddress = String(limitOrder?.buyToken || '').toLowerCase();
+        const sellAmountRaw = limitOrder?.sellAmount?.toString();
+        const buyAmountRaw = limitOrder?.buyAmount?.toString();
+        const baseAddress = String(metadata.priceBaseTokenAddress || '').toLowerCase();
+        const quoteAddress = String(metadata.priceQuoteTokenAddress || '').toLowerCase();
+
+        if (
+            !Number.isFinite(userPrice) ||
+            userPrice <= 0 ||
+            !sellAmountRaw ||
+            !buyAmountRaw ||
+            !baseAddress ||
+            !quoteAddress
+        ) {
+            return false;
+        }
+
+        const sellAmount = parseFloat(formatUnits(BigInt(sellAmountRaw), toToken?.decimals ?? 18));
+        const buyAmount = parseFloat(formatUnits(BigInt(buyAmountRaw), fromToken?.decimals ?? 18));
+        const baseAmount = baseAddress === sellTokenAddress
+            ? sellAmount
+            : baseAddress === buyTokenAddress
+                ? buyAmount
+                : NaN;
+        const quoteAmount = quoteAddress === sellTokenAddress
+            ? sellAmount
+            : quoteAddress === buyTokenAddress
+                ? buyAmount
+                : NaN;
+        const computedPrice = quoteAmount / baseAmount;
+        const difference = Math.abs(computedPrice - userPrice);
+        const tolerance = Math.max(userPrice * 0.000001, 1e-12);
+
+        logger.debug('[DebtSwapModal][Limit] Validate custom limit price before signing', {
+            userLimitPrice: metadata.userLimitPrice,
+            computedPrice,
+            baseAddress,
+            quoteAddress,
+            sellTokenAddress,
+            buyTokenAddress,
+            sellAmountRaw,
+            buyAmountRaw,
+            difference,
+            tolerance,
+        });
+
+        return Number.isFinite(computedPrice) && difference <= tolerance;
+    }, [hasCustomLimitPrice, getPriceMetadata, toToken?.decimals, fromToken?.decimals]);
 
     const handleSignLimitOrder = useCallback(async (
         submitResultOverride?: DebtLimitSubmitResult | null,
@@ -878,6 +1345,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         if (!submitResult) return null;
 
         const { signatureRequest } = submitResult;
+        if (!validateSignedOrderLimitPrice(submitResult.limitOrder)) {
+            setDebtLimitOrderSignatureError('Limit price changed. Refresh quote and try again.');
+            return null;
+        }
+
         if (!signatureRequest) {
             setDebtLimitOrderSignatureError('Unable to sign limit order. Missing backend typed-data signature request.');
             return null;
@@ -921,6 +1393,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         debtLimitDelegationSignature,
         debtLimitSubmitResult,
         handleSubmitLimitOrder,
+        validateSignedOrderLimitPrice,
     ]);
 
     const handlePostLimitOrder = useCallback(async (
@@ -958,9 +1431,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 limitOrder,
                 swapSettings,
                 instanceAddress,
-                quoteSellAmount: debtLimitQuote.quoteSellAmount,
-                quoteFeeAmount: debtLimitQuote.quoteFeeAmount,
-                finalMaxSellAmount: debtLimitQuote.finalMaxSellAmount || debtLimitQuote.sellAmount,
+                quoteSellAmount: hasCustomLimitPrice ? undefined : debtLimitQuote.quoteSellAmount,
+                quoteFeeAmount: hasCustomLimitPrice ? undefined : debtLimitQuote.quoteFeeAmount,
+                finalMaxSellAmount: hasCustomLimitPrice
+                    ? limitOutputAmount.toString()
+                    : debtLimitQuote.orderSellAmountRaw || debtLimitQuote.orderSellAmount || debtLimitQuote.finalMaxSellAmount || debtLimitQuote.sellAmount,
                 fromToken: {
                     address: fromToken?.address || fromToken?.underlyingAsset || '',
                     decimals: fromToken?.decimals ?? 18,
@@ -974,6 +1449,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 fromAmount: limitInputValue,
                 toAmount: limitOutputValue,
                 limitPrice,
+                ...getPriceMetadata(),
                 priceSource: 'limit_quote',
                 priceInverted: false,
                 rawQuote: debtLimitQuote,
@@ -997,6 +1473,12 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         debtLimitOrderSignatureResult,
         debtLimitQuoteState,
         debtLimitQuote,
+        hasCustomLimitPrice,
+        limitOutputAmount,
+        customUserLimitPrice,
+        limitOutputValue,
+        limitPrice,
+        getPriceMetadata,
         effectiveNetwork,
         initialMarketKey,
     ]);
@@ -1032,6 +1514,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         if (isPostingDebtLimitOrder) return 'Submitting limit order...';
         if (isSubmittingDebtLimit) return 'Preparing signature...';
         if (!fromToken || !toToken || limitInputAmount <= 0n) return 'Enter amount';
+        if (limitPriceInputError) return 'Review limit price';
         if (isDebtLimitQuoteLoading) return 'Getting quote...';
         if (debtLimitQuoteError || debtLimitQuoteState === 'quoteError') return 'Limit quote unavailable';
         if (isPreparingDebtLimit) return 'Preparing limit swap...';
@@ -1046,6 +1529,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         fromToken,
         toToken,
         limitInputAmount,
+        limitPriceInputError,
         isDebtLimitQuoteLoading,
         debtLimitQuoteError,
         debtLimitQuoteState,
@@ -1060,6 +1544,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         !fromToken ||
         !toToken ||
         limitInputAmount <= 0n ||
+        !!limitPriceInputError ||
         limitInputAmount > (debtBalance || 0n) ||
         debtLimitQuoteState !== 'quoteReady' ||
         !debtLimitQuote ||
@@ -1233,14 +1718,14 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         if (isUSDMode) {
             try {
                 const tokenAmount = formatUnits(limitInputAmount, fromToken.decimals || 18);
-                setLimitInputValue(tokenAmount);
+                setInputValue(tokenAmount);
             } catch {
-                setLimitInputValue('');
+                setInputValue('');
             }
         } else {
             const tokenAmount = parseFloat(limitInputValue || '0');
             const usdAmount = tokenAmount * price;
-            setLimitInputValue(Number.isFinite(usdAmount) && usdAmount > 0 ? usdAmount.toFixed(2) : '');
+            setInputValue(Number.isFinite(usdAmount) && usdAmount > 0 ? usdAmount.toFixed(2) : '');
         }
 
         setIsUSDMode(!isUSDMode);
@@ -1427,6 +1912,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         limitInputAmount,
         limitOutputAmount,
         limitPrice,
+        canonicalLimitPrice,
+        limitPriceCommitNonce,
         limitExpirySeconds,
         debtBalance,
         isBlockedByZeroLtv,
@@ -1492,9 +1979,15 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     }, [toToken, isOpen, effectiveNetwork, initialMarketKey]);
 
     useEffect(() => {
+        skipNextLimitPriceInputDebounceRef.current = true;
+        setLimitPriceInput('');
+        setLimitPriceInputError(null);
         setLimitPrice('');
+        setCanonicalLimitPrice('');
         setMarketLimitPrice('');
         setHasCustomLimitPrice(false);
+        setLimitOutputInputValue('');
+        isEditingLimitOutputRef.current = false;
         setDebtLimitQuote(null);
         setDebtLimitQuoteError(null);
         setDebtLimitValidTo(null);
@@ -1520,11 +2013,15 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         setInputValue('');
         setSwapAmount(BigInt(0));
         setIsUSDMode(false);
-        setLimitInputValue('');
-        setLimitInputAmount(0n);
+        skipNextLimitPriceInputDebounceRef.current = true;
+        setLimitPriceInput('');
+        setLimitPriceInputError(null);
         setLimitPrice('');
+        setCanonicalLimitPrice('');
         setMarketLimitPrice('');
         setHasCustomLimitPrice(false);
+        setLimitOutputInputValue('');
+        isEditingLimitOutputRef.current = false;
         setDebtLimitQuote(null);
         setDebtLimitQuoteError(null);
         setDebtLimitValidTo(null);
@@ -1554,6 +2051,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             setShowSlippageSettings(false);
             setFreezeQuote(false);
             setShowMethodMenu(false);
+            skipNextLimitPriceInputDebounceRef.current = true;
+            setLimitPriceInput('');
+            setLimitPriceInputError(null);
+            setLimitPrice('');
+            setCanonicalLimitPrice('');
+            setLimitOutputInputValue('');
+            isEditingLimitOutputRef.current = false;
         }
     }, [isOpen]);
 
@@ -1806,9 +2310,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         type="button"
                         onClick={() => {
                             setSwapMode('market');
-                            setDebtLimitPrepareResult(null);
-                            setDebtLimitSubmitResult(null);
-                            setDebtLimitSubmitError(null);
+                            resetDebtLimitPreparedState();
                         }}
                         className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${
                             swapMode === 'market'
@@ -1822,9 +2324,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         type="button"
                         onClick={() => {
                             setSwapMode('limit');
-                            setDebtLimitPrepareResult(null);
-                            setDebtLimitSubmitResult(null);
-                            setDebtLimitSubmitError(null);
+                            resetDebtLimitPreparedState();
                         }}
                         className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${
                             swapMode === 'limit'
@@ -2791,12 +3291,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                 isError={limitInputAmount > (debtBalance || 0n)}
                                 onChange={(value) => {
                                     const normalized = normalizeDecimalInput(value);
-                                    setLimitInputValue(normalized);
-                                    setDebtLimitPrepareResult(null);
-                                    setLimitDelegationStatus('idle');
-                                    setDebtLimitDelegationSignature(null);
-                                    setDebtLimitSubmitResult(null);
-                                    setDebtLimitSubmitError(null);
+                                    setInputValue(normalized);
+                                    resetDebtLimitPreparedState();
 
                                     try {
                                         if (isUSDMode) {
@@ -2806,15 +3302,15 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
                                             if (price > 0 && usdAmount > 0) {
                                                 const tokenAmount = usdAmount / price;
-                                                setLimitInputAmount(parseUnits(tokenAmount.toFixed(fromToken?.decimals || 18), fromToken?.decimals || 18));
+                                                setSwapAmount(parseUnits(tokenAmount.toFixed(fromToken?.decimals || 18), fromToken?.decimals || 18));
                                             } else {
-                                                setLimitInputAmount(0n);
+                                                setSwapAmount(0n);
                                             }
                                         } else {
-                                            setLimitInputAmount(normalized ? parseUnits(normalized, fromToken?.decimals || 18) : 0n);
+                                            setSwapAmount(normalized ? parseUnits(normalized, fromToken?.decimals || 18) : 0n);
                                         }
                                     } catch {
-                                        setLimitInputAmount(0n);
+                                        setSwapAmount(0n);
                                     }
                                 }}
                                 onApplyMax={() => {
@@ -2824,17 +3320,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     if (isUSDMode) {
                                         const rawPrice = parseFloat(fromToken.priceInUSD || '0');
                                         const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
-                                        setLimitInputValue(price > 0 ? (parseFloat(maxTokenAmount) * price).toFixed(2) : '');
+                                        setInputValue(price > 0 ? (parseFloat(maxTokenAmount) * price).toFixed(2) : '');
                                     } else {
-                                        setLimitInputValue(maxTokenAmount);
+                                        setInputValue(maxTokenAmount);
                                     }
 
-                                    setLimitInputAmount(debtBalance);
-                                    setDebtLimitPrepareResult(null);
-                                    setLimitDelegationStatus('idle');
-                                    setDebtLimitDelegationSignature(null);
-                                    setDebtLimitSubmitResult(null);
-                                    setDebtLimitSubmitError(null);
+                                    setSwapAmount(debtBalance);
+                                    resetDebtLimitPreparedState();
                                 }}
                                 onApplyPct={(pct) => {
                                     if (!debtBalance || debtBalance === 0n || !fromToken) return;
@@ -2844,17 +3336,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     if (isUSDMode) {
                                         const rawPrice = parseFloat(fromToken.priceInUSD || '0');
                                         const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
-                                        setLimitInputValue(price > 0 ? (parseFloat(tokenAmount) * price).toFixed(2) : '');
+                                        setInputValue(price > 0 ? (parseFloat(tokenAmount) * price).toFixed(2) : '');
                                     } else {
-                                        setLimitInputValue(tokenAmount);
+                                        setInputValue(tokenAmount);
                                     }
 
-                                    setLimitInputAmount(amountBI);
-                                    setDebtLimitPrepareResult(null);
-                                    setLimitDelegationStatus('idle');
-                                    setDebtLimitDelegationSignature(null);
-                                    setDebtLimitSubmitResult(null);
-                                    setDebtLimitSubmitError(null);
+                                    setSwapAmount(amountBI);
+                                    resetDebtLimitPreparedState();
                                 }}
                                 maxAmount={debtBalance}
                                 decimals={isUSDMode ? 2 : (fromToken?.decimals || 18)}
@@ -2878,10 +3366,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                 value={limitOutputDisplayValue}
                                 isUSDMode={isUSDMode}
                                 secondaryValue={limitOutputSecondaryValue}
-                                onChange={() => undefined}
+                                onChange={handleLimitOutputChange}
+                                onToggleUSDMode={() => setIsUSDMode((prev) => !prev)}
                                 maxAmount={0n}
                                 decimals={isUSDMode ? 2 : (toToken?.decimals || 18)}
-                                readOnly
                                 placeholder="0.00"
                                 isLoading={debtLimitQuoteState === 'quoteLoading'}
                                 loadingLabel="Loading quote..."
@@ -2903,31 +3391,23 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
                             <div className="flex items-center gap-2 sm:gap-3">
                                 <div className="flex-1 relative overflow-hidden flex items-center pl-0.5 focus-within:z-10">
-                                    {debtLimitQuoteState === 'quoteLoading' ? (
-                                        <div className="flex items-center gap-2 text-purple-400 py-0.5 min-h-8">
-                                            <RefreshCw className="w-4 h-4 animate-spin text-primary" />
-                                            <span className="text-sm font-medium">Loading quote...</span>
-                                        </div>
-                                    ) : (
-                                        <input
-                                            type="text"
-                                            inputMode="decimal"
-                                            value={displayLimitPrice}
-                                            onChange={(event) => {
-                                                const normalized = normalizeDecimalInput(event.target.value);
-                                                if (priceLimitDisplayInverted) {
-                                                    const displayPrice = parseFloat(normalized || '0');
-                                                    setLimitPrice(displayPrice > 0 ? formatPlainAmount(1 / displayPrice) : '');
-                                                } else {
-                                                    setLimitPrice(normalized);
-                                                }
-                                                setHasCustomLimitPrice(true);
-                                                resetDebtLimitPreparedState();
-                                            }}
-                                            placeholder="0.00"
-                                            className="w-full bg-transparent text-2xl font-mono font-bold text-left focus:outline-none py-0.5 pr-6 text-slate-900 dark:text-white placeholder:text-muted-foreground text-ellipsis overflow-hidden"
-                                        />
-                                    )}
+                                    <input
+                                        type="text"
+                                        inputMode="decimal"
+                                        value={displayLimitPrice}
+                                        onChange={(event) => {
+                                            const rawPriceInput = event.target.value;
+                                            const parsedPrice = parseCanonicalDecimalInput(rawPriceInput);
+
+                                            setLimitPriceInput(rawPriceInput);
+                                            setLimitPriceInputError(parsedPrice.error);
+                                            setHasCustomLimitPrice(true);
+                                            isEditingLimitOutputRef.current = false;
+                                            resetDebtLimitPreparedState();
+                                        }}
+                                        placeholder="0.00"
+                                        className="w-full bg-transparent text-2xl font-mono font-bold text-left focus:outline-none py-0.5 pr-6 text-slate-900 dark:text-white placeholder:text-muted-foreground text-ellipsis overflow-hidden"
+                                    />
                                 </div>
 
                                 <button
@@ -2957,18 +3437,35 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
                             <div className="flex items-center justify-between mt-0 pl-0.5 min-h-5">
                                 <span className="text-xs font-medium text-slate-700 dark:text-slate-300">
-                                    {limitOutputValue ? `Est. output ${formatCompactNumber(limitOutputValue)} ${getDisplaySymbol(toToken, localMarketAssets)}` : 'Enter amount to see output'}
+                                    {debtLimitQuoteState === 'quoteLoading' ? (
+                                        <span className="inline-flex items-center gap-1.5 text-slate-500 dark:text-slate-400">
+                                            <RefreshCw className="w-3 h-3 animate-spin text-primary" />
+                                            Loading quote...
+                                        </span>
+                                    ) : limitOutputValue ? `Est. output ${formatCompactNumber(limitOutputValue)} ${getDisplaySymbol(toToken, localMarketAssets)}` : 'Enter amount to see output'}
                                 </span>
 
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        if (!marketLimitPrice) return;
-                                        setLimitPrice(marketLimitPrice);
+                                        if (!marketLimitPrice) {
+                                            return;
+                                        }
+
+                                        const price = parseFloat(marketLimitPrice);
+                                        const invertedPrice = Number.isFinite(price) && price > 0 ? formatPlainAmount(1 / price) : '';
+
+                                        skipNextLimitPriceInputDebounceRef.current = true;
+                                        setLimitPriceInput(displayMarketLimitPrice || marketLimitPrice);
+                                        setLimitPriceInputError(null);
+                                        setLimitPrice(invertedPrice);
+                                        setCanonicalLimitPrice(invertedPrice);
+                                        setLimitPriceCommitNonce((value) => value + 1);
                                         setHasCustomLimitPrice(false);
+                                        isEditingLimitOutputRef.current = false;
                                         resetDebtLimitPreparedState();
                                     }}
-                                    disabled={!marketLimitPrice || isDebtLimitQuoteLoading}
+                                    disabled={!marketLimitPrice}
                                     className="flex items-center gap-1.5 p-0 bg-transparent border-none appearance-none transition-opacity hover:opacity-75 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     <span className="text-xs font-medium text-slate-500 dark:text-slate-400">
@@ -2990,6 +3487,12 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         {debtLimitQuoteError && (
                             <div className="px-1 -mt-1">
                                 <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">Limit quote unavailable</p>
+                            </div>
+                        )}
+
+                        {limitPriceInputError && (
+                            <div className="px-1 -mt-1">
+                                <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">{limitPriceInputError}</p>
                             </div>
                         )}
 

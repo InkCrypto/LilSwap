@@ -291,6 +291,16 @@ export interface DebtLimitPrepareParams {
     quoteSellAmount?: string;
     quoteFeeAmount?: string;
     finalMaxSellAmount?: string;
+    userLimitPrice?: string;
+    isLimitPriceCustom?: boolean;
+    priceBaseTokenAddress?: string;
+    priceBaseTokenSymbol?: string;
+    priceBaseTokenDecimals?: number;
+    priceQuoteTokenAddress?: string;
+    priceQuoteTokenSymbol?: string;
+    priceQuoteTokenDecimals?: number;
+    priceInverted?: boolean;
+    priceDirection?: string;
     partnerFee?: { volumeBps: number; recipient: string };
 }
 
@@ -337,6 +347,16 @@ export interface DebtLimitQuoteParams {
     };
     buyAmount: string;
     validTo?: number;
+    userLimitPrice?: string;
+    isLimitPriceCustom?: boolean;
+    priceBaseTokenAddress?: string;
+    priceBaseTokenSymbol?: string;
+    priceBaseTokenDecimals?: number;
+    priceQuoteTokenAddress?: string;
+    priceQuoteTokenSymbol?: string;
+    priceQuoteTokenDecimals?: number;
+    priceInverted?: boolean;
+    priceDirection?: string;
 }
 
 export interface DebtLimitQuoteResult {
@@ -351,6 +371,16 @@ export interface DebtLimitQuoteResult {
     buyToken: string;
     orderToSign?: Record<string, unknown>;
     amountsAndCosts?: Record<string, unknown> | null;
+    orderSellAmount?: string;
+    orderBuyAmount?: string;
+    displaySourceAmount?: string;
+    displayDestinationAmount?: string;
+    displayAfterFeesAmount?: string;
+    displayDestinationAmountRaw?: string;
+    displayDestinationAmountFormatted?: string | null;
+    displayLimitPrice?: string | null;
+    orderSellAmountRaw?: string;
+    orderBuyAmountRaw?: string;
     sellAmount: string;
     buyAmount: string;
     quoteSellAmount?: string;
@@ -359,6 +389,8 @@ export interface DebtLimitQuoteResult {
     sellTokenDecimals: number;
     buyTokenDecimals: number;
     marketLimitPrice: string | null;
+    quoteExpiration?: string | null;
+    orderValidTo?: number | null;
     validTo?: number | null;
     adapterAwareQuote: boolean;
     adapterAwareQuoteReason?: string;
@@ -425,6 +457,15 @@ export interface DebtLimitPostParams {
     fromAmount?: string;
     toAmount?: string;
     limitPrice?: string;
+    userLimitPrice?: string;
+    isLimitPriceCustom?: boolean;
+    priceBaseTokenAddress?: string;
+    priceBaseTokenSymbol?: string;
+    priceBaseTokenDecimals?: number;
+    priceQuoteTokenAddress?: string;
+    priceQuoteTokenSymbol?: string;
+    priceQuoteTokenDecimals?: number;
+    priceDirection?: string;
     priceSource?: 'limit_quote' | string;
     priceInverted?: boolean;
     rawQuote?: DebtLimitQuoteResult | null;
