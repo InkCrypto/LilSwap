@@ -66,6 +66,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     initialToToken = null,
     providedSupplies = null,
     marketAssets: externalMarketAssets = null,
+    chainId: forcedChainId = null,
     marketKey: initialMarketKey = null,
     donator = null,
     onOpenToggleCollateral,
@@ -75,6 +76,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     const { marketAssets: fetchedMarketAssets, supplies, borrows, summary, refresh: refreshGlobalPosition } = useUserPosition(initialMarketKey || '');
     const { addTransaction, setSheetOpen } = useTransactionTracker();
     const localMarketAssets = useMemo(() => externalMarketAssets || fetchedMarketAssets || [], [externalMarketAssets, fetchedMarketAssets]);
+    const effectiveMarketKey = initialMarketKey || selectedNetwork?.key || DEFAULT_MARKET.key;
+    const effectiveChainId = selectedNetwork?.chainId || forcedChainId || DEFAULT_MARKET.chainId;
 
     // Local State
     const [fromToken, setFromToken] = useState<any>(initialFromToken);
@@ -116,9 +119,9 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
     // Derived values needed for hooks
     const adapterAddress = useMemo(() => {
-        const market = MARKETS[selectedNetwork?.key as keyof typeof MARKETS] || DEFAULT_MARKET;
+        const market = MARKETS[effectiveMarketKey as keyof typeof MARKETS] || DEFAULT_MARKET;
         return market.addresses.SWAP_COLLATERAL_ADAPTER;
-    }, [selectedNetwork]);
+    }, [effectiveMarketKey]);
 
     // Hooks
     const {
@@ -143,7 +146,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         fromToken,
         toToken,
         selectedNetwork,
-        marketKey: initialMarketKey || selectedNetwork?.key,
+        marketKey: effectiveMarketKey,
         account,
         enabled: isOpen,
         freezeQuote,
@@ -171,11 +174,11 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
             try {
                 const clientChainId = await publicClient.getChainId();
-                if (clientChainId !== selectedNetwork.chainId) {
+                if (clientChainId !== effectiveChainId) {
                     return;
                 }
 
-                const market = MARKETS[selectedNetwork.key as keyof typeof MARKETS] || DEFAULT_MARKET;
+                const market = MARKETS[effectiveMarketKey as keyof typeof MARKETS] || DEFAULT_MARKET;
                 const dataProviderAddr = market.addresses.DATA_PROVIDER;
                 if (!dataProviderAddr) return;
 
@@ -196,7 +199,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
         fetchATokenAddress();
         return () => { isMounted = false; };
-    }, [fromToken, isOpen, selectedNetwork, publicClient]);
+    }, [fromToken, isOpen, selectedNetwork, publicClient, effectiveChainId, effectiveMarketKey]);
 
     const activeSupplies = useMemo(() => {
         const sourceSupplies = providedSupplies && providedSupplies.length > 0 ? providedSupplies : (supplies || []);
@@ -247,7 +250,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         spenderAddress: isOpen ? adapterAddress : null,
         amountRequired: amountRequiredForAllowance,
         isDebt: false,
-        chainId: selectedNetwork.chainId,
+        chainId: effectiveChainId,
         enabled: isOpen,
     });
 
@@ -284,14 +287,14 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         preFetchedTokenName,
         onSignatureCached: saveSignature,
         cachedPermit: cachedSignature,
-        marketKey: initialMarketKey || selectedNetwork?.key,
+        marketKey: effectiveMarketKey,
         onTxSent: (hash: string) => {
             const amountDisplay = inputValue ? `${inputValue} ${fromToken.symbol}` : '';
 
             addTransaction({
                 hash,
                 chainId: selectedNetwork?.chainId || 1,
-                marketKey: initialMarketKey || selectedNetwork?.key,
+                marketKey: effectiveMarketKey,
                 description: `Collateral Swap`,
                 fromTokenSymbol: fromToken.symbol,
                 toTokenSymbol: toToken.symbol
@@ -483,7 +486,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             return;
         }
 
-        const marketKey = initialMarketKey || selectedNetwork?.key || '';
+        const marketKey = effectiveMarketKey;
         const cached = getPairStatus(fromAddr, destAddr, marketKey);
 
         if (cached !== null) {
@@ -499,7 +502,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         setSwappableTokens((prev) => ({ ...prev, [destAddr]: { swappable: null, checking: true } }));
 
         try {
-            const marketKey = initialMarketKey || selectedNetwork?.key || '';
+            const marketKey = effectiveMarketKey;
             const isSwappable = await checkPairSwappable(
                 fromToken,
                 destToken,
@@ -534,7 +537,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             return { swappable: false, checking: false };
         }
 
-        const marketKey = initialMarketKey || selectedNetwork?.key || '';
+        const marketKey = effectiveMarketKey;
         const cacheStatus = getPairStatus(fromAddr, destAddr, marketKey);
 
         if (cacheStatus !== null) {
@@ -572,7 +575,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 };
 
                 // 1. Try saved selection for this market
-                const marketKey = initialMarketKey || selectedNetwork?.key || '';
+                const marketKey = effectiveMarketKey;
                 const savedAddr = getSavedTokenSelection(marketKey, 'collateral');
                 const savedMatch = savedAddr ? localMarketAssets.find(m => (m.address || m.underlyingAsset || '').toLowerCase() === savedAddr) : null;
 
@@ -592,7 +595,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
     useEffect(() => {
         if (isOpen && toToken && selectedNetwork) {
-            const marketKey = initialMarketKey || selectedNetwork?.key || '';
+            const marketKey = effectiveMarketKey;
             const addr = (toToken.address || toToken.underlyingAsset || '').toLowerCase();
             if (addr) {
                 saveTokenSelection(marketKey, 'collateral', addr);
@@ -1793,7 +1796,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                     description={selectingForFrom ? 'Choose a token to swap from your supply positions' : 'Choose a token to swap into'}
                     tokens={filteredSelectorTokens}
                     onSelect={(token) => {
-                        const marketKey = initialMarketKey || selectedNetwork?.key || '';
+                        const marketKey = effectiveMarketKey;
                         const addr = (token.address || token.underlyingAsset || '').toLowerCase();
                         if (selectingForFrom) {
                             setFromToken(token);

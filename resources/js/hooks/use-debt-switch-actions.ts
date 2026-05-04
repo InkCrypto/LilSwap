@@ -262,7 +262,7 @@ export const useDebtSwitchActions = ({
             let debtTokenAddress = debtTokenAddressOverride || providedDebtTokenAddress || toToken?.variableDebtTokenAddress;
 
             if (!debtTokenAddress || debtTokenAddress === zeroAddress) {
-                // Only if missing entirely, then we call reserve data
+                logger.debug('[useDebtSwitchActions] Resolving debt token address via on-chain read (not available from position data)');
                 const toReserveData = await publicClient?.readContract({
                     address: getAddress(networkAddresses.POOL),
                     abi: parseAbi(ABIS.POOL_GETTER),
@@ -341,6 +341,7 @@ export const useDebtSwitchActions = ({
 
             if (!newDebtTokenAddr || newDebtTokenAddr === zeroAddress) {
                 addLog?.('Resolving debt token address...', 'info');
+                logger.debug('[useDebtSwitchActions] Resolving debt token address via on-chain read (not available from position data)');
                 const toReserveData = await publicClient?.readContract({
                     address: getAddress(networkAddresses.POOL),
                     abi: parseAbi(ABIS.POOL_GETTER),
