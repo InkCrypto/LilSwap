@@ -232,11 +232,7 @@ export const AaveHistorySheet: React.FC = () => {
                                                         {isLimitOrder ? (tx.txStatus === 'OPEN' ? 'Open' : tx.txStatus) :
                                                         tx.status === 'pending' ? 'Processing...' :
                                                             tx.status === 'success' ? 'Confirmed' :
-                                                                tx.revertReason === 'hash_missing' || tx.revertReason === 'hash_sync_failed' || tx.txStatus === 'HASH_MISSING' ? 'Hash Missing' :
-                                                                (tx.revertReason === 'reverted' ? 'Reverted' :
-                                                                    tx.revertReason === 'ghost_timeout' ? 'Timed Out (Not Found)' :
-                                                                        tx.revertReason === 'timeout' ? 'Timed Out' :
-                                                                            'Failed')}
+                                                                (tx.revertReason === 'reverted' ? 'Reverted' : 'Failed')}
                                                     </span>
 
                                                     <button

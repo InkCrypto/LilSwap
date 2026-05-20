@@ -297,6 +297,14 @@ export const useLimitQuote = ({
         }
     }, [resetRefreshCountdown, clearQuoteError, setQuoteErrorWithTimer]);
 
+    // Recalculate validTo locally when limitExpirySeconds changes,
+    // WITHOUT triggering a new quote fetch.
+    useEffect(() => {
+        if (!debtLimitQuote) return; // Only recalculate if we have a quote
+        const freshValidTo = Math.floor(Date.now() / 1000) + limitExpirySeconds;
+        setDebtLimitValidTo(freshValidTo);
+    }, [limitExpirySeconds]); // intentionally narrow deps — only react to expiry changes
+
     useEffect(() => {
         if (!enabled) {
             clearQuote();

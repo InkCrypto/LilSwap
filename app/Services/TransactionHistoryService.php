@@ -15,11 +15,13 @@ class TransactionHistoryService
         $safeLimit = max(1, min($limit, 100));
         $safeOffset = max(0, $offset);
 
-        $rows = Transaction::where('wallet_address', $normalizedWallet)
-            ->where(function ($query) {
-                $query->whereNotNull('tx_hash')
-                    ->orWhere('tx_status', 'HASH_MISSING');
-            })
+        // Only show transactions that are verifiable on-chain.
+        // Excludes HASH_MISSING, REJECTED, EXPIRED (no hash), and INITIATED — these
+        // are internal engine states that create noise and can't be verified by the user.
+        $rows = Transaction::query()
+            ->where('wallet_address', $normalizedWallet)
+            ->whereNotNull('tx_hash')
+            ->whereIn('tx_status', ['CONFIRMED', 'FAILED', 'PENDING'])
             ->orderBy('created_at', 'desc')
             ->offset($safeOffset)
             ->limit($safeLimit + 1)

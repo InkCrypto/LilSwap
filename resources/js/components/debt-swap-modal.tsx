@@ -2129,11 +2129,45 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         limitPrice,
         canonicalLimitPrice,
         limitPriceCommitNonce,
-        limitExpirySeconds,
         debtBalance,
         isBlockedByZeroLtv,
         isOpen,
         resetDebtLimitPreparedState,
+    ]);
+
+    // ── Auto-prepare when limitExpirySeconds changes ───────────────────────────
+    // When the user changes the order duration, the adapter instance address
+    // (spender) changes because it's derived from validTo via CREATE2.
+    // We call the lightweight /prepare endpoint to get the new spender,
+    // WITHOUT triggering a new price quote.
+    const prevLimitExpirySecondsRef = useRef(limitExpirySeconds);
+    useEffect(() => {
+        if (swapMode !== 'limit') return;
+        if (prevLimitExpirySecondsRef.current === limitExpirySeconds) return;
+        prevLimitExpirySecondsRef.current = limitExpirySeconds;
+
+        // Reset the existing prepared state (delegation, signature, etc.)
+        // since the spender address is about to change.
+        resetDebtLimitPreparedState();
+
+        // Only auto-prepare if we already have a valid quote and inputs.
+        if (!debtLimitQuote || limitInputAmount <= 0n || limitOutputAmount <= 0n) return;
+        if (!account || !fromToken || !toToken || !debtLimitValidTo) return;
+
+        // Fire-and-forget: the prepare call is very fast (local CREATE2 calc).
+        handlePrepareLimitSwap();
+    }, [
+        swapMode,
+        limitExpirySeconds,
+        debtLimitQuote,
+        debtLimitValidTo,
+        limitInputAmount,
+        limitOutputAmount,
+        account,
+        fromToken,
+        toToken,
+        resetDebtLimitPreparedState,
+        handlePrepareLimitSwap,
     ]);
 
     useEffect(() => {
@@ -3529,7 +3563,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                                     onClick={() => {
                                                         setLimitExpirySeconds(option.value);
                                                         setShowLimitExpiryMenu(false);
-                                                        resetDebtLimitPreparedState();
                                                     }}
                                                     className={`w-full text-left px-4 py-2.5 text-xs font-bold transition-colors hover:bg-slate-50 dark:hover:bg-slate-800 ${limitExpirySeconds === option.value
                                                         ? 'bg-slate-50 dark:bg-slate-800 text-primary'

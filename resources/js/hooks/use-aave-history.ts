@@ -340,7 +340,7 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
         const mappedPersistedHistory = persistedHistory.map((tx) => {
             let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
             if (tx.tx_status === 'CONFIRMED') mappedStatus = 'success';
-            else if (['FAILED', 'REJECTED', 'EXPIRED', 'HASH_MISSING'].includes(tx.tx_status)) mappedStatus = 'error';
+            else if (['FAILED', 'REJECTED', 'EXPIRED'].includes(tx.tx_status)) mappedStatus = 'error';
 
             return {
                 hash: tx.tx_hash || `backend-id-${tx.id}`,
@@ -358,6 +358,11 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
         });
 
         const filteredPersistedHistory = mappedPersistedHistory.filter((tx) => {
+            // Only show transactions verifiable on-chain.
+            // Excludes ghosted, hash-missing, rejected, and expired-before-send records.
+            const excludedStatuses = ['HASH_MISSING', 'REJECTED', 'EXPIRED', 'INITIATED'];
+            if (excludedStatuses.includes(tx.txStatus)) return false;
+
             if (!tx.hash.startsWith('backend-id-')) {
                 return !localHashes.has(tx.hash.toLowerCase());
             }
