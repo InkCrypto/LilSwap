@@ -242,7 +242,7 @@ export const useParaswapQuote = ({
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
                 }, signal);
 
-                const { priceRoute, destAmount, version, augustus, bufferBps } = routeResult;
+                const { priceRoute, destAmount, version, augustus, bufferBps, flashLoanPremiumBps } = routeResult;
                 const feeBps = resolveFeeBps(routeResult);
                 const discountPercent = resolveDiscountPercent(routeResult);
                 const destAmountBn = BigInt(destAmount);
@@ -261,6 +261,7 @@ export const useParaswapQuote = ({
                     discountPercent,
                     volumeUsd: resolveVolumeUsd(priceRoute),
                     apyPercent: null,
+                    flashLoanPremiumBps: typeof flashLoanPremiumBps === 'number' ? flashLoanPremiumBps : 5,
                 };
 
                 if (quoteRequestIdRef.current !== currentRequestId) {

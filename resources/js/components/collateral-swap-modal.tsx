@@ -225,6 +225,14 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     }, [fromToken, activeSupplies]);
     const isInsufficientBalance = swapAmount > (availableBalance || 0n);
 
+    // Calculate required allowance incorporating Aave V3 flashloan premium (default to 5 bps)
+    const amountRequiredForAllowance = useMemo(() => {
+        if (!swapAmount) return 0n;
+        const premiumBps = swapQuote?.flashLoanPremiumBps !== undefined ? BigInt(swapQuote.flashLoanPremiumBps) : 5n;
+        const premium = (swapAmount * premiumBps) / 10000n;
+        return swapAmount + premium;
+    }, [swapAmount, swapQuote?.flashLoanPremiumBps]);
+
     // Use Approval Hook for Collateral (aToken)
     const {
         onChainAllowance,
@@ -237,7 +245,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         account,
         tokenAddress: isOpen ? aTokenAddress : null,
         spenderAddress: isOpen ? adapterAddress : null,
-        amountRequired: swapAmount,
+        amountRequired: amountRequiredForAllowance,
         isDebt: false,
         chainId: selectedNetwork.chainId,
         enabled: isOpen,

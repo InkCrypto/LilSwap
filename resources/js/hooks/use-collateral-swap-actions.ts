@@ -80,6 +80,14 @@ export const useCollateralSwapActions = ({
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isSigning, setIsSigning] = useState(false);
 
+    // Calculate required allowance incorporating Aave V3 flashloan premium (default to 5 bps)
+    const amountRequiredForAllowance = useMemo(() => {
+        if (!swapAmount) return 0n;
+        const premiumBps = swapQuote?.flashLoanPremiumBps !== undefined ? BigInt(swapQuote.flashLoanPremiumBps) : 5n;
+        const premium = (swapAmount * premiumBps) / 10000n;
+        return swapAmount + premium;
+    }, [swapAmount, swapQuote?.flashLoanPremiumBps]);
+
     const [forceRequirePermit, setForceRequirePermit] = useState(() => {
         try {
             if (typeof window !== 'undefined' && window.localStorage) {
@@ -208,7 +216,7 @@ export const useCollateralSwapActions = ({
             }
 
             const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-            const value = exactAmount || (swapAmount + (swapAmount * 100n / 10000n) + 1n);
+            const value = exactAmount || (amountRequiredForAllowance + (amountRequiredForAllowance * 100n / 10000n) + 1n);
 
             const domain = { name, version: '1', chainId, verifyingContract: getAddress(aTokenAddr) };
             const types = {
@@ -294,7 +302,7 @@ export const useCollateralSwapActions = ({
             }
 
             if (preferPermitFinal) {
-                const permitAmount = exactAmount ?? (swapAmount > 0n ? (swapAmount + (swapAmount * 100n / 10000n) + 1n) : 0n);
+                const permitAmount = exactAmount ?? (amountRequiredForAllowance > 0n ? (amountRequiredForAllowance + (amountRequiredForAllowance * 100n / 10000n) + 1n) : 0n);
                 const permit = await generateAndCachePermit(aTokenAddress, permitAmount);
                 return { type: 'permit', permit };
             }
@@ -407,32 +415,37 @@ export const useCollateralSwapActions = ({
 
             const effectivePreferPermit = forceRequirePermit || preferPermit;
 
-            logger.debug(`[useCollateralSwapActions] Evaluation | Allowance: ${allowance.toString()} | Required: ${srcAmountBigInt.toString()} | ForcePermit: ${forceRequirePermit} | PreferPermit: ${preferPermit} | HasLocalSignature: ${!!cachedPermit}`);
+            // Calculate required allowance incorporating Aave V3 flashloan premium (default to 5 bps)
+            const activePremiumBps = activeQuote?.flashLoanPremiumBps !== undefined ? BigInt(activeQuote.flashLoanPremiumBps) : 5n;
+            const activePremium = (srcAmountBigInt * activePremiumBps) / 10000n;
+            const requiredAllowance = srcAmountBigInt + activePremium;
 
-            if (effectiveAllowance < srcAmountBigInt || forceRequirePermit) {
+            logger.debug(`[useCollateralSwapActions] Evaluation | Allowance: ${allowance.toString()} | Required (with Premium): ${requiredAllowance.toString()} | ForcePermit: ${forceRequirePermit} | PreferPermit: ${preferPermit} | HasLocalSignature: ${!!cachedPermit}`);
+
+            if (effectiveAllowance < requiredAllowance || forceRequirePermit) {
                 if (effectivePreferPermit) {
                     const effectiveSignedPermit = cachedPermit;
 
                     if (effectiveSignedPermit) {
                         const tokenMatch = getAddress(effectiveSignedPermit.token) === getAddress(aTokenAddr);
                         const deadlineValid = effectiveSignedPermit.deadline > Math.floor(Date.now() / 1000);
-                        const valueValid = effectiveSignedPermit.value >= srcAmountBigInt;
+                        const valueValid = effectiveSignedPermit.value >= requiredAllowance;
 
-                        logger.debug(`[useCollateralSwapActions] Permit Check | Match: ${tokenMatch} | Deadline: ${deadlineValid} | Value: ${valueValid} | P-Val: ${effectiveSignedPermit.value} | Req: ${srcAmountBigInt}`);
+                        logger.debug(`[useCollateralSwapActions] Permit Check | Match: ${tokenMatch} | Deadline: ${deadlineValid} | Value: ${valueValid} | P-Val: ${effectiveSignedPermit.value} | Req: ${requiredAllowance}`);
 
                         if (tokenMatch && deadlineValid && valueValid && !forceRequirePermit) {
                             logger.debug('[useCollateralSwapActions] REUSING successful cached permit');
                             permitParams = effectiveSignedPermit.params;
                         } else {
                             logger.debug('[useCollateralSwapActions] Cached permit INVALID or EXPIRED, re-requesting...');
-                            const permitAmount = srcAmountBigInt + (srcAmountBigInt * 100n / 10000n) + 1n;
+                            const permitAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
                             let permitResult: any = null;
                             try {
                                 permitResult = await handleApprove(effectivePreferPermit, permitAmount, true, aTokenAddr);
                             } catch (permitErr: any) {
                                 if (permitErr?.code === 'NO_PERMIT') {
                                     addLog?.('Permit not supported, using on-chain approve...', 'info');
-                                    const boundedFallbackAmount = srcAmountBigInt + (srcAmountBigInt * 100n / 10000n) + 1n;
+                                    const boundedFallbackAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
                                     await handleApprove(false, boundedFallbackAmount, true, aTokenAddr);
                                     setIsActionLoading(true);
                                     await new Promise(r => setTimeout(r, 1000));
@@ -450,14 +463,14 @@ export const useCollateralSwapActions = ({
                         }
                     } else {
                         logger.debug('[useCollateralSwapActions] No local permit found, re-requesting...');
-                        const permitAmount = srcAmountBigInt + (srcAmountBigInt * 100n / 10000n) + 1n;
+                        const permitAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
                         let permitResult: any = null;
                         try {
                             permitResult = await handleApprove(effectivePreferPermit, permitAmount, true, aTokenAddr);
                         } catch (permitErr: any) {
                             if (permitErr?.code === 'NO_PERMIT') {
                                 addLog?.('Permit not supported... fallback to on-chain approve', 'info');
-                                const boundedFallbackAmount = srcAmountBigInt + (srcAmountBigInt * 100n / 10000n) + 1n;
+                                const boundedFallbackAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
                                 await handleApprove(false, boundedFallbackAmount, true, aTokenAddr);
                                 setIsActionLoading(true);
                                 await new Promise(r => setTimeout(r, 1000));
@@ -487,9 +500,9 @@ export const useCollateralSwapActions = ({
                         args: [getAddress(account), getAddress(adapterAddress)],
                     }) as bigint || 0n;
 
-                    if (chainId === 56 && refreshedAllowance < (srcAmountBigInt + 1_000_000_000_000n)) {
+                    if (chainId === 56 && refreshedAllowance < (requiredAllowance + 1_000_000_000_000n)) {
                         addLog?.('Allowance still tight after approval, retrying bounded approval...', 'warning');
-                        const boundedRetryAmount = srcAmountBigInt + (srcAmountBigInt * 100n / 10000n) + 1n;
+                        const boundedRetryAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
                         await handleApprove(false, boundedRetryAmount, true, aTokenAddr);
                         setIsActionLoading(true);
                         await new Promise(r => setTimeout(r, 1000));
