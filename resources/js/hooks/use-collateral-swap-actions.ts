@@ -48,6 +48,109 @@ interface UseCollateralSwapActionsProps {
     cachedPermit?: any | null;
 }
 
+type CollateralPermitParams = {
+    amount: bigint;
+    deadline: number;
+    v: number;
+    r: Hex;
+    s: Hex;
+};
+
+const EMPTY_COLLATERAL_PERMIT_PARAMS: CollateralPermitParams = {
+    amount: 0n,
+    deadline: 0,
+    v: 0,
+    r: zeroHash as Hex,
+    s: zeroHash as Hex,
+};
+
+const isBytes32Hex = (value: unknown): value is Hex =>
+    typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value);
+
+const toPermitAmount = (value: unknown): bigint | null => {
+    try {
+        return BigInt(value as any);
+    } catch {
+        return null;
+    }
+};
+
+const getPermitValidation = (params: any, now = Math.floor(Date.now() / 1000)) => {
+    const amount = toPermitAmount(params?.amount);
+    const deadline = Number(params?.deadline ?? 0);
+    const v = Number(params?.v ?? 0);
+    const r = params?.r;
+    const s = params?.s;
+    const rIsZero = r === zeroHash;
+    const sIsZero = s === zeroHash;
+    const amountNonZero = amount !== null && amount > 0n;
+    const deadlineNonZero = Number.isFinite(deadline) && deadline > 0;
+
+    const meta = {
+        hasPermit: amountNonZero || deadlineNonZero || v !== 0 || !rIsZero || !sIsZero,
+        deadlineNonZero,
+        amountNonZero,
+        v,
+        rIsZero,
+        sIsZero,
+    };
+
+    const isEmpty = amount === 0n && deadline === 0 && v === 0 && rIsZero && sIsZero;
+    if (isEmpty) {
+        return { valid: true, isEmpty: true, params: EMPTY_COLLATERAL_PERMIT_PARAMS, reason: null, meta };
+    }
+
+    if (amount === null) {
+        return { valid: false, isEmpty: false, params: null, reason: 'invalid_amount', meta };
+    }
+
+    const invalidReason =
+        !amountNonZero ? 'amount_zero' :
+            !deadlineNonZero ? 'deadline_zero' :
+                deadline <= now ? 'deadline_expired' :
+                    (v !== 27 && v !== 28) ? 'invalid_v' :
+                        !isBytes32Hex(r) ? 'invalid_r' :
+                            !isBytes32Hex(s) ? 'invalid_s' :
+                                rIsZero ? 'r_zero' :
+                                    sIsZero ? 's_zero' :
+                                        null;
+
+    if (invalidReason) {
+        return { valid: false, isEmpty: false, params: null, reason: invalidReason, meta };
+    }
+
+    return {
+        valid: true,
+        isEmpty: false,
+        params: {
+            amount,
+            deadline,
+            v,
+            r: r as Hex,
+            s: s as Hex,
+        },
+        reason: null,
+        meta,
+    };
+};
+
+const isMalformedPermitSignatureError = (error: any) => {
+    const message = [
+        error?.shortMessage,
+        error?.details,
+        error?.message,
+        error?.cause?.shortMessage,
+        error?.cause?.details,
+        error?.cause?.message,
+        error?.code,
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    return message.includes('expected valid s')
+        || message.includes('ecdsa')
+        || message.includes('invalid signature')
+        || message.includes('malformed signature');
+};
+
 export const useCollateralSwapActions = ({
     account,
     fromToken,
@@ -420,6 +523,55 @@ export const useCollateralSwapActions = ({
             const activePremium = (srcAmountBigInt * activePremiumBps) / 10000n;
             const requiredAllowance = srcAmountBigInt + activePremium;
 
+            const approveWithBoundedFallback = async (reason: string) => {
+                logger.warn('[useCollateralSwapActions] Falling back to on-chain approve for collateral permit', {
+                    chainId,
+                    token: aTokenAddr,
+                    spender: adapterAddress,
+                    reason,
+                });
+                addLog?.('Permit unavailable, using on-chain approve...', 'info');
+                const boundedFallbackAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
+                await handleApprove(false, boundedFallbackAmount, true, aTokenAddr);
+                setIsActionLoading(true);
+                await new Promise(r => setTimeout(r, 1000));
+                fetchPositionData();
+                return EMPTY_COLLATERAL_PERMIT_PARAMS;
+            };
+
+            const requestPermitOrApprove = async () => {
+                const permitAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
+                try {
+                    const permitResult: any = await handleApprove(effectivePreferPermit, permitAmount, true, aTokenAddr);
+                    setIsActionLoading(true);
+
+                    if (!permitResult?.permit) {
+                        return approveWithBoundedFallback('permit_result_missing');
+                    }
+
+                    const validation = getPermitValidation(permitResult.permit);
+                    logger.debug('[useCollateralSwapActions] Fresh permit validation', {
+                        chainId,
+                        token: aTokenAddr,
+                        spender: adapterAddress,
+                        valid: validation.valid,
+                        reason: validation.reason,
+                        ...validation.meta,
+                    });
+
+                    if (!validation.valid || validation.isEmpty || !validation.params) {
+                        return approveWithBoundedFallback(`fresh_permit_invalid:${validation.reason || 'empty'}`);
+                    }
+
+                    return validation.params;
+                } catch (permitErr: any) {
+                    if (permitErr?.code === 'NO_PERMIT' || isMalformedPermitSignatureError(permitErr)) {
+                        return approveWithBoundedFallback(permitErr?.code === 'NO_PERMIT' ? 'no_permit' : 'malformed_signature');
+                    }
+                    throw permitErr;
+                }
+            };
+
             logger.debug(`[useCollateralSwapActions] Evaluation | Allowance: ${allowance.toString()} | Required (with Premium): ${requiredAllowance.toString()} | ForcePermit: ${forceRequirePermit} | PreferPermit: ${preferPermit} | HasLocalSignature: ${!!cachedPermit}`);
 
             if (effectiveAllowance < requiredAllowance || forceRequirePermit) {
@@ -427,64 +579,41 @@ export const useCollateralSwapActions = ({
                     const effectiveSignedPermit = cachedPermit;
 
                     if (effectiveSignedPermit) {
-                        const tokenMatch = getAddress(effectiveSignedPermit.token) === getAddress(aTokenAddr);
-                        const deadlineValid = effectiveSignedPermit.deadline > Math.floor(Date.now() / 1000);
-                        const valueValid = effectiveSignedPermit.value >= requiredAllowance;
+                        let tokenMatch = false;
+                        try {
+                            tokenMatch = getAddress(effectiveSignedPermit.token) === getAddress(aTokenAddr);
+                        } catch {
+                            tokenMatch = false;
+                        }
+                        const deadlineValid = Number(effectiveSignedPermit.deadline || 0) > Math.floor(Date.now() / 1000);
+                        const cachedValue = toPermitAmount(effectiveSignedPermit.value);
+                        const valueValid = cachedValue !== null && cachedValue >= requiredAllowance;
+                        const cachedPermitValidation = getPermitValidation(effectiveSignedPermit.params);
 
-                        logger.debug(`[useCollateralSwapActions] Permit Check | Match: ${tokenMatch} | Deadline: ${deadlineValid} | Value: ${valueValid} | P-Val: ${effectiveSignedPermit.value} | Req: ${requiredAllowance}`);
+                        logger.debug('[useCollateralSwapActions] Cached permit validation', {
+                            chainId,
+                            token: aTokenAddr,
+                            spender: adapterAddress,
+                            tokenMatch,
+                            deadlineValid,
+                            valueValid,
+                            permitValid: cachedPermitValidation.valid,
+                            reason: cachedPermitValidation.reason,
+                            cachedValue: cachedValue?.toString() || null,
+                            requiredAllowance: requiredAllowance.toString(),
+                            ...cachedPermitValidation.meta,
+                        });
 
-                        if (tokenMatch && deadlineValid && valueValid && !forceRequirePermit) {
+                        if (tokenMatch && deadlineValid && valueValid && cachedPermitValidation.valid && !cachedPermitValidation.isEmpty && cachedPermitValidation.params && !forceRequirePermit) {
                             logger.debug('[useCollateralSwapActions] REUSING successful cached permit');
-                            permitParams = effectiveSignedPermit.params;
+                            permitParams = cachedPermitValidation.params;
                         } else {
                             logger.debug('[useCollateralSwapActions] Cached permit INVALID or EXPIRED, re-requesting...');
-                            const permitAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
-                            let permitResult: any = null;
-                            try {
-                                permitResult = await handleApprove(effectivePreferPermit, permitAmount, true, aTokenAddr);
-                            } catch (permitErr: any) {
-                                if (permitErr?.code === 'NO_PERMIT') {
-                                    addLog?.('Permit not supported, using on-chain approve...', 'info');
-                                    const boundedFallbackAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
-                                    await handleApprove(false, boundedFallbackAmount, true, aTokenAddr);
-                                    setIsActionLoading(true);
-                                    await new Promise(r => setTimeout(r, 1000));
-                                    fetchPositionData();
-                                    permitResult = null;
-                                } else {
-                                    throw permitErr;
-                                }
-                            }
-
-                            setIsActionLoading(true);
-                            if (permitResult?.permit) {
-                                permitParams = permitResult.permit;
-                            }
+                            permitParams = await requestPermitOrApprove();
                         }
                     } else {
                         logger.debug('[useCollateralSwapActions] No local permit found, re-requesting...');
-                        const permitAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
-                        let permitResult: any = null;
-                        try {
-                            permitResult = await handleApprove(effectivePreferPermit, permitAmount, true, aTokenAddr);
-                        } catch (permitErr: any) {
-                            if (permitErr?.code === 'NO_PERMIT') {
-                                addLog?.('Permit not supported... fallback to on-chain approve', 'info');
-                                const boundedFallbackAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
-                                await handleApprove(false, boundedFallbackAmount, true, aTokenAddr);
-                                setIsActionLoading(true);
-                                await new Promise(r => setTimeout(r, 1000));
-                                fetchPositionData();
-                                permitResult = null;
-                            } else {
-                                throw permitErr;
-                            }
-                        }
-
-                        setIsActionLoading(true);
-                        if (permitResult?.permit) {
-                            permitParams = permitResult.permit;
-                        }
+                        permitParams = await requestPermitOrApprove();
                     }
                 } else {
                     await handleApprove(false, undefined, true, aTokenAddr);
@@ -550,6 +679,27 @@ export const useCollateralSwapActions = ({
                 account,
                 transactionId: localTxId,
                 swapDebug: swapDebugMeta,
+            });
+
+            const finalPermitValidation = getPermitValidation(permitParams);
+            if (!finalPermitValidation.valid || !finalPermitValidation.params) {
+                logger.warn('[useCollateralSwapActions] Blocking invalid collateral permit before encoding', {
+                    chainId,
+                    token: aTokenAddr,
+                    spender: adapterAddress,
+                    reason: finalPermitValidation.reason,
+                    ...finalPermitValidation.meta,
+                });
+                permitParams = EMPTY_COLLATERAL_PERMIT_PARAMS;
+            } else {
+                permitParams = finalPermitValidation.params;
+            }
+
+            logger.debug('[useCollateralSwapActions] Permit params encoding metadata', {
+                chainId,
+                token: aTokenAddr,
+                spender: adapterAddress,
+                ...getPermitValidation(permitParams).meta,
             });
 
             // Use explicit params definition to avoid abitype inference errors
