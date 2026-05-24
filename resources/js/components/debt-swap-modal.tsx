@@ -410,7 +410,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 useGrouping: false,
                 maximumFractionDigits: value < 1 ? 8 : 6,
             })
-            .replace(/\.?0+$/, '');
+            .replace(/(\.\d*?)0+$/, '$1')
+            .replace(/\.$/, '');
     }, []);
 
     const formatRawAmountForDisplay = useCallback((rawAmount: string | undefined | null, decimals: number) => {
@@ -607,9 +608,38 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         return formatPlainAmount(sourceAmount * price);
     }, [displayDestinationRawAmount, toToken, limitInputValue, canonicalLimitPrice, canonicalPriceBaseToken, canonicalPriceQuoteToken, canonicalPriceInverted, formatPlainAmount, formatRawAmountForDisplay]);
 
+    /**
+     * Cost margin ratio derived from the quote.
+     *
+     * For BUY Debt Limit orders the CoW orderbook quote includes a cost
+     * envelope (network costs, solver fees, slippage) reflected in
+     * `finalMaxSellAmount` vs the bare `quoteSellAmount`.  When the user
+     * overrides the limit price we must apply the same proportional margin
+     * to the custom sell amount so that solvers have room to cover their
+     * execution costs — otherwise the order will never be filled.
+     *
+     * costMarginBps is expressed in basis points (10000 = 1x, 10350 ≈ +3.5%).
+     */
+    const costMarginBps = useMemo(() => {
+        const maxSell = debtLimitQuote?.finalMaxSellAmount || debtLimitQuote?.orderSellAmountRaw;
+        const baseSell = debtLimitQuote?.quoteSellAmount;
+        if (!maxSell || !baseSell) return 10000n;
+        try {
+            const max = BigInt(maxSell);
+            const base = BigInt(baseSell);
+            if (base <= 0n) return 10000n;
+            const bps = (max * 10000n) / base;
+            // Sanity clamp: margin should be between 0% and 20%
+            return bps < 10000n ? 10000n : bps > 12000n ? 12000n : bps;
+        } catch {
+            return 10000n;
+        }
+    }, [debtLimitQuote?.finalMaxSellAmount, debtLimitQuote?.orderSellAmountRaw, debtLimitQuote?.quoteSellAmount]);
+
     const limitOutputAmount = useMemo(() => {
         if (hasCustomLimitPrice) {
-            return customOrderSellRawAmount ? BigInt(customOrderSellRawAmount) : 0n;
+            if (!customOrderSellRawAmount) return 0n;
+            return BigInt(customOrderSellRawAmount);
         }
 
         if (!orderSellRawAmount) {
@@ -621,7 +651,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         } catch {
             return 0n;
         }
-    }, [orderSellRawAmount, hasCustomLimitPrice, customOrderSellRawAmount]);
+    }, [orderSellRawAmount, hasCustomLimitPrice, customOrderSellRawAmount, costMarginBps]);
 
     const limitInputSecondaryValue = useMemo(() => {
         if (!fromToken) {
@@ -652,8 +682,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
     const limitOutputTokenAmount = useMemo(() => {
         // Never let a stale/computed input override a real quote amount.
-        // Manual output is only authoritative when the user is effectively on custom limit price mode.
-        if (hasCustomLimitPrice && limitOutputInputValue) return limitOutputInputValue;
+        // Manual output is only authoritative while the user is editing the receive field.
+        if (hasCustomLimitPrice && isEditingLimitOutputRef.current && limitOutputInputValue) return limitOutputInputValue;
         return limitOutputValue;
     }, [hasCustomLimitPrice, limitOutputInputValue, limitOutputValue]);
 
@@ -711,10 +741,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             canonicalPriceInverted,
         );
 
-        if (hasCustomLimitPrice && computed) {
-            setLimitOutputInputValue(computed);
-        } else if (displayDestinationRawAmount && toToken) {
+        if (displayDestinationRawAmount && toToken) {
             setLimitOutputInputValue(formatRawAmountForDisplay(displayDestinationRawAmount, toToken.decimals || 18));
+        } else if (hasCustomLimitPrice && computed) {
+            setLimitOutputInputValue(computed);
         } else {
             setLimitOutputInputValue('');
         }
@@ -3668,6 +3698,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                 placeholder="0.00"
                                 isLoading={debtLimitQuoteState === 'quoteLoading'}
                                 loadingLabel="Loading quote..."
+                                showQuickActions={false}
                                 onTokenSelect={() => {
                                     setSelectingForFrom(false);
                                     setTokenSelectorOpen(true);
@@ -3777,6 +3808,20 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                                 MARKET
                                             </span>
                                         </button>
+                                        {(() => {
+                                            const userP = parseFloat(displayLimitPrice || '0');
+                                            const marketP = parseFloat(displayMarketLimitPrice || '0');
+                                            if (!Number.isFinite(userP) || userP <= 0 || !Number.isFinite(marketP) || marketP <= 0) return null;
+                                            const diff = ((userP - marketP) / marketP) * 100;
+                                            const absDiff = Math.abs(diff);
+                                            if (absDiff < 0.01) return null;
+                                            const color = absDiff < 0.1 ? 'text-slate-400' : diff < 0 ? 'text-emerald-500' : 'text-red-500';
+                                            return (
+                                                <span className={`text-[11px] font-medium ${color}`}>
+                                                    {diff > 0 ? '+' : ''}{diff.toFixed(1)}%
+                                                </span>
+                                            );
+                                        })()}
                                     </div>
                                 </div>
                             </div>

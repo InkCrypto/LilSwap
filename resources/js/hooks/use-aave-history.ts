@@ -373,8 +373,8 @@ export const useAaveHistory = (walletAddress: string | null, opts: { refreshInte
         const mappedLimitOrders = limitOrders.map((order) => {
             let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
             const status = String(order.status || '').toUpperCase();
-            if (status === 'FILLED') mappedStatus = 'success';
-            else if (['EXPIRED', 'CANCELLED', 'FAILED'].includes(status)) mappedStatus = 'error';
+            if (status === 'FULFILLED') mappedStatus = 'success';
+            else if (['EXPIRED', 'CANCELLED', 'INVALIDATED'].includes(status)) mappedStatus = 'error';
 
             return {
                 hash: `limit-order-${order.order_uid}`,

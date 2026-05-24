@@ -572,6 +572,69 @@ export const postDebtLimitSwap = async (
         throw new Error(errorMessage);
     }
 };
+// --- Cancel Limit Order ---
+
+export interface CancelLimitOrderPrepareParams {
+    walletAddress: string;
+    chainId: number;
+    orderUid: string;
+}
+
+export interface CancelLimitOrderPrepareResult {
+    orderUid: string;
+    chainId: number;
+    cancellationType?: 'onchain' | 'offchain';
+    transactionRequest?: {
+        to: string;
+        data: string;
+        chainId: number;
+    };
+    signatureRequest?: {
+        type: 'typedData';
+        domain: Record<string, unknown>;
+        types: Record<string, Array<{ name: string; type: string }>>;
+        primaryType: string;
+        message: Record<string, unknown>;
+    };
+}
+
+export interface CancelLimitOrderPostParams {
+    walletAddress: string;
+    chainId: number;
+    orderUid: string;
+    signature?: string;
+    txHash?: string;
+}
+
+export interface CancelLimitOrderPostResult {
+    success: boolean;
+    orderUid: string;
+    status: 'CANCELLED';
+}
+
+export const prepareCancelLimitOrder = async (
+    params: CancelLimitOrderPrepareParams,
+): Promise<CancelLimitOrderPrepareResult> => {
+    try {
+        const response = await apiClient.post('/aave/v3/build/debt/limit/cancel', params);
+        return response.data as CancelLimitOrderPrepareResult;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error preparing order cancellation');
+        throw new Error(errorMessage);
+    }
+};
+
+export const postCancelLimitOrder = async (
+    params: CancelLimitOrderPostParams,
+): Promise<CancelLimitOrderPostResult> => {
+    try {
+        const response = await apiClient.post('/aave/v3/build/debt/limit/cancel/post', params);
+        return response.data as CancelLimitOrderPostResult;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error cancelling order');
+        throw new Error(errorMessage);
+    }
+};
 
 export interface LimitOrderHistoryItem {
     id: number | string;

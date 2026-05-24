@@ -56,5 +56,5 @@ export const computeLimitOutputDisplay = (
     return output.toLocaleString('en-US', {
         useGrouping: false,
         maximumFractionDigits: output < 1 ? 8 : 6,
-    }).replace(/\.?0+$/, '');
+    }).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 };

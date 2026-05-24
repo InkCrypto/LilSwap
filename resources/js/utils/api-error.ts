@@ -27,6 +27,17 @@ const isInfrastructureError = (message: string) => {
 export const getPublicApiErrorMessage = (error: any, fallback = 'Something went wrong') => {
     const data = error?.response?.data;
     const userMessage = typeof data?.userMessage === 'string' ? data.userMessage.trim() : '';
+
+    if (data?.body && typeof data.body === 'object') {
+        const cowError = data.body.errorType || data.body.code;
+        const cowDescription = data.body.description || data.body.message;
+        if (cowError && cowDescription) {
+            return `CoW Swap Error: ${cowDescription} (${cowError})`;
+        } else if (cowDescription) {
+            return `CoW Swap Error: ${cowDescription}`;
+        }
+    }
+
     const rawMessage =
         (typeof data?.message === 'string' && data.message.trim()) ||
         (typeof data?.error === 'string' && data.error.trim()) ||

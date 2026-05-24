@@ -29,6 +29,7 @@ interface CompactAmountInputProps {
     placeholder?: string;
     isLoading?: boolean;
     loadingLabel?: string;
+    showQuickActions?: boolean;
 }
 
 /**
@@ -57,6 +58,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
     placeholder = '0.00',
     isLoading = false,
     loadingLabel = 'Loading...',
+    showQuickActions = true,
 }) => {
     const [popoverOpen, setPopoverOpen] = useState(false);
     const popoverRef = useRef<HTMLDivElement>(null);
@@ -202,46 +204,50 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                     </span>
                 </button>
 
-                {/* Balance + % popover + MAX — hidden for read-only (destination) inputs */}
+                {/* Balance + optional % popover + MAX — hidden for read-only inputs */}
                 {!readOnly && (
                     <div className="flex items-center gap-2 text-xs text-slate-400">
                         <span className="text-slate-500 font-medium whitespace-nowrap">Balance {formattedBalance ? formatCompactNumber(formattedBalance) : '0'}</span>
 
                         {/* % button + custom popover */}
-                        <div className="relative" ref={popoverRef}>
-                            <button
-                                type="button"
-                                className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors disabled:opacity-50"
-                                disabled={disabled || !maxAmount || maxAmount === BigInt(0)}
-                                onClick={() => setPopoverOpen(!popoverOpen)}
-                            >
-                                %
-                            </button>
+                        {showQuickActions && (
+                            <>
+                                <div className="relative" ref={popoverRef}>
+                                    <button
+                                        type="button"
+                                        className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors disabled:opacity-50"
+                                        disabled={disabled || !maxAmount || maxAmount === BigInt(0)}
+                                        onClick={() => setPopoverOpen(!popoverOpen)}
+                                    >
+                                        %
+                                    </button>
 
-                            {popoverOpen && (
-                                <div className="absolute bottom-full right-0 mb-2 p-1.5 flex gap-1.5 w-auto rounded-lg border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 shadow-xl z-50 animate-in slide-in-from-bottom-2 duration-150">
-                                    {[25, 50, 75].map((pct) => (
-                                        <button
-                                            key={pct}
-                                            type="button"
-                                            onClick={() => handleApplyPct(pct)}
-                                            className="px-3 py-1.5 text-xs font-bold rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-600 hover:text-purple-600 dark:hover:text-white transition-colors"
-                                        >
-                                            {pct}%
-                                        </button>
-                                    ))}
+                                    {popoverOpen && (
+                                        <div className="absolute bottom-full right-0 mb-2 p-1.5 flex gap-1.5 w-auto rounded-lg border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 shadow-xl z-50 animate-in slide-in-from-bottom-2 duration-150">
+                                            {[25, 50, 75].map((pct) => (
+                                                <button
+                                                    key={pct}
+                                                    type="button"
+                                                    onClick={() => handleApplyPct(pct)}
+                                                    className="px-3 py-1.5 text-xs font-bold rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-600 hover:text-purple-600 dark:hover:text-white transition-colors"
+                                                >
+                                                    {pct}%
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
                                 </div>
-                            )}
-                        </div>
 
-                        <button
-                            type="button"
-                            className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors disabled:opacity-50"
-                            onClick={handleApplyMax}
-                            disabled={disabled || !maxAmount || maxAmount === BigInt(0)}
-                        >
-                            MAX
-                        </button>
+                                <button
+                                    type="button"
+                                    className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors disabled:opacity-50"
+                                    onClick={handleApplyMax}
+                                    disabled={disabled || !maxAmount || maxAmount === BigInt(0)}
+                                >
+                                    MAX
+                                </button>
+                            </>
+                        )}
                     </div>
                 )}
             </div>

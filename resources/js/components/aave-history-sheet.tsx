@@ -1,11 +1,14 @@
-import { CheckCircle2, History, ExternalLink, RefreshCw, AlertTriangle, Loader2, MoveRight } from 'lucide-react';
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { CheckCircle2, History, ExternalLink, RefreshCw, AlertTriangle, Loader2, MoveRight, Clock, X } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getNetworkByChainId } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useAaveHistory } from '../hooks/use-aave-history';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from './ui/sheet';
-import { useWeb3 } from '../contexts/web3-context';
+import { useWeb3, wagmiConfig } from '../contexts/web3-context';
+import { getConnectorClient } from 'wagmi/actions';
+import { signTypedData, sendTransaction } from 'viem/actions';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
+import { prepareCancelLimitOrder, postCancelLimitOrder } from '../services/api';
 
 export const AaveHistorySheet: React.FC = () => {
     const {
@@ -13,7 +16,7 @@ export const AaveHistorySheet: React.FC = () => {
         setSheetOpen,
     } = useTransactionTracker();
 
-    const { account: address } = useWeb3();
+    const { account: address, walletClient } = useWeb3();
     const {
         combinedHistory,
         isLoadingHistory,
@@ -29,6 +32,81 @@ export const AaveHistorySheet: React.FC = () => {
     const [showAbsolute, setShowAbsolute] = useState(false);
     const [activityFilter, setActivityFilter] = useState<'all' | 'swaps' | 'limit-orders'>('all');
     const [touchStart, setTouchStart] = React.useState({ x: 0, y: 0 });
+    const [cancellingOrderUid, setCancellingOrderUid] = useState<string | null>(null);
+    const [cancelError, setCancelError] = useState<string | null>(null);
+
+    const handleCancelOrder = useCallback(async (orderUid: string, chainId: number) => {
+        if (!address || cancellingOrderUid) return;
+        setCancellingOrderUid(orderUid);
+        setCancelError(null);
+        try {
+            const prepareResult = await prepareCancelLimitOrder({
+                walletAddress: address,
+                chainId,
+                orderUid,
+            });
+
+            if (!walletClient) throw new Error('Wallet not connected');
+
+            const currentChainId = await walletClient.getChainId();
+            if (currentChainId !== chainId) {
+                await walletClient.switchChain({ id: chainId });
+            }
+
+            const activeWalletClient = await getConnectorClient(wagmiConfig, {
+                account: address as `0x${string}`,
+                chainId: chainId as any,
+            });
+
+            if (prepareResult.cancellationType === 'onchain') {
+                if (!prepareResult.transactionRequest) {
+                    throw new Error('On-chain cancellation transaction request was not returned');
+                }
+
+                const { to, data } = prepareResult.transactionRequest;
+                const txHash = await sendTransaction(activeWalletClient, {
+                    account: address as `0x${string}`,
+                    to: to as `0x${string}`,
+                    data: data as `0x${string}`,
+                });
+
+                await postCancelLimitOrder({
+                    walletAddress: address,
+                    chainId,
+                    orderUid,
+                    txHash,
+                });
+            } else {
+                if (!prepareResult.signatureRequest) {
+                    throw new Error('Signature request was not returned for off-chain cancellation');
+                }
+
+                const { domain, types, message, primaryType } = prepareResult.signatureRequest;
+                const signature = await signTypedData(activeWalletClient, {
+                    account: address as `0x${string}`,
+                    domain: domain as any,
+                    types: types as any,
+                    primaryType: (primaryType || 'OrderCancellations') as any,
+                    message: message as any,
+                });
+
+                await postCancelLimitOrder({
+                    walletAddress: address,
+                    chainId,
+                    orderUid,
+                    signature,
+                });
+            }
+
+            void refresh(true);
+        } catch (err: any) {
+            if (err?.code !== 4001 && err?.code !== 'ACTION_REJECTED') {
+                setCancelError(err?.message || 'Cancel failed');
+            }
+        } finally {
+            setCancellingOrderUid(null);
+        }
+    }, [address, cancellingOrderUid, walletClient, refresh]);
 
     const displayedHistory = useMemo(() => {
         if (activityFilter === 'swaps') {
@@ -202,21 +280,23 @@ export const AaveHistorySheet: React.FC = () => {
                                     >
                                         <div className="flex items-start gap-2.5 sm:gap-3">
                                             <div className="hidden sm:block shrink-0 mt-1">
-                                                {tx.status === 'pending' && (
+                                                {isLimitOrder && tx.txStatus === 'OPEN' ? (
+                                                    <div className="w-8 h-8 rounded-full bg-blue-50 dark:bg-blue-900/20 flex items-center justify-center">
+                                                        <Clock className="w-4 h-4 text-blue-500" />
+                                                    </div>
+                                                ) : tx.status === 'pending' ? (
                                                     <div className="w-8 h-8 rounded-full bg-amber-50 dark:bg-amber-900/20 flex items-center justify-center">
                                                         <RefreshCw className="w-4 h-4 text-amber-500 animate-spin" />
                                                     </div>
-                                                )}
-                                                {tx.status === 'success' && (
+                                                ) : tx.status === 'success' ? (
                                                     <div className="w-8 h-8 rounded-full bg-emerald-50 dark:bg-emerald-900/20 flex items-center justify-center">
                                                         <CheckCircle2 className="w-5 h-5 text-emerald-500" />
                                                     </div>
-                                                )}
-                                                {tx.status === 'error' && (
+                                                ) : tx.status === 'error' ? (
                                                     <div className="w-8 h-8 rounded-full bg-red-50 dark:bg-red-900/20 flex items-center justify-center">
                                                         <AlertTriangle className="w-5 h-5 text-red-500" />
                                                     </div>
-                                                )}
+                                                ) : null}
                                             </div>
 
                                             <div className="flex-1 min-w-0 space-y-2">
@@ -225,9 +305,17 @@ export const AaveHistorySheet: React.FC = () => {
                                                         {tx.description}
                                                     </p>
 
-                                                    <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${tx.status === 'pending' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400' :
-                                                        tx.status === 'success' ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400' :
-                                                            'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400'
+                                                    <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${isLimitOrder
+                                                        ? (tx.txStatus === 'OPEN'
+                                                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
+                                                            : tx.status === 'success'
+                                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                                                : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400')
+                                                        : (tx.status === 'pending'
+                                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
+                                                            : tx.status === 'success'
+                                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                                                : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400')
                                                     }`}>
                                                         {isLimitOrder ? (tx.txStatus === 'OPEN' ? 'Open' : tx.txStatus) :
                                                         tx.status === 'pending' ? 'Processing...' :
@@ -329,7 +417,23 @@ export const AaveHistorySheet: React.FC = () => {
                                                                     }).format(new Date(tx.validTo * 1000))}
                                                                 </span>
                                                             )}
+                                                            {tx.txStatus === 'OPEN' && (
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={() => void handleCancelOrder(tx.orderUid, tx.chainId)}
+                                                                    disabled={cancellingOrderUid === tx.orderUid}
+                                                                    className="inline-flex items-center gap-0.5 text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 transition-colors disabled:opacity-50"
+                                                                >
+                                                                    {cancellingOrderUid === tx.orderUid ? (
+                                                                        <><Loader2 className="w-3 h-3 animate-spin" /> Cancelling...</>
+                                                                    ) : (
+                                                                        <><X className="w-3 h-3" /> Cancel</>)}
+                                                                </button>
+                                                            )}
                                                         </div>
+                                                        {cancelError && cancellingOrderUid === null && tx.txStatus === 'OPEN' && (
+                                                            <p className="text-[10px] text-red-500">{cancelError}</p>
+                                                        )}
                                                     </div>
                                                 )}
 
