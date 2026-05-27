@@ -96,6 +96,8 @@ export interface MarketConfig {
         DEBT_SWAP_ADAPTER: string | null;
         SWAP_COLLATERAL_ADAPTER: string | null;
         DATA_PROVIDER: string | null;
+        WETH_GATEWAY: string | null;
+        WITHDRAW_SWAP_ADAPTER: string | null;
         AUGUSTUS: {
             V5: string;
             V6_2: string;
@@ -134,6 +136,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -165,6 +169,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -197,6 +203,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -228,6 +236,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -259,6 +269,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -290,6 +302,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -321,6 +335,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -352,6 +368,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5_BASE,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -383,6 +401,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -414,6 +434,8 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DEBT_SWAP_ADAPTER: normalizeAddress(book?.DEBT_SWAP_ADAPTER || book?.DebtSwapAdapter),
                 SWAP_COLLATERAL_ADAPTER: normalizeAddress(book?.SWAP_COLLATERAL_ADAPTER || book?.SwapCollateralAdapter),
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
+                WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
+                WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,

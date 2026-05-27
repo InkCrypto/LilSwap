@@ -2,7 +2,12 @@ export const ABIS = {
     POOL: [
         "function flashLoanSimple(address receiver, address token, uint256 amount, bytes calldata params, uint16 referralCode) external",
         "function flashLoan(address receiver, address[] calldata tokens, uint256[] calldata amounts, uint256[] calldata modes, address onBehalfOf, bytes calldata params, uint16 referralCode) external",
-        "function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external"
+        "function setUserUseReserveAsCollateral(address asset, bool useAsCollateral) external",
+        "function supply(address asset, uint256 amount, address onBehalfOf, uint16 referralCode) external",
+        "function withdraw(address asset, uint256 amount, address to) external returns (uint256)",
+        "function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external",
+        "function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256)",
+        "function repayWithATokens(address asset, uint256 amount, uint256 interestRateMode) external returns (uint256)"
     ],
     POOL_GETTER: [
         "function getReserveData(address asset) external view returns ((uint256 configuration, uint128 liquidityIndex, uint128 currentLiquidityRate, uint128 variableBorrowIndex, uint128 currentVariableBorrowRate, uint128 currentStableBorrowRate, uint40 lastUpdateTimestamp, uint16 id, uint40 liquidationGracePeriodUntil, address aTokenAddress, address stableDebtTokenAddress, address variableDebtTokenAddress, address interestRateStrategyAddress, uint128 accruedToTreasury, uint128 unbacked, uint128 isolationModeTotalDebt))"
@@ -105,5 +110,40 @@ export const ABIS = {
             "stateMutability": "view",
             "type": "function"
         }
+    ],
+    WETH_GATEWAY: [
+        "function depositETH(address pool, address onBehalfOf, uint16 referralCode) external payable",
+        "function withdrawETH(address pool, uint256 amount, address to) external",
+        "function borrowETH(address pool, uint256 amount, uint256 interestRateMode, uint16 referralCode) external",
+        "function repayETH(address pool, uint256 amount, uint256 interestRateMode, address onBehalfOf) external payable"
+    ],
+    WITHDRAW_SWAP_ADAPTER: [
+        {
+            "inputs": [
+                { "internalType": "address", "name": "assetToSwapFrom", "type": "address" },
+                { "internalType": "address", "name": "assetToSwapTo", "type": "address" },
+                { "internalType": "uint256", "name": "amountToSwap", "type": "uint256" },
+                { "internalType": "uint256", "name": "minAmountToReceive", "type": "uint256" },
+                { "internalType": "uint256", "name": "swapAllBalanceOffset", "type": "uint256" },
+                { "internalType": "bytes", "name": "swapCalldata", "type": "bytes" },
+                { "internalType": "address", "name": "augustus", "type": "address" },
+                {
+                    "components": [
+                        { "internalType": "uint256", "name": "amount", "type": "uint256" },
+                        { "internalType": "uint256", "name": "deadline", "type": "uint256" },
+                        { "internalType": "uint8", "name": "v", "type": "uint8" },
+                        { "internalType": "bytes32", "name": "r", "type": "bytes32" },
+                        { "internalType": "bytes32", "name": "s", "type": "bytes32" }
+                    ],
+                    "internalType": "struct IParaSwapWithdrawSwapAdapter.PermitSignature",
+                    "name": "permitParams",
+                    "type": "tuple"
+                }
+            ],
+            "name": "withdrawAndSwap",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        }
     ]
-};
+} as const;

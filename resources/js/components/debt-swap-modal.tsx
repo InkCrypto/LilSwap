@@ -2648,35 +2648,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                     </div>
                 )}
 
-                {/* ── Mode Tab Switcher ──────────────────────────────────────────────── */}
-                <div className="flex items-center gap-0.5 p-0.5 bg-slate-100 dark:bg-slate-800/60 rounded-xl mb-1">
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setSwapMode('market');
-                            resetDebtLimitPreparedState();
-                        }}
-                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all ${swapMode === 'market'
-                            ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
-                            }`}
-                    >
-                        Market
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => {
-                            setSwapMode('limit');
-                            resetDebtLimitPreparedState();
-                        }}
-                        className={`flex-1 py-1.5 text-xs font-bold rounded-lg transition-all flex items-center justify-center gap-1.5 ${swapMode === 'limit'
-                            ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-sm'
-                            : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300'
-                            }`}
-                    >
-                        Limit
-                    </button>
-                </div>
+
 
                 {/* ── Market Tab ─────────────────────────────────────────────────────── */}
                 {swapMode === 'market' && (

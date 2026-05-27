@@ -17,6 +17,10 @@ import { Switch } from './ui/switch';
 const DebtSwapModal = lazy(() => import('./debt-swap-modal').then(module => ({ default: module.DebtSwapModal })));
 const CollateralSwapModal = lazy(() => import('./collateral-swap-modal').then(module => ({ default: module.CollateralSwapModal })));
 const CollateralToggleModal = lazy(() => import('./collateral-toggle-modal').then(module => ({ default: module.CollateralToggleModal })));
+const SupplyModal = lazy(() => import('./supply-modal').then(module => ({ default: module.SupplyModal })));
+const WithdrawModal = lazy(() => import('./withdraw-modal').then(module => ({ default: module.WithdrawModal })));
+const BorrowModal = lazy(() => import('./borrow-modal').then(module => ({ default: module.BorrowModal })));
+const RepayModal = lazy(() => import('./repay-modal').then(module => ({ default: module.RepayModal })));
 
 // Formatting helpers removed in favor of centralized ones in ../utils/formatters.ts
 
@@ -96,12 +100,20 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         marketKey: null,
         summary: null
     });
+    const [supplyModal, setSupplyModal] = useState<{ open: boolean; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, chainId: 0, marketKey: null, marketAssets: [], summary: null });
+    const [withdrawModal, setWithdrawModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null });
+    const [borrowModal, setBorrowModal] = useState<{ open: boolean; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, chainId: 0, marketKey: null, marketAssets: [], summary: null });
+    const [repayModal, setRepayModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; supplies: any[]; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null, supplies: [] });
     const [timeTick, setTimeTick] = useState(() => Date.now());
 
     useEffect(() => {
         void import('./debt-swap-modal');
         void import('./collateral-swap-modal');
         void import('./collateral-toggle-modal');
+        void import('./supply-modal');
+        void import('./withdraw-modal');
+        void import('./borrow-modal');
+        void import('./repay-modal');
     }, []);
 
     useEffect(() => {
@@ -121,6 +133,10 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         setOpenMarket(null);
         setOpenEmptyChains(false);
         setModalState(prev => ({ ...prev, open: false }));
+        setSupplyModal(prev => ({ ...prev, open: false }));
+        setWithdrawModal(prev => ({ ...prev, open: false }));
+        setBorrowModal(prev => ({ ...prev, open: false }));
+        setRepayModal(prev => ({ ...prev, open: false }));
     }, [walletAddress]);
 
     const handleOpenSwap = (
@@ -186,6 +202,38 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
     const handleCloseToggleModal = () => {
         setToggleModal(prev => ({ ...prev, open: false }));
+    };
+
+    const handleOpenSupply = (marketKey: string, chainIdNum: number, marketAssets: any[], summary: any) => {
+        setSupplyModal({ open: true, chainId: chainIdNum, marketKey, marketAssets, summary });
+        const market = getMarketByKey(marketKey);
+        if (market) {
+            void setSelectedNetwork(market.key).catch(() => {});
+        }
+    };
+
+    const handleOpenWithdraw = (marketKey: string, chainIdNum: number, asset: any, summary: any, marketAssets: any[]) => {
+        setWithdrawModal({ open: true, asset, chainId: chainIdNum, marketKey, marketAssets, summary });
+        const market = getMarketByKey(marketKey);
+        if (market) {
+            void setSelectedNetwork(market.key).catch(() => {});
+        }
+    };
+
+    const handleOpenBorrow = (marketKey: string, chainIdNum: number, marketAssets: any[], summary: any) => {
+        setBorrowModal({ open: true, chainId: chainIdNum, marketKey, marketAssets, summary });
+        const market = getMarketByKey(marketKey);
+        if (market) {
+            void setSelectedNetwork(market.key).catch(() => {});
+        }
+    };
+
+    const handleOpenRepay = (marketKey: string, chainIdNum: number, asset: any, summary: any, supplies: any[], marketAssets: any[]) => {
+        setRepayModal({ open: true, asset, chainId: chainIdNum, marketKey, marketAssets, summary, supplies });
+        const market = getMarketByKey(marketKey);
+        if (market) {
+            void setSelectedNetwork(market.key).catch(() => {});
+        }
     };
 
     const getLastFetchText = () => {
@@ -287,7 +335,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                 marketAssets: info?.marketAssets || [],
                 eModeCategoryId: info?.summary?.eModeCategoryId,
                 eModes: info?.summary?.eModes,
-                error: info?.error
+                error: info?.error,
+                summary: info?.summary
             };
         });
 
@@ -552,9 +601,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                             <div className="w-full">
                                 <div className="md:hidden space-y-4">
                                     <div>
-                                        <div className="mb-2 flex items-center gap-2 px-3">
-                                            <ArrowUpRight className="w-3 h-3 text-emerald-500" />
-                                            <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Supplies</h4>
+                                        <div className="mb-2 flex items-center justify-between px-3">
+                                            <div className="flex items-center gap-2">
+                                                <ArrowUpRight className="w-3 h-3 text-emerald-500" />
+                                                <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Supplies</h4>
+                                            </div>
+                                            <Button size="sm" variant="outline" className="h-6 rounded-md text-[10px] px-2 py-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                + Supply
+                                            </Button>
                                         </div>
                                         <div className="border-t border-slate-200 divide-y divide-slate-200 dark:border-slate-700/80 dark:divide-slate-700/80 md:-mx-4 md:border-x">
                                             {chain.supplies.map((supply) => (
@@ -584,9 +638,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                     onClick={(e) => e.stopPropagation()}
                                                                 />
                                                             </div>
-                                                            <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0 h-8 px-3 text-xs">
-                                                                <ArrowLeftRight className="w-3 h-3" /> Swap
-                                                            </Button>
+                                                            <div className="flex items-center gap-2">
+                                                                <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
+                                                                    <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                                </Button>
+                                                                <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenWithdraw(chain.marketKey, chain.chainId, supply, chain.summary, chain.marketAssets); }} className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
+                                                                    Withdraw
+                                                                </Button>
+                                                            </div>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -596,9 +655,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
                                     {chain.borrows.length > 0 && (
                                         <div>
-                                            <div className="mb-2 flex items-center gap-2 px-3">
-                                                <ArrowDownRight className="w-3 h-3 text-primary" />
-                                                <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Borrows</h4>
+                                            <div className="mb-2 flex items-center justify-between px-3">
+                                                <div className="flex items-center gap-2">
+                                                    <ArrowDownRight className="w-3 h-3 text-primary" />
+                                                    <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Borrows</h4>
+                                                </div>
+                                                <Button size="sm" variant="outline" className="h-6 rounded-md text-[10px] px-2 py-0 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                    + Borrow
+                                                </Button>
                                                 {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
                                                     <div className="flex items-center gap-1 px-1.5 py-0 rounded bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800">
                                                         <div className="w-1 h-1 rounded-full bg-sky-500 animate-pulse" />
@@ -663,21 +727,31 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
                                 <div className="hidden md:block">
                                     <div className="grid grid-cols-2 gap-6 mb-2">
-                                        <div className="flex items-center gap-2 px-1">
-                                            <ArrowUpRight className="w-3 h-3 text-emerald-500" />
-                                            <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Supplies</h4>
+                                        <div className="flex items-center justify-between px-1">
+                                            <div className="flex items-center gap-2">
+                                                <ArrowUpRight className="w-3 h-3 text-emerald-500" />
+                                                <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Supplies</h4>
+                                            </div>
+                                            <Button size="sm" variant="outline" className="h-7 rounded-lg text-xs border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                + Supply
+                                            </Button>
                                         </div>
-                                        <div className="flex items-center gap-2 px-1">
-                                            <ArrowDownRight className="w-3 h-3 text-primary" />
-                                            <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Borrows</h4>
-                                            {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
-                                                <div className="flex items-center gap-1 px-1.5 py-0 rounded bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800">
-                                                    <div className="w-1 h-1 rounded-full bg-sky-500 animate-pulse" />
-                                                    <span className="text-[9px] font-black text-sky-700 dark:text-sky-400 uppercase tracking-wider">
-                                                        E-Mode: {chain.eModes?.find((m: any) => m.id === chain.eModeCategoryId)?.label || 'Active'}
-                                                    </span>
-                                                </div>
-                                            )}
+                                        <div className="flex items-center justify-between px-1">
+                                            <div className="flex items-center gap-2">
+                                                <ArrowDownRight className="w-3 h-3 text-primary" />
+                                                <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Borrows</h4>
+                                                {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
+                                                    <div className="flex items-center gap-1 px-1.5 py-0 rounded bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800">
+                                                        <div className="w-1 h-1 rounded-full bg-sky-500 animate-pulse" />
+                                                        <span className="text-[9px] font-black text-sky-700 dark:text-sky-400 uppercase tracking-wider">
+                                                            E-Mode: {chain.eModes?.find((m: any) => m.id === chain.eModeCategoryId)?.label || 'Active'}
+                                                        </span>
+                                                    </div>
+                                                )}
+                                            </div>
+                                            <Button size="sm" variant="outline" className="h-7 rounded-lg text-xs border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                + Borrow
+                                            </Button>
                                         </div>
                                     </div>
                                     {(() => {
@@ -717,9 +791,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                                 onClick={(e) => e.stopPropagation()}
                                                                             />
                                                                         </div>
-                                                                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-2 rounded-lg shrink-0 h-8 px-3 text-xs">
-                                                                            <ArrowLeftRight className="w-3 h-3" /> Swap
-                                                                        </Button>
+                                                                        <div className="flex items-center gap-2">
+                                                                            <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
+                                                                                <ArrowLeftRight className="w-3 h-3" /> Swap
+                                                                            </Button>
+                                                                            <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenWithdraw(chain.marketKey, chain.chainId, supply, chain.summary, chain.marketAssets); }} className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-350 dark:hover:bg-slate-650 text-slate-800 dark:text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
+                                                                                Withdraw
+                                                                            </Button>
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -757,29 +836,38 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                                 <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(parseFloat(borrow.formattedAmount), borrow.symbol)}</div>
                                                                             </div>
                                                                         </div>
-                                                                        {hasAlternatives ? (
+                                                                        <div className="flex items-center gap-2">
+                                                                            {hasAlternatives ? (
+                                                                                <Button
+                                                                                    size="sm"
+                                                                                    variant="default"
+                                                                                    onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
+                                                                                    className="gap-1.5 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-xs h-8 px-2.5 text-xs cursor-pointer"
+                                                                                >
+                                                                                    <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                                                </Button>
+                                                                            ) : (
+                                                                                <InfoTooltip message="No alternative tokens available in your E-Mode category" disableClick={true}>
+                                                                                    <div className="cursor-not-allowed flex">
+                                                                                        <Button
+                                                                                            size="sm"
+                                                                                            variant="secondary"
+                                                                                            tabIndex={-1}
+                                                                                            className="gap-1.5 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none h-8 px-2.5 text-xs"
+                                                                                        >
+                                                                                            <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                                                        </Button>
+                                                                                    </div>
+                                                                                </InfoTooltip>
+                                                                            )}
                                                                             <Button
                                                                                 size="sm"
-                                                                                variant="default"
-                                                                                onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
-                                                                                className="gap-2 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-sm"
+                                                                                onClick={(e) => { e.stopPropagation(); handleOpenRepay(chain.marketKey, chain.chainId, borrow, chain.summary, chain.supplies, chain.marketAssets); }}
+                                                                                className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-350 dark:hover:bg-slate-650 text-slate-800 dark:text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer"
                                                                             >
-                                                                                <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                                                Repay
                                                                             </Button>
-                                                                        ) : (
-                                                                            <InfoTooltip message="No alternative tokens available in your E-Mode category" disableClick={true}>
-                                                                                <div className="cursor-not-allowed flex">
-                                                                                    <Button
-                                                                                        size="sm"
-                                                                                        variant="secondary"
-                                                                                        tabIndex={-1}
-                                                                                        className="gap-2 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none"
-                                                                                    >
-                                                                                        <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                                                    </Button>
-                                                                                </div>
-                                                                            </InfoTooltip>
-                                                                        )}
+                                                                        </div>
                                                                     </div>
                                                                 </div>
                                                             );
@@ -897,6 +985,61 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                         />
                     );
                 })()}
+
+                {supplyModal.open && (
+                    <SupplyModal
+                        isOpen={supplyModal.open}
+                        onClose={() => setSupplyModal(prev => ({ ...prev, open: false }))}
+                        marketKey={supplyModal.marketKey}
+                        chainId={supplyModal.chainId}
+                        marketAssets={supplyModal.marketAssets}
+                        walletAddress={walletAddress}
+                        summary={supplyModal.summary}
+                        onSuccess={() => refresh(true)}
+                    />
+                )}
+
+                {withdrawModal.open && (
+                    <WithdrawModal
+                        isOpen={withdrawModal.open}
+                        onClose={() => setWithdrawModal(prev => ({ ...prev, open: false }))}
+                        initialAsset={withdrawModal.asset}
+                        marketKey={withdrawModal.marketKey}
+                        chainId={withdrawModal.chainId}
+                        marketAssets={withdrawModal.marketAssets}
+                        walletAddress={walletAddress}
+                        summary={withdrawModal.summary}
+                        onSuccess={() => refresh(true)}
+                    />
+                )}
+
+                {borrowModal.open && (
+                    <BorrowModal
+                        isOpen={borrowModal.open}
+                        onClose={() => setBorrowModal(prev => ({ ...prev, open: false }))}
+                        marketKey={borrowModal.marketKey}
+                        chainId={borrowModal.chainId}
+                        marketAssets={borrowModal.marketAssets}
+                        walletAddress={walletAddress}
+                        summary={borrowModal.summary}
+                        onSuccess={() => refresh(true)}
+                    />
+                )}
+
+                {repayModal.open && (
+                    <RepayModal
+                        isOpen={repayModal.open}
+                        onClose={() => setRepayModal(prev => ({ ...prev, open: false }))}
+                        initialAsset={repayModal.asset}
+                        marketKey={repayModal.marketKey}
+                        chainId={repayModal.chainId}
+                        marketAssets={repayModal.marketAssets}
+                        walletAddress={walletAddress}
+                        summary={repayModal.summary}
+                        supplies={repayModal.supplies}
+                        onSuccess={() => refresh(true)}
+                    />
+                )}
 
                 {toggleModal.open && toggleModal.asset && (
                     <CollateralToggleModal

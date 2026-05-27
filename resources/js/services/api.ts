@@ -763,6 +763,34 @@ export const buildCollateralSwapTx = async (params: any) => {
     }
 };
 
+export const getWithdrawSwapQuote = async (params: any, signal?: AbortSignal) => {
+    try {
+        const response = await apiClient.post('/aave/v3/quote/withdraw-swap', params, { signal });
+
+        return response.data;
+    } catch (error: any) {
+        if (axios.isCancel(error)) {
+            throw error;
+        }
+
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching withdraw swap quote');
+
+        throw new Error(errorMessage);
+    }
+};
+
+export const buildWithdrawSwapTx = async (params: any) => {
+    try {
+        const response = await apiClient.post('/aave/v3/build/withdraw-swap/paraswap', params);
+
+        return response.data;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error building withdraw swap transaction');
+
+        throw new Error(errorMessage);
+    }
+};
+
 export const getDonationConfig = async () => {
     const response = await apiClient.get('/donations/config');
 
@@ -805,6 +833,8 @@ export default {
     postDebtLimitSwap,
     getCollateralQuote,
     buildCollateralSwapTx,
+    getWithdrawSwapQuote,
+    buildWithdrawSwapTx,
     getUserPosition,
     getDonationConfig,
     getDonationPreflight,
