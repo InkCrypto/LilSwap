@@ -552,8 +552,15 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             canonicalPriceDirection,
         );
 
-        return raw > 0n ? raw.toString() : null;
-    }, [hasCustomLimitPrice, customUserLimitPrice, fromToken, toToken, limitInputAmount, calculateBuyLimitSellAmount, canonicalPriceDirection]);
+        if (raw <= 0n) return null;
+
+        // Add the network fee from the quote so the signed order is properly funded.
+        // EIP-1271 adapter orders are signed with feeAmount = 0 in the payload, meaning
+        // the solver deducts the network fee directly from sellAmount. Without this addition
+        // the order would be underfunded by the fee and never fill at the target rate.
+        const fee = BigInt(debtLimitQuote?.quoteFeeAmount || '0');
+        return (raw + fee).toString();
+    }, [hasCustomLimitPrice, customUserLimitPrice, fromToken, toToken, limitInputAmount, calculateBuyLimitSellAmount, canonicalPriceDirection, debtLimitQuote?.quoteFeeAmount]);
     const displayDestinationRawAmount = hasCustomLimitPrice
         ? customOrderSellRawAmount
         : (debtLimitQuote?.displayDestinationAmountRaw || debtLimitQuote?.displayDestinationAmount || null);
@@ -829,7 +836,22 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             return;
         }
 
-        const canonicalPrice = tokenAmount / inputNum;
+        // The user-typed output value is fee-inclusive (it mirrors "Receive at most").
+        // To derive the fee-exclusive canonical price (which matches how displayLimitPrice
+        // is calculated), subtract the network fee before dividing.
+        let feeExclusiveTokenAmount = tokenAmount;
+        if (debtLimitQuote?.quoteFeeAmount && toToken) {
+            try {
+                const feeF = parseFloat(formatUnits(BigInt(debtLimitQuote.quoteFeeAmount), toToken.decimals || 18));
+                if (Number.isFinite(feeF) && feeF > 0 && feeF < tokenAmount) {
+                    feeExclusiveTokenAmount = tokenAmount - feeF;
+                }
+            } catch {
+                // Ignore – fall back to unmodified tokenAmount
+            }
+        }
+
+        const canonicalPrice = feeExclusiveTokenAmount / inputNum;
         const nextLimitPrice = formatPlainAmount(canonicalPrice);
         setLimitPrice(nextLimitPrice);
         setCanonicalLimitPrice(nextLimitPrice);
@@ -849,7 +871,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
         setLimitPriceCommitNonce((n) => n + 1);
         resetDebtLimitPreparedState();
-    }, [limitInputValue, priceLimitDisplayInverted, isUSDMode, toToken, formatPlainAmount, resetDebtLimitPreparedState]);
+    }, [limitInputValue, priceLimitDisplayInverted, isUSDMode, toToken, formatPlainAmount, resetDebtLimitPreparedState, debtLimitQuote?.quoteFeeAmount]);
 
     const displayLimitPrice = useMemo(() => {
         return limitPriceInput;
@@ -3566,7 +3588,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         {/* Source Input Section */}
                         <div className="space-y-2">
                             <div className="flex items-center justify-between px-1">
-                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Swap at most</span>
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Swap</span>
 
                                 <div ref={limitExpiryMenuRef} className="relative">
                                     <div className="flex items-center gap-1.5 transition-all">
@@ -3683,7 +3705,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         {/* Destination Input Section */}
                         <div className="space-y-2">
                             <div className="flex items-center px-1">
-                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Receive</span>
+                                <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Receive at most</span>
                             </div>
 
                             <CompactAmountInput
