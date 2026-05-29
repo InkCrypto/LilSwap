@@ -101,7 +101,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         summary: null
     });
     const [supplyModal, setSupplyModal] = useState<{ open: boolean; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, chainId: 0, marketKey: null, marketAssets: [], summary: null });
-    const [withdrawModal, setWithdrawModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null });
+    const [withdrawModal, setWithdrawModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; supplies: any[]; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null, supplies: [] });
     const [borrowModal, setBorrowModal] = useState<{ open: boolean; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, chainId: 0, marketKey: null, marketAssets: [], summary: null });
     const [repayModal, setRepayModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; supplies: any[]; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null, supplies: [] });
     const [timeTick, setTimeTick] = useState(() => Date.now());
@@ -212,8 +212,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         }
     };
 
-    const handleOpenWithdraw = (marketKey: string, chainIdNum: number, asset: any, summary: any, marketAssets: any[]) => {
-        setWithdrawModal({ open: true, asset, chainId: chainIdNum, marketKey, marketAssets, summary });
+    const handleOpenWithdraw = (marketKey: string, chainIdNum: number, asset: any | null, summary: any, marketAssets: any[], supplies: any[] = []) => {
+        setWithdrawModal({ open: true, asset, chainId: chainIdNum, marketKey, marketAssets, summary, supplies });
         const market = getMarketByKey(marketKey);
         if (market) {
             void setSelectedNetwork(market.key).catch(() => {});
@@ -606,9 +606,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                 <ArrowUpRight className="w-3 h-3 text-emerald-500" />
                                                 <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Supplies</h4>
                                             </div>
-                                            <Button size="sm" variant="outline" className="h-6 rounded-md text-[10px] px-2 py-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
-                                                + Supply
-                                            </Button>
+                                            <div className="flex items-center gap-1.5">
+                                                <Button size="sm" variant="outline" className="h-6 rounded-md text-[10px] px-2 py-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                    + Supply
+                                                </Button>
+                                                <Button size="sm" variant="outline" className="h-6 rounded-md text-[10px] px-2 py-0 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies); }}>
+                                                    Withdraw
+                                                </Button>
+                                            </div>
                                         </div>
                                         <div className="border-t border-slate-200 divide-y divide-slate-200 dark:border-slate-700/80 dark:divide-slate-700/80 md:-mx-4 md:border-x">
                                             {chain.supplies.map((supply) => (
@@ -638,14 +643,9 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                     onClick={(e) => e.stopPropagation()}
                                                                 />
                                                             </div>
-                                                            <div className="flex items-center gap-2">
-                                                                <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
-                                                                    <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                                </Button>
-                                                                <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenWithdraw(chain.marketKey, chain.chainId, supply, chain.summary, chain.marketAssets); }} className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-800 dark:text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
-                                                                    Withdraw
-                                                                </Button>
-                                                            </div>
+                                                            <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
+                                                                <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
+                                                            </Button>
                                                         </div>
                                                     </div>
                                                 </div>
@@ -732,9 +732,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                 <ArrowUpRight className="w-3 h-3 text-emerald-500" />
                                                 <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Supplies</h4>
                                             </div>
-                                            <Button size="sm" variant="outline" className="h-7 rounded-lg text-xs border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
-                                                + Supply
-                                            </Button>
+                                            <div className="flex items-center gap-2">
+                                                <Button size="sm" variant="outline" className="h-7 rounded-lg text-xs border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                    + Supply
+                                                </Button>
+                                                <Button size="sm" variant="outline" className="h-7 rounded-lg text-xs border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies); }}>
+                                                    Withdraw
+                                                </Button>
+                                            </div>
                                         </div>
                                         <div className="flex items-center justify-between px-1">
                                             <div className="flex items-center gap-2">
@@ -791,14 +796,9 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                                 onClick={(e) => e.stopPropagation()}
                                                                             />
                                                                         </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
-                                                                                <ArrowLeftRight className="w-3 h-3" /> Swap
-                                                                            </Button>
-                                                                            <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenWithdraw(chain.marketKey, chain.chainId, supply, chain.summary, chain.marketAssets); }} className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-350 dark:hover:bg-slate-650 text-slate-800 dark:text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
-                                                                                Withdraw
-                                                                            </Button>
-                                                                        </div>
+                                                                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
+                                                                            <ArrowLeftRight className="w-3 h-3" /> Swap
+                                                                        </Button>
                                                                     </div>
                                                                 </div>
                                                             </div>
@@ -1007,6 +1007,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                         marketKey={withdrawModal.marketKey}
                         chainId={withdrawModal.chainId}
                         marketAssets={withdrawModal.marketAssets}
+                        supplies={withdrawModal.supplies}
                         walletAddress={walletAddress}
                         summary={withdrawModal.summary}
                         onSuccess={() => refresh(true)}

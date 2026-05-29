@@ -2,26 +2,27 @@ import {
     AlertTriangle,
     CheckCircle2,
     ChevronDown,
+    ChevronUp,
     RefreshCw,
-    Wallet,
-    Info,
-    ArrowRight,
-    ArrowLeftRight,
+    ArrowRightLeft,
 } from 'lucide-react';
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { getAddress, parseAbi, formatUnits, parseUnits } from 'viem';
-import { usePublicClient, useWalletClient } from 'wagmi';
 import { useWeb3 } from '../contexts/web3-context';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { ABIS } from '../constants/abis';
-import { MARKETS, getMarketByKey } from '../constants/networks';
+import { getMarketByKey } from '../constants/networks';
+import { getAaveSwapTokensByChainId } from '../constants/aave-token-list';
 import { Modal } from './modal';
 import { TokenSelector } from './token-selector';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
+import { Switch } from './ui/switch';
+import { Checkbox } from './ui/checkbox';
 import { InfoTooltip } from './info-tooltip';
-import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
-import { formatUSD, formatHF, formatCompactNumber, formatAPY } from '../utils/formatters';
+import { CompactAmountInput } from './compact-amount-input';
+import { formatHF, formatCompactNumber, formatCompactToken, formatUSD, formatAPY } from '../utils/formatters';
+import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
+import { getTokenLogo } from '../utils/get-token-logo';
 import { getWithdrawSwapQuote, buildWithdrawSwapTx } from '../services/api';
 
 interface WithdrawModalProps {
@@ -31,24 +32,178 @@ interface WithdrawModalProps {
     marketKey: string | null;
     chainId: number;
     marketAssets: any[];
+    supplies?: any[];
     walletAddress: string;
     summary: any;
     onSuccess?: () => void;
 }
 
+const MIN_HEALTH_FACTOR_AFTER_WITHDRAW = 1.01;
+const RISK_HEALTH_FACTOR_THRESHOLD = 1.5;
+const CUSTOM_TARGET_TOKENS_STORAGE_PREFIX = 'lilswap:withdraw-swap-custom-target-tokens';
+const NATIVE_TOKEN_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
+const TARGET_BALANCE_MULTICALL_CHUNK_SIZE = 80;
+
+const getAssetAddress = (asset: any) => (asset?.underlyingAsset || asset?.address || '').toLowerCase();
+
+const getCustomTargetTokenStorageKey = (chainId: number) => `${CUSTOM_TARGET_TOKENS_STORAGE_PREFIX}:${chainId}`;
+
+const getProtocolTokenAddresses = (assets: any[] = []) => {
+    const addresses = new Set<string>();
+
+    assets.forEach((asset) => {
+        [
+            asset?.aTokenAddress,
+            asset?.stableDebtTokenAddress,
+            asset?.variableDebtTokenAddress,
+            asset?.debtTokenAddress,
+        ].forEach((address) => {
+            if (typeof address === 'string' && address && !/^0x0{40}$/i.test(address)) {
+                addresses.add(address.toLowerCase());
+            }
+        });
+    });
+
+    return addresses;
+};
+
+const isProtocolTokenCandidate = (token: any) => {
+    const symbol = String(token?.symbol || '');
+    const name = String(token?.name || '');
+
+    return (
+        /^am[A-Z0-9]/.test(symbol) ||
+        /^a[A-Z0-9]/.test(symbol) ||
+        /^stata[A-Z0-9]/i.test(symbol) ||
+        /^staticA/i.test(symbol) ||
+        /^stk/i.test(symbol) ||
+        /^variableDebt/i.test(symbol) ||
+        /^stableDebt/i.test(symbol) ||
+        /^vd/i.test(symbol) ||
+        /^sd/i.test(symbol) ||
+        /\bAave v\d?\b/i.test(name) ||
+        /\bAave Market/i.test(name) ||
+        /\bStata\b/i.test(name) ||
+        /\bStaticAToken\b/i.test(name) ||
+        /\bStatic AToken\b/i.test(name) ||
+        /\baToken\b/i.test(name) ||
+        /\bdebt token\b/i.test(name) ||
+        /\bvariable debt\b/i.test(name) ||
+        /\bstable debt\b/i.test(name)
+    );
+};
+
+const formatAddressShort = (address?: string | null) => {
+    if (!address) return '';
+
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+};
+
+const chunkArray = <T,>(items: T[], size: number) => {
+    const chunks: T[][] = [];
+
+    for (let i = 0; i < items.length; i += size) {
+        chunks.push(items.slice(i, i + size));
+    }
+
+    return chunks;
+};
+
+const getNativePriceUSD = (assets: any[] = [], wrappedSymbol: string) => {
+    const wrappedAsset = assets.find((asset) => {
+        const symbol = String(asset?.symbol || '').toUpperCase();
+
+        return symbol === wrappedSymbol.toUpperCase() || symbol === 'WETH';
+    });
+
+    return parseFiniteNumber(wrappedAsset?.priceInUSD);
+};
+
+const parseFiniteNumber = (value: any, fallback = 0) => {
+    const parsed = typeof value === 'number' ? value : parseFloat(value || '');
+
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const normalizeRatio = (value: any) => {
+    const parsed = parseFiniteNumber(value);
+
+    if (parsed > 100) {
+        return parsed / 10000;
+    }
+
+    if (parsed > 1) {
+        return parsed / 100;
+    }
+
+    return parsed;
+};
+
+const getHealthFactorColor = (hf: number) => {
+    if (hf === -1 || hf >= 3) return 'text-emerald-500';
+    if (hf >= 1.1) return 'text-orange-500';
+    return 'text-red-500';
+};
+
 export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     isOpen,
     onClose,
-    initialAsset,
+    initialAsset: providedInitialAsset,
     marketKey,
     chainId,
     marketAssets,
+    supplies,
     walletAddress,
     summary,
     onSuccess,
 }) => {
     const { publicClient, walletClient, selectedNetwork, setSelectedNetwork } = useWeb3();
     const { addTransaction } = useTransactionTracker();
+
+    const enrichSupplyAsset = useCallback((asset: any | null) => {
+        if (!asset) return null;
+
+        const assetAddress = getAssetAddress(asset);
+        const marketAsset = (marketAssets || []).find((candidate) => getAssetAddress(candidate) === assetAddress);
+
+        return {
+            ...(marketAsset || {}),
+            ...asset,
+            reserveLiquidationThreshold: asset.reserveLiquidationThreshold ?? marketAsset?.reserveLiquidationThreshold,
+            baseLTVasCollateral: asset.baseLTVasCollateral ?? marketAsset?.baseLTVasCollateral,
+            supplyAPY: asset.supplyAPY ?? marketAsset?.supplyAPY,
+            availableLiquidity: asset.availableLiquidity ?? marketAsset?.availableLiquidity,
+            usageAsCollateralEnabled: asset.usageAsCollateralEnabled ?? marketAsset?.usageAsCollateralEnabled,
+            eModeCollateralCategories: asset.eModeCollateralCategories ?? marketAsset?.eModeCollateralCategories,
+            eModeBorrowableCategories: asset.eModeBorrowableCategories ?? marketAsset?.eModeBorrowableCategories,
+        };
+    }, [marketAssets]);
+
+    const selectableSupplyTokens = useMemo(() => {
+        return (supplies || []).map(enrichSupplyAsset).filter((supply) => {
+            try {
+                return BigInt(supply.amount || supply.balance || 0) > 0n || parseFloat(supply.formattedAmount || '0') > 0;
+            } catch {
+                return parseFloat(supply.formattedAmount || '0') > 0;
+            }
+        });
+    }, [enrichSupplyAsset, supplies]);
+
+    const defaultWithdrawAsset = useMemo(() => {
+        if (providedInitialAsset) {
+            return enrichSupplyAsset(providedInitialAsset);
+        }
+
+        return [...selectableSupplyTokens].sort((a, b) => {
+            const aValue = parseFloat(a.formattedAmount || '0') * parseFloat(a.priceInUSD || '0');
+            const bValue = parseFloat(b.formattedAmount || '0') * parseFloat(b.priceInUSD || '0');
+
+            return bValue - aValue;
+        })[0] || null;
+    }, [enrichSupplyAsset, providedInitialAsset, selectableSupplyTokens]);
+
+    const [selectedAsset, setSelectedAsset] = useState<any | null>(defaultWithdrawAsset);
+    const initialAsset = selectedAsset;
 
     // Tabs: 'withdraw' | 'swap'
     const [activeTab, setActiveTab] = useState<'withdraw' | 'swap'>('withdraw');
@@ -62,16 +217,57 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     const [isLoading, setIsLoading] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
+    const [isUSDMode, setIsUSDMode] = useState(false);
+    const [showTransactionOverview, setShowTransactionOverview] = useState(false);
+    const [riskAccepted, setRiskAccepted] = useState(false);
+    const [estimatedGasCostUSD, setEstimatedGasCostUSD] = useState<number | null>(null);
 
     // Standard native vs wrapped toggle (for standard withdraw)
     const [isNativeSelected, setIsNativeSelected] = useState(true);
 
     // Swap Destination State
     const [targetToken, setTargetToken] = useState<any>(null);
+    const [baseTargetTokens, setBaseTargetTokens] = useState<any[]>([]);
+    const [customTargetTokens, setCustomTargetTokens] = useState<any[]>([]);
+    const [targetWalletBalances, setTargetWalletBalances] = useState<Record<string, { formatted: string; raw: string }>>({});
     const [tokenSelectorOpen, setTokenSelectorOpen] = useState(false);
+    const [sourceSelectorOpen, setSourceSelectorOpen] = useState(false);
     const [isQuoteLoading, setIsQuoteLoading] = useState(false);
     const [swapQuote, setSwapQuote] = useState<any>(null);
     const [slippage, setSlippage] = useState<number>(0.5); // 0.5% default
+    const [invertRate, setInvertRate] = useState(false);
+    const [nextRefreshIn, setNextRefreshIn] = useState(30);
+
+    useEffect(() => {
+        if (!isOpen) return;
+
+        setSelectedAsset(defaultWithdrawAsset);
+        setInputValue('');
+        setWithdrawAmount(0n);
+        setSwapQuote(null);
+        setErrorText(null);
+        setIsUSDMode(false);
+        setRiskAccepted(false);
+    }, [isOpen, defaultWithdrawAsset]);
+
+    useEffect(() => {
+        if (!isOpen || typeof window === 'undefined') return;
+
+        try {
+            const stored = window.localStorage.getItem(getCustomTargetTokenStorageKey(chainId));
+            const parsed = stored ? JSON.parse(stored) : [];
+
+            setCustomTargetTokens(Array.isArray(parsed) ? parsed : []);
+        } catch {
+            setCustomTargetTokens([]);
+        }
+    }, [chainId, isOpen]);
+
+    useEffect(() => {
+        if (!isOpen || activeTab !== 'swap' || !chainId) return;
+
+        setBaseTargetTokens(getAaveSwapTokensByChainId(chainId));
+    }, [activeTab, chainId, isOpen]);
 
     const market = useMemo(() => marketKey ? getMarketByKey(marketKey) : selectedNetwork, [marketKey, selectedNetwork]);
     const poolAddress = market?.addresses.POOL;
@@ -91,17 +287,203 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         return initialAsset.aTokenAddress || null;
     }, [initialAsset]);
 
-    // Filter swappable target assets
+    const persistCustomTargetToken = useCallback((token: any) => {
+        const tokenAddress = getAssetAddress(token);
+        if (!tokenAddress || typeof window === 'undefined') return;
+
+        setCustomTargetTokens((current) => {
+            const next = [
+                token,
+                ...current.filter((candidate) => getAssetAddress(candidate) !== tokenAddress),
+            ];
+
+            try {
+                window.localStorage.setItem(getCustomTargetTokenStorageKey(chainId), JSON.stringify(next));
+            } catch {
+                // Ignore storage failures; imported token still works in the current session.
+            }
+
+            return next;
+        });
+    }, [chainId]);
+
     const swappableTokens = useMemo(() => {
-        return (marketAssets || []).filter(t => t.isActive && t.symbol !== initialAsset?.symbol);
-    }, [marketAssets, initialAsset]);
+        const sourceAddress = getAssetAddress(initialAsset);
+        const protocolTokenAddresses = getProtocolTokenAddresses(marketAssets);
+        const seen = new Set<string>();
+
+        return [...(marketAssets || []), ...baseTargetTokens, ...customTargetTokens].map((token) => {
+            const address = getAssetAddress(token);
+            const marketAsset = (marketAssets || []).find((asset) => getAssetAddress(asset) === address);
+            const nativePriceUSD = address === NATIVE_TOKEN_ADDRESS
+                ? getNativePriceUSD(marketAssets, nativeInfo.wrapped)
+                : 0;
+
+            return {
+                ...(marketAsset || {}),
+                ...token,
+                underlyingAsset: token.underlyingAsset || token.address,
+                priceInUSD: nativePriceUSD > 0
+                    ? String(nativePriceUSD)
+                    : (token.priceInUSD ?? marketAsset?.priceInUSD ?? '0'),
+                supplyAPY: token.supplyAPY ?? marketAsset?.supplyAPY,
+                variableBorrowRate: token.variableBorrowRate ?? marketAsset?.variableBorrowRate,
+                borrowRate: token.borrowRate ?? marketAsset?.borrowRate,
+            };
+        }).filter((token) => {
+            const address = getAssetAddress(token);
+            if (!address || address === sourceAddress || seen.has(address)) return false;
+            if (token.isActive === false) return false;
+            if (!token.isCustom && (protocolTokenAddresses.has(address) || isProtocolTokenCandidate(token))) return false;
+
+            seen.add(address);
+
+            return true;
+        });
+    }, [baseTargetTokens, customTargetTokens, initialAsset, marketAssets, nativeInfo.wrapped]);
+
+    const handleImportTargetToken = useCallback(async (address: string) => {
+        if (!publicClient || !walletAddress) return null;
+
+        const tokenAddress = getAddress(address);
+        if (tokenAddress.toLowerCase() === getAssetAddress(initialAsset)) return null;
+
+        const existingToken = swappableTokens.find((token) => getAssetAddress(token) === tokenAddress.toLowerCase());
+        if (existingToken) return existingToken;
+
+        const abi = parseAbi(ABIS.ERC20);
+        const [symbol, name, decimals] = await Promise.all([
+            publicClient.readContract({
+                address: tokenAddress,
+                abi,
+                functionName: 'symbol',
+            }) as Promise<string>,
+            publicClient.readContract({
+                address: tokenAddress,
+                abi,
+                functionName: 'name',
+            }) as Promise<string>,
+            publicClient.readContract({
+                address: tokenAddress,
+                abi,
+                functionName: 'decimals',
+            }) as Promise<number>,
+        ]);
+        const normalizedDecimals = Number(decimals);
+        const balanceOf = await publicClient.readContract({
+            address: tokenAddress,
+            abi,
+            functionName: 'balanceOf',
+            args: [getAddress(walletAddress)],
+        }) as bigint;
+
+        const token = {
+            address: tokenAddress,
+            underlyingAsset: tokenAddress,
+            symbol,
+            name,
+            decimals: normalizedDecimals,
+            amount: balanceOf.toString(),
+            formattedAmount: formatUnits(balanceOf, normalizedDecimals),
+            balance: balanceOf.toString(),
+            priceInUSD: '0',
+            isActive: true,
+            isCustom: true,
+        };
+
+        persistCustomTargetToken(token);
+
+        return token;
+    }, [initialAsset, persistCustomTargetToken, publicClient, swappableTokens, walletAddress]);
 
     // Auto-select first target token
     useEffect(() => {
-        if (isOpen && swappableTokens.length > 0 && !targetToken) {
+        const targetAddress = (targetToken?.underlyingAsset || targetToken?.address || '').toLowerCase();
+        const targetStillValid = targetAddress
+            ? swappableTokens.some((token) => (token.underlyingAsset || token.address || '').toLowerCase() === targetAddress)
+            : false;
+
+        if (isOpen && swappableTokens.length > 0 && (!targetToken || !targetStillValid)) {
             setTargetToken(swappableTokens[0]);
         }
-    }, [isOpen, swappableTokens]);
+    }, [isOpen, swappableTokens, targetToken]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const fetchTargetWalletBalances = async () => {
+            if (!isOpen || !tokenSelectorOpen || activeTab !== 'swap' || !publicClient || !walletAddress || swappableTokens.length === 0) {
+                setTargetWalletBalances({});
+                return;
+            }
+
+            try {
+                setTargetWalletBalances({});
+                const account = getAddress(walletAddress);
+                const erc20Tokens = swappableTokens.filter((token) => getAssetAddress(token) !== NATIVE_TOKEN_ADDRESS);
+                const nativeToken = swappableTokens.find((token) => getAssetAddress(token) === NATIVE_TOKEN_ADDRESS);
+                const nextBalances: Record<string, { formatted: string; raw: string }> = {};
+
+                if (nativeToken) {
+                    const nativeBalance = await publicClient.getBalance({ address: account });
+                    if (cancelled) return;
+
+                    const nativeEntry = {
+                        [NATIVE_TOKEN_ADDRESS]: {
+                            formatted: formatUnits(nativeBalance, nativeToken.decimals || 18),
+                            raw: nativeBalance.toString(),
+                        },
+                    };
+
+                    Object.assign(nextBalances, nativeEntry);
+                }
+
+                for (const tokenChunk of chunkArray(erc20Tokens, TARGET_BALANCE_MULTICALL_CHUNK_SIZE)) {
+                    const multicallResults = await publicClient.multicall({
+                        allowFailure: true,
+                        contracts: tokenChunk.map((token) => ({
+                            address: getAddress(token.underlyingAsset || token.address),
+                            abi: parseAbi(ABIS.ERC20),
+                            functionName: 'balanceOf',
+                            args: [account],
+                        })),
+                    });
+
+                    if (cancelled) return;
+
+                    const chunkBalances: Record<string, { formatted: string; raw: string }> = {};
+                    tokenChunk.forEach((token, index) => {
+                        const result = multicallResults[index];
+                        const address = getAssetAddress(token);
+                        const raw = result?.status === 'success' && typeof result.result === 'bigint'
+                            ? result.result
+                            : 0n;
+
+                        chunkBalances[address] = {
+                            formatted: formatUnits(raw, token.decimals || 18),
+                            raw: raw.toString(),
+                        };
+                    });
+
+                    Object.assign(nextBalances, chunkBalances);
+                }
+
+                if (!cancelled) {
+                    setTargetWalletBalances(nextBalances);
+                }
+            } catch {
+                if (!cancelled) {
+                    setTargetWalletBalances({});
+                }
+            }
+        };
+
+        void fetchTargetWalletBalances();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [activeTab, isOpen, publicClient, swappableTokens, tokenSelectorOpen, walletAddress]);
 
     // Fetch user supplied balance and allowance
     const fetchBalances = useCallback(async () => {
@@ -113,58 +495,106 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             const parsedPositionBalance = parseUnits(amtStr, initialAsset.decimals || 18);
             setBalance(parsedPositionBalance);
 
-            // Fetch aToken balance of user
-            if (aTokenAddress) {
-                const aBal = await publicClient.readContract({
-                    address: getAddress(aTokenAddress),
-                    abi: parseAbi(ABIS.ERC20),
-                    functionName: 'balanceOf',
-                    args: [getAddress(walletAddress)],
-                }) as bigint;
-                setATokenBalance(aBal);
-            }
+            if (!aTokenAddress) return;
 
-            // Fetch allowances
+            const account = getAddress(walletAddress);
+            const aToken = getAddress(aTokenAddress);
+            const contracts: any[] = [{
+                address: aToken,
+                abi: parseAbi(ABIS.ERC20),
+                functionName: 'balanceOf',
+                args: [account],
+            }];
+            let allowanceIndex = -1;
+            let allowanceSpender: string | null = null;
+
             if (activeTab === 'withdraw') {
                 if (isWrappedNative && isNativeSelected && gatewayAddress && aTokenAddress) {
-                    // Gateway needs approval to spend user's aWETH
-                    const gateAllowance = await publicClient.readContract({
-                        address: getAddress(aTokenAddress),
-                        abi: parseAbi(ABIS.ERC20),
-                        functionName: 'allowance',
-                        args: [getAddress(walletAddress), getAddress(gatewayAddress)],
-                    }) as bigint;
-                    setAllowance(gateAllowance);
+                    allowanceSpender = getAddress(gatewayAddress);
                 } else {
                     setAllowance(2n ** 256n - 1n); // Standard ERC-20 withdraw doesn't need allowance
                 }
             } else if (activeTab === 'swap' && withdrawSwapAdapterAddress && aTokenAddress) {
-                // Swap Adapter needs approval to spend user's aToken
-                const adapterAllowance = await publicClient.readContract({
-                    address: getAddress(aTokenAddress),
+                allowanceSpender = getAddress(withdrawSwapAdapterAddress);
+            }
+
+            if (allowanceSpender && withdrawAmount > 0n) {
+                allowanceIndex = contracts.length;
+                contracts.push({
+                    address: aToken,
                     abi: parseAbi(ABIS.ERC20),
                     functionName: 'allowance',
-                    args: [getAddress(walletAddress), getAddress(withdrawSwapAdapterAddress)],
-                }) as bigint;
-                setAllowance(adapterAllowance);
+                    args: [account, allowanceSpender],
+                });
+            } else if (allowanceSpender) {
+                setAllowance(0n);
+            }
+
+            const results = await publicClient.multicall({
+                allowFailure: true,
+                contracts,
+            });
+            const aBalResult = results[0];
+            if (aBalResult?.status === 'success' && typeof aBalResult.result === 'bigint') {
+                setATokenBalance(aBalResult.result);
+            }
+
+            if (allowanceIndex >= 0) {
+                const allowanceResult = results[allowanceIndex];
+                setAllowance(allowanceResult?.status === 'success' && typeof allowanceResult.result === 'bigint'
+                    ? allowanceResult.result
+                    : 0n);
             }
         } catch (err) {
             console.error('Error fetching balances/allowances:', err);
         }
-    }, [walletAddress, publicClient, initialAsset, aTokenAddress, activeTab, isWrappedNative, isNativeSelected, gatewayAddress, withdrawSwapAdapterAddress]);
+    }, [walletAddress, publicClient, initialAsset, aTokenAddress, activeTab, isWrappedNative, isNativeSelected, gatewayAddress, withdrawAmount, withdrawSwapAdapterAddress]);
 
     useEffect(() => {
         if (isOpen && initialAsset) {
             void fetchBalances();
-            const interval = setInterval(fetchBalances, 15000);
-            return () => clearInterval(interval);
         }
-    }, [isOpen, initialAsset, activeTab, isNativeSelected, fetchBalances]);
+    }, [isOpen, initialAsset, activeTab, isNativeSelected, withdrawAmount, fetchBalances]);
+
+    const maxWithdrawAmount = useMemo(() => {
+        if (!initialAsset || balance === 0n) return 0n;
+
+        const decimals = initialAsset.decimals || 18;
+        const tokenBalance = parseFiniteNumber(formatUnits(balance, decimals));
+        const tokenPrice = parseFiniteNumber(initialAsset.priceInUSD);
+        const totalDebt = parseFiniteNumber(summary?.totalBorrowsUSD);
+        const currentHF = parseFiniteNumber(summary?.healthFactor, Infinity);
+        const assetLT = normalizeRatio(initialAsset.reserveLiquidationThreshold);
+        const isCollateral = initialAsset.usageAsCollateralEnabledOnUser && assetLT > 0;
+
+        let maxByLiquidity = balance;
+        try {
+            if (initialAsset.availableLiquidity != null) {
+                maxByLiquidity = BigInt(initialAsset.availableLiquidity);
+            }
+        } catch {
+            const liquidity = parseFiniteNumber(initialAsset.availableLiquidity, tokenBalance);
+            maxByLiquidity = parseUnits(Math.max(0, liquidity).toFixed(decimals), decimals);
+        }
+
+        let maxByHealthFactor = balance;
+        if (isCollateral && totalDebt > 0 && tokenPrice > 0) {
+            const excessHF = currentHF - MIN_HEALTH_FACTOR_AFTER_WITHDRAW;
+            const maxWithdrawUSD = excessHF > 0 ? (excessHF * totalDebt) / assetLT : 0;
+            const maxWithdrawTokens = Math.min(tokenBalance, Math.max(0, maxWithdrawUSD / tokenPrice));
+            maxByHealthFactor = parseUnits(maxWithdrawTokens.toFixed(decimals), decimals);
+        }
+
+        return [balance, maxByLiquidity, maxByHealthFactor].reduce((min, value) => value < min ? value : min, balance);
+    }, [balance, initialAsset, summary]);
+
+    const isWithdrawOverMax = withdrawAmount > 0n && withdrawAmount > maxWithdrawAmount;
 
     // Amount change handlers
     const handleAmountChange = (val: string) => {
         const cleaned = val.replace(/[^0-9.]/g, '');
         setInputValue(cleaned);
+        setRiskAccepted(false);
 
         if (!cleaned || isNaN(parseFloat(cleaned))) {
             setWithdrawAmount(0n);
@@ -174,10 +604,33 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
 
         try {
             const decimals = initialAsset?.decimals || 18;
-            const parsed = parseUnits(cleaned, decimals);
+            let parsed: bigint;
+
+            if (isUSDMode) {
+                const price = parseFloat(initialAsset?.priceInUSD || '0');
+
+                if (!Number.isFinite(price) || price <= 0) {
+                    setWithdrawAmount(0n);
+                    return;
+                }
+
+                const tokenAmount = parseFloat(cleaned) / price;
+                parsed = parseUnits(tokenAmount.toFixed(decimals), decimals);
+            } else {
+                parsed = parseUnits(cleaned, decimals);
+            }
+
             if (parsed > balance) {
                 setWithdrawAmount(balance);
-                setInputValue(formatUnits(balance, decimals));
+                const maxTokenAmount = formatUnits(balance, decimals);
+
+                if (isUSDMode) {
+                    const price = parseFloat(initialAsset?.priceInUSD || '0');
+                    const maxUSD = parseFloat(maxTokenAmount) * price;
+                    setInputValue(Number.isFinite(maxUSD) ? maxUSD.toFixed(2) : '');
+                } else {
+                    setInputValue(maxTokenAmount);
+                }
             } else {
                 setWithdrawAmount(parsed);
             }
@@ -187,15 +640,28 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     };
 
     const handlePercentClick = (percent: number) => {
-        if (balance === 0n) return;
-        const amt = (balance * BigInt(percent)) / 100n;
+        if (maxWithdrawAmount === 0n) return;
+        const amt = (maxWithdrawAmount * BigInt(percent)) / 100n;
         const decimals = initialAsset?.decimals || 18;
+        const tokenAmount = formatUnits(amt, decimals);
         setWithdrawAmount(amt);
-        setInputValue(formatUnits(amt, decimals));
+        setRiskAccepted(false);
+
+        if (isUSDMode) {
+            const price = parseFloat(initialAsset?.priceInUSD || '0');
+            const usdAmount = parseFloat(tokenAmount) * price;
+            setInputValue(Number.isFinite(usdAmount) ? usdAmount.toFixed(2) : '');
+        } else {
+            setInputValue(tokenAmount);
+        }
     };
 
     // Fetch quote for Withdraw & Swap
     const fetchQuoteData = useCallback(async () => {
+        if (isLoading) {
+            return;
+        }
+
         if (activeTab !== 'swap' || !initialAsset || !targetToken || withdrawAmount === 0n || !withdrawSwapAdapterAddress) {
             setSwapQuote(null);
             return;
@@ -230,7 +696,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         } finally {
             setIsQuoteLoading(false);
         }
-    }, [activeTab, initialAsset, targetToken, withdrawAmount, withdrawSwapAdapterAddress, chainId, walletAddress, marketKey]);
+    }, [activeTab, initialAsset, isLoading, targetToken, withdrawAmount, withdrawSwapAdapterAddress, chainId, walletAddress, marketKey]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -239,6 +705,27 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         return () => clearTimeout(timer);
     }, [withdrawAmount, targetToken, activeTab, fetchQuoteData]);
 
+    useEffect(() => {
+        if (activeTab !== 'swap' || withdrawAmount === 0n || !swapQuote || isQuoteLoading) {
+            setNextRefreshIn(30);
+            return;
+        }
+
+        setNextRefreshIn(30);
+        const interval = setInterval(() => {
+            setNextRefreshIn((value) => {
+                if (value <= 1) {
+                    void fetchQuoteData();
+                    return 30;
+                }
+
+                return value - 1;
+            });
+        }, 1000);
+
+        return () => clearInterval(interval);
+    }, [activeTab, fetchQuoteData, isQuoteLoading, swapQuote, withdrawAmount]);
+
     // HF Simulation
     const simulation = useMemo(() => {
         if (!summary || !initialAsset || withdrawAmount === 0n) return null;
@@ -246,33 +733,89 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         const currentHF = parseFloat(summary.healthFactor || '0');
         const totalCollateral = parseFloat(summary.totalCollateralUSD || '0');
         const totalDebt = parseFloat(summary.totalBorrowsUSD || '0');
-
-        let avgLT = parseFloat(summary.currentLiquidationThreshold || '0');
-        if (avgLT > 1) avgLT = avgLT / 10000;
+        const avgLT = normalizeRatio(summary.currentLiquidationThreshold);
 
         const removedAmount = parseFloat(formatUnits(withdrawAmount, initialAsset.decimals || 18));
-        const price = parseFloat(initialAsset.priceInUSD || '0');
+        let price = parseFiniteNumber(initialAsset.priceInUSD);
+        if (price > 1_000_000_000) {
+            price = price / 1e8;
+        }
         const removedUSD = removedAmount * price;
 
-        let assetLT = parseFloat(initialAsset.reserveLiquidationThreshold || initialAsset.baseLTVasCollateral || '0');
-        if (assetLT > 1) assetLT = assetLT / 10000;
+        const assetLT = normalizeRatio(initialAsset.reserveLiquidationThreshold);
+        const isCollateral = initialAsset.usageAsCollateralEnabledOnUser && assetLT > 0;
 
         const currentNumerator = totalDebt > 0 ? currentHF * totalDebt : totalCollateral * avgLT;
-        const assetContribution = removedUSD * assetLT;
-        const simulatedNumerator = Math.max(0, currentNumerator - assetContribution);
+        const assetContribution = isCollateral ? removedUSD * assetLT : 0;
+        const simulatedCollateral = isCollateral ? Math.max(0, totalCollateral - removedUSD) : totalCollateral;
+        const simulatedNumerator = simulatedCollateral > 0 ? Math.max(0, currentNumerator - assetContribution) : 0;
         const simulatedHF = totalDebt > 0 ? simulatedNumerator / totalDebt : Infinity;
+        const simulatedLT = simulatedCollateral > 0 ? simulatedNumerator / simulatedCollateral : 0;
 
         return {
             currentHF: currentHF.toString(),
             simulatedHF: simulatedHF === Infinity ? 'Infinity' : simulatedHF.toString(),
-            isSafe: simulatedHF > 1.05 || totalDebt === 0,
-            isDanger: simulatedHF <= 1.02 && totalDebt > 0,
+            isSafe: simulatedHF >= MIN_HEALTH_FACTOR_AFTER_WITHDRAW || totalDebt === 0,
+            isDanger: simulatedHF < MIN_HEALTH_FACTOR_AFTER_WITHDRAW && totalDebt > 0,
+            isRisky: simulatedHF >= MIN_HEALTH_FACTOR_AFTER_WITHDRAW && simulatedHF < RISK_HEALTH_FACTOR_THRESHOLD && totalDebt > 0 && isCollateral,
+            currentCollateralPower: currentNumerator,
+            simulatedCollateralPower: simulatedNumerator,
+            currentLiquidationThreshold: avgLT,
+            simulatedLiquidationThreshold: simulatedLT,
+            removedUSD,
+            isCollateral,
         };
     }, [summary, initialAsset, withdrawAmount]);
 
+    const requiresRiskAcceptance = !!simulation?.isRisky;
+    const isWithdrawBlocked = isWithdrawOverMax || !!simulation?.isDanger || (requiresRiskAcceptance && !riskAccepted);
+    const isSwapQuoteReady = activeTab !== 'swap' || (!!swapQuote && !isQuoteLoading);
+    const isTransactionOverviewReady = withdrawAmount > 0n && (
+        activeTab === 'withdraw' || (!!swapQuote && !isQuoteLoading)
+    );
+
+    const remainingSupplyDisplay = useMemo(() => {
+        if (!initialAsset) return null;
+
+        const remaining = balance > withdrawAmount ? balance - withdrawAmount : 0n;
+
+        return `${formatCompactNumber(formatUnits(remaining, initialAsset.decimals || 18))} ${initialAsset.symbol}`;
+    }, [balance, initialAsset, withdrawAmount]);
+
+    const costsAndFees = useMemo(() => {
+        const gasUSD = activeTab === 'swap'
+            ? parseFloat(swapQuote?.priceRoute?.gasCostUSD || '0')
+            : (estimatedGasCostUSD ?? 0);
+        const feeBps = Number(swapQuote?.feeBps || 0);
+        const destAmount = swapQuote?.destAmount && targetToken
+            ? parseFloat(formatUnits(BigInt(swapQuote.destAmount), targetToken.decimals || 18))
+            : 0;
+        const targetPrice = parseFloat(targetToken?.priceInUSD || '0');
+        const quoteDestUSD = parseFloat(swapQuote?.priceRoute?.destUSD || '0');
+        const serviceFeeToken = Number.isFinite(feeBps) && feeBps > 0 ? destAmount * (feeBps / 10000) : 0;
+        const serviceFeeUSD = Number.isFinite(targetPrice) && targetPrice > 0
+            ? serviceFeeToken * targetPrice
+            : (Number.isFinite(quoteDestUSD) && quoteDestUSD > 0 && Number.isFinite(feeBps) ? quoteDestUSD * (feeBps / 10000) : 0);
+
+        return {
+            gasUSD: Number.isFinite(gasUSD) ? gasUSD : 0,
+            feeBps: Number.isFinite(feeBps) ? feeBps : 0,
+            serviceFeeToken,
+            serviceFeeUSD: Number.isFinite(serviceFeeUSD) ? serviceFeeUSD : 0,
+            totalUSD: (Number.isFinite(gasUSD) ? gasUSD : 0) + (Number.isFinite(serviceFeeUSD) ? serviceFeeUSD : 0),
+        };
+    }, [activeTab, estimatedGasCostUSD, swapQuote, targetToken]);
+
     // Contract writes
     const handleApprove = async () => {
-        if (!walletClient || !aTokenAddress) return;
+        if (!walletClient || !aTokenAddress || isWithdrawBlocked) return;
+        const lockedQuote = activeTab === 'swap' ? swapQuote : null;
+
+        if (activeTab === 'swap' && (!lockedQuote || isQuoteLoading)) {
+            setErrorText('Wait for the quote to finish before approving.');
+            return;
+        }
+
         setIsLoading(true);
         setErrorText(null);
 
@@ -304,6 +847,10 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 await publicClient.waitForTransactionReceipt({ hash: txHash });
             }
             await fetchBalances();
+
+            if (activeTab === 'swap') {
+                await handleConfirm(lockedQuote);
+            }
         } catch (err: any) {
             setErrorText(err.shortMessage || err.message || 'Approval failed');
         } finally {
@@ -311,8 +858,15 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         }
     };
 
-    const handleConfirm = async () => {
-        if (!walletClient || !initialAsset || !poolAddress || withdrawAmount === 0n) return;
+    const handleConfirm = async (lockedQuote?: any) => {
+        if (!walletClient || !initialAsset || !poolAddress || withdrawAmount === 0n || isWithdrawBlocked) return;
+        const quoteForExecution = activeTab === 'swap' ? (lockedQuote || swapQuote) : null;
+
+        if (activeTab === 'swap' && (!quoteForExecution || isQuoteLoading)) {
+            setErrorText('Wait for the quote to finish before confirming.');
+            return;
+        }
+
         setIsLoading(true);
         setErrorText(null);
 
@@ -352,7 +906,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 });
             } else {
                 // Withdraw & Swap route
-                if (!withdrawSwapAdapterAddress || !swapQuote) throw new Error('Withdraw Swap parameters missing');
+                if (!withdrawSwapAdapterAddress || !quoteForExecution) throw new Error('Withdraw Swap parameters missing');
 
                 const isMax = withdrawAmount === balance;
 
@@ -368,7 +922,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         decimals: targetToken.decimals,
                         symbol: targetToken.symbol,
                     },
-                    priceRoute: swapQuote.priceRoute,
+                    priceRoute: quoteForExecution.priceRoute,
                     adapterAddress: getAddress(withdrawSwapAdapterAddress),
                     srcAmount: withdrawAmount.toString(),
                     isMaxSwap: isMax,
@@ -442,15 +996,225 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         ? allowance < withdrawAmount
         : (isWrappedNative && isNativeSelected && allowance < withdrawAmount);
 
+    useEffect(() => {
+        let cancelled = false;
+
+        const estimateNetworkCost = async () => {
+            if (!publicClient || !walletAddress || !initialAsset || withdrawAmount === 0n || activeTab === 'swap') {
+                setEstimatedGasCostUSD(null);
+                return;
+            }
+
+            try {
+                const account = getAddress(walletAddress);
+                let gas: bigint;
+
+                if (isApproveRequired) {
+                    const spender = activeTab === 'withdraw' ? gatewayAddress : withdrawSwapAdapterAddress;
+                    if (!spender || !aTokenAddress) throw new Error('Approval parameters missing');
+
+                    gas = await publicClient.estimateContractGas({
+                        account,
+                        address: getAddress(aTokenAddress),
+                        abi: parseAbi(ABIS.ERC20),
+                        functionName: 'approve',
+                        args: [getAddress(spender), 2n ** 256n - 1n],
+                    });
+                } else if (isWrappedNative && isNativeSelected) {
+                    if (!gatewayAddress || !poolAddress) throw new Error('Gateway parameters missing');
+
+                    gas = await publicClient.estimateContractGas({
+                        account,
+                        address: getAddress(gatewayAddress),
+                        abi: parseAbi(ABIS.WETH_GATEWAY),
+                        functionName: 'withdrawETH',
+                        args: [getAddress(poolAddress), withdrawAmount, account],
+                    });
+                } else {
+                    if (!poolAddress) throw new Error('Pool address missing');
+
+                    gas = await publicClient.estimateContractGas({
+                        account,
+                        address: getAddress(poolAddress),
+                        abi: parseAbi(ABIS.POOL),
+                        functionName: 'withdraw',
+                        args: [getAddress(initialAsset.underlyingAsset || initialAsset.address), withdrawAmount, account],
+                    });
+                }
+
+                const gasPrice = await publicClient.getGasPrice();
+                const nativeGasAmount = Number(gas * gasPrice) / 1e18;
+                const nativePrice = parseFiniteNumber(
+                    (isWrappedNative ? initialAsset.priceInUSD : null)
+                    ?? (marketAssets || []).find((token) => token.symbol?.toUpperCase() === nativeInfo.wrapped.toUpperCase())?.priceInUSD
+                    ?? (marketAssets || []).find((token) => token.symbol?.toUpperCase() === 'WETH')?.priceInUSD
+                );
+
+                if (!cancelled) {
+                    setEstimatedGasCostUSD(nativePrice > 0 ? nativeGasAmount * nativePrice : 0);
+                }
+            } catch {
+                if (!cancelled) {
+                    setEstimatedGasCostUSD(null);
+                }
+            }
+        };
+
+        void estimateNetworkCost();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        aTokenAddress,
+        activeTab,
+        gatewayAddress,
+        initialAsset,
+        isApproveRequired,
+        isNativeSelected,
+        isWrappedNative,
+        marketAssets,
+        nativeInfo.wrapped,
+        poolAddress,
+        publicClient,
+        walletAddress,
+        withdrawAmount,
+        withdrawSwapAdapterAddress,
+    ]);
+
+    const withdrawToken = useMemo(() => {
+        if (!initialAsset) return null;
+
+        if (activeTab === 'withdraw' && isWrappedNative && isNativeSelected) {
+            return { ...initialAsset, symbol: nativeInfo.native };
+        }
+
+        return initialAsset;
+    }, [activeTab, initialAsset, isNativeSelected, isWrappedNative, nativeInfo.native]);
+
+    const handleToggleUSDMode = useCallback(() => {
+        if (!initialAsset) {
+            setIsUSDMode(!isUSDMode);
+            return;
+        }
+
+        const price = parseFloat(initialAsset.priceInUSD || '0');
+
+        if (!Number.isFinite(price) || price <= 0 || !inputValue) {
+            setIsUSDMode(!isUSDMode);
+            return;
+        }
+
+        if (isUSDMode) {
+            const usdAmount = parseFloat(inputValue);
+            const tokenAmount = usdAmount / price;
+            setInputValue(tokenAmount.toFixed(tokenAmount < 0.0001 ? 8 : 6).replace(/\.?0+$/, ''));
+        } else {
+            const tokenAmount = parseFloat(inputValue);
+            setInputValue((tokenAmount * price).toFixed(2));
+        }
+
+        setIsUSDMode(!isUSDMode);
+    }, [initialAsset, inputValue, isUSDMode]);
+
+    const sourceSecondaryValue = useMemo(() => {
+        if (!initialAsset) return null;
+
+        if (isUSDMode) {
+            if (withdrawAmount === 0n) return `0 ${initialAsset.symbol}`;
+
+            return formatCompactToken(formatUnits(withdrawAmount, initialAsset.decimals || 18), initialAsset.symbol);
+        }
+
+        if (withdrawAmount === 0n) return formatUSD(0);
+
+        const amount = parseFloat(formatUnits(withdrawAmount, initialAsset.decimals || 18));
+        const price = parseFloat(initialAsset.priceInUSD || '0');
+
+        if (!Number.isFinite(amount) || !Number.isFinite(price) || price <= 0) {
+            return null;
+        }
+
+        return `$${(amount * price).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+    }, [initialAsset, isUSDMode, withdrawAmount]);
+
+    const targetValue = useMemo(() => {
+        if (!swapQuote?.destAmount || !targetToken) return '';
+
+        return formatUnits(BigInt(swapQuote.destAmount), targetToken.decimals || 18);
+    }, [swapQuote?.destAmount, targetToken]);
+
+    const targetSecondaryValue = useMemo(() => {
+        if (isQuoteLoading) return 'Loading quote...';
+        if (!targetToken || !targetValue) return 'Est. receive';
+
+        const amount = parseFloat(targetValue);
+        const price = parseFloat(targetToken.priceInUSD || '0');
+        const quoteDestUSD = parseFloat(swapQuote?.priceRoute?.destUSD || '0');
+
+        if (Number.isFinite(quoteDestUSD) && quoteDestUSD > 0) {
+            return formatUSD(quoteDestUSD);
+        }
+
+        if (!Number.isFinite(amount) || !Number.isFinite(price) || price <= 0) {
+            return 'Est. receive';
+        }
+
+        return `$${(amount * price).toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+    }, [isQuoteLoading, swapQuote?.priceRoute?.destUSD, targetToken, targetValue]);
+
+    const renderSourceTokenStatus = useCallback((token: any) => {
+        const formattedAmount = token.formattedAmount || token.formattedBalance || '0';
+        const amount = formatCompactNumber(formattedAmount);
+        const amountNumber = parseFloat(formattedAmount || '0');
+        const price = parseFloat(token.priceInUSD || '0');
+        const amountUSD = Number.isFinite(amountNumber) && Number.isFinite(price) && price > 0
+            ? formatUSD(amountNumber * price)
+            : undefined;
+
+        return {
+            disabled: false,
+            reasons: [],
+            amount,
+            amountUSD,
+        };
+    }, []);
+
+    const renderTargetTokenStatus = useCallback((token: any) => {
+        const address = getAssetAddress(token);
+        const walletBalance = targetWalletBalances[address];
+        const formattedAmount = walletBalance?.formatted || token.formattedAmount || token.formattedBalance || '0';
+        const amountNumber = parseFloat(formattedAmount || '0');
+        const price = parseFloat(token.priceInUSD || '0');
+        const amountUSD = Number.isFinite(amountNumber) && Number.isFinite(price) && price > 0
+            ? formatUSD(amountNumber * price)
+            : undefined;
+        const isNativeToken = address === NATIVE_TOKEN_ADDRESS;
+
+        return {
+            disabled: false,
+            reasons: [],
+            amount: Number.isFinite(amountNumber) ? formatCompactNumber(formattedAmount) : undefined,
+            amountRaw: Number.isFinite(amountNumber) ? amountNumber : 0,
+            amountUSD,
+            contractAddress: isNativeToken ? undefined : formatAddressShort(token.underlyingAsset || token.address),
+            contractUrl: !isNativeToken && market?.explorer && (token.underlyingAsset || token.address)
+                ? `${market.explorer}/address/${token.underlyingAsset || token.address}`
+                : undefined,
+            hideRate: true,
+        };
+    }, [market?.explorer, targetWalletBalances]);
+
     return (
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            title={`Withdraw ${initialAsset?.symbol}`}
+            title={initialAsset?.symbol ? `Withdraw ${initialAsset.symbol}` : 'Withdraw'}
             maxWidth="460px"
             headerBorder={false}
+            preventAutoFocus={true}
         >
-            <div className="space-y-4 p-4">
+            <div className="p-3 space-y-2">
                 {isSuccess ? (
                     <div className="flex flex-col items-center justify-center py-10 text-center animate-in zoom-in-95 duration-200">
                         <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10">
@@ -463,175 +1227,295 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                     <>
                         {/* Tab Switcher */}
                         {withdrawSwapAdapterAddress && (
-                            <div className="flex bg-slate-100 dark:bg-slate-900 p-1 rounded-xl border border-slate-200 dark:border-slate-800 text-xs font-bold">
+                            <div className="grid grid-cols-2 h-9 rounded-xl bg-slate-100 dark:bg-slate-800/45 p-0.5 text-[11px] font-bold">
                                 <button
                                     onClick={() => { setActiveTab('withdraw'); setErrorText(null); }}
-                                    className={`flex-1 py-2.5 rounded-lg transition-all ${activeTab === 'withdraw' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-400'}`}
+                                    className={`inline-flex h-8 items-center justify-center rounded-lg transition-all whitespace-nowrap ${activeTab === 'withdraw' ? 'bg-white dark:bg-slate-700/80 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                                 >
                                     Withdraw
                                 </button>
                                 <button
                                     onClick={() => { setActiveTab('swap'); setErrorText(null); }}
-                                    className={`flex-1 py-2.5 rounded-lg transition-all ${activeTab === 'swap' ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-400'}`}
+                                    className={`inline-flex h-8 items-center justify-center rounded-lg transition-all whitespace-nowrap ${activeTab === 'swap' ? 'bg-white dark:bg-slate-700/80 text-slate-900 dark:text-white shadow-xs' : 'text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200'}`}
                                 >
                                     Withdraw & Swap
                                 </button>
                             </div>
                         )}
 
-                        {/* Standard Withdraw Asset Box */}
-                        <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-700">
-                                    <img
-                                        src={getTokenLogo(isNativeSelected && activeTab === 'withdraw' && isWrappedNative ? nativeInfo.native : initialAsset?.symbol)}
-                                        alt={initialAsset?.symbol}
-                                        className="w-full h-full object-cover"
-                                        onError={onTokenImgError(isNativeSelected && activeTab === 'withdraw' && isWrappedNative ? nativeInfo.native : initialAsset?.symbol)}
-                                    />
-                                </div>
-                                <div>
-                                    <div className="text-sm font-black uppercase tracking-wider text-slate-400">Position</div>
-                                    <div className="font-bold text-slate-900 dark:text-white">
-                                        {isNativeSelected && activeTab === 'withdraw' && isWrappedNative ? nativeInfo.native : initialAsset?.symbol}
-                                    </div>
-                                </div>
+                        <CompactAmountInput
+                            token={withdrawToken}
+                            value={inputValue}
+                            isUSDMode={isUSDMode}
+                            onToggleUSDMode={handleToggleUSDMode}
+                            onChange={(val) => handleAmountChange(normalizeDecimalInput(val))}
+                            onApplyMax={() => handlePercentClick(100)}
+                            onApplyPct={handlePercentClick}
+                            maxAmount={maxWithdrawAmount}
+                            decimals={isUSDMode ? 2 : (initialAsset?.decimals || 18)}
+                            formattedBalance={formatUnits(balance, initialAsset?.decimals || 18)}
+                            onTokenSelect={() => {
+                                if (selectableSupplyTokens.length > 1) {
+                                    setSourceSelectorOpen(true);
+                                }
+                            }}
+                            secondaryValue={sourceSecondaryValue}
+                            displaySymbol={withdrawToken?.symbol}
+                            disabled={isLoading}
+                            isError={withdrawAmount > balance || isWithdrawOverMax}
+                        />
+
+                        {isWithdrawOverMax && initialAsset && (
+                            <div className="px-1 text-xs font-medium text-amber-500">
+                                You can withdraw up to {formatCompactNumber(formatUnits(maxWithdrawAmount, initialAsset.decimals || 18))} {initialAsset.symbol} while keeping Health Factor above {MIN_HEALTH_FACTOR_AFTER_WITHDRAW.toFixed(2)}.
                             </div>
+                        )}
 
-                            {/* Native / Wrapped Toggle for standard WETH withdraw */}
-                            {activeTab === 'withdraw' && isWrappedNative && gatewayAddress && (
-                                <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-800 text-[11px] font-bold">
-                                    <button
-                                        onClick={() => { setIsNativeSelected(true); setInputValue(''); setWithdrawAmount(0n); }}
-                                        className={`px-3 py-1.5 rounded-md transition-all ${isNativeSelected ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-400'}`}
-                                    >
-                                        {nativeInfo.native}
-                                    </button>
-                                    <button
-                                        onClick={() => { setIsNativeSelected(false); setInputValue(''); setWithdrawAmount(0n); }}
-                                        className={`px-3 py-1.5 rounded-md transition-all ${!isNativeSelected ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-400'}`}
-                                    >
-                                        {nativeInfo.wrapped}
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Amount Input */}
-                        <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl space-y-3">
-                            <div className="flex justify-between items-center text-xs">
-                                <span className="font-bold text-slate-400 uppercase tracking-wider">Amount</span>
-                                <span className="text-slate-500 font-mono">
-                                    Supplied: {formatCompactNumber(formatUnits(balance, initialAsset?.decimals || 18))} {initialAsset?.symbol}
+                        {activeTab === 'withdraw' && isWrappedNative && gatewayAddress && (
+                            <div className="flex items-center gap-2 px-1 pt-1">
+                                <Switch
+                                    checked={isNativeSelected}
+                                    onCheckedChange={setIsNativeSelected}
+                                />
+                                <span className="text-sm font-bold text-slate-700 dark:text-slate-300">
+                                    Unwrap {nativeInfo.wrapped} (to withdraw {nativeInfo.native})
                                 </span>
                             </div>
-
-                            <div className="relative">
-                                <Input
-                                    type="text"
-                                    placeholder="0.00"
-                                    value={inputValue}
-                                    onChange={(e) => handleAmountChange(e.target.value)}
-                                    className="w-full bg-transparent border-0 focus:ring-0 p-0 text-3xl font-mono font-bold text-slate-900 dark:text-white shadow-none"
-                                />
-                                <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                                    <span className="text-sm font-bold text-slate-400">{initialAsset?.symbol}</span>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-2 pt-2 border-t border-slate-200/50 dark:border-slate-800/50">
-                                {[25, 50, 75, 100].map((pct) => (
-                                    <button
-                                        key={pct}
-                                        onClick={() => handlePercentClick(pct)}
-                                        className="flex-1 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-bold transition-all"
-                                    >
-                                        {pct === 100 ? 'MAX' : `${pct}%`}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
+                        )}
 
                         {/* Withdraw & Swap Target Asset Box */}
                         {activeTab === 'swap' && (
                             <div className="space-y-2">
-                                <div className="flex justify-center py-0.5">
-                                    <div className="bg-slate-100 dark:bg-slate-900 p-2 rounded-full border border-slate-200 dark:border-slate-800">
-                                        <ArrowLeftRight className="w-4 h-4 text-slate-400 rotate-90" />
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl">
-                                    <div className="flex items-center gap-3">
-                                        <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-700">
-                                            {targetToken && (
-                                                <img
-                                                    src={getTokenLogo(targetToken.symbol)}
-                                                    alt={targetToken.symbol}
-                                                    className="w-full h-full object-cover"
-                                                    onError={onTokenImgError(targetToken.symbol)}
-                                                />
+                                <div className="flex justify-center min-h-4 items-center">
+                                    {withdrawAmount > 0n ? (
+                                        <div className="text-xs text-slate-500 flex items-center gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    void fetchQuoteData();
+                                                    setNextRefreshIn(30);
+                                                }}
+                                                className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
+                                                title="Refresh quote"
+                                                disabled={isQuoteLoading}
+                                            >
+                                                <RefreshCw className={`w-3 h-3 ${isQuoteLoading ? 'animate-spin' : ''}`} />
+                                            </button>
+                                            {isQuoteLoading || !swapQuote ? (
+                                                'Loading quote...'
+                                            ) : (
+                                                `Auto refresh in ${nextRefreshIn}s`
                                             )}
                                         </div>
-                                        <div>
-                                            <div className="text-sm font-black uppercase tracking-wider text-slate-400">Receive Asset</div>
-                                            <button
-                                                onClick={() => setTokenSelectorOpen(true)}
-                                                className="flex items-center gap-1.5 text-base font-bold text-slate-900 dark:text-white hover:opacity-80 transition-opacity"
-                                            >
-                                                <span>{targetToken?.symbol}</span>
-                                                <ChevronDown className="w-4 h-4 text-slate-400" />
-                                            </button>
-                                        </div>
-                                    </div>
-
-                                    {swapQuote && (
-                                        <div className="text-right">
-                                            <div className="text-sm font-bold font-mono text-slate-900 dark:text-white">
-                                                +{formatCompactNumber(formatUnits(BigInt(swapQuote.destAmount), targetToken?.decimals || 18))}
-                                            </div>
-                                            <div className="text-[10px] text-slate-500 font-medium">
-                                                Est. Swapped Value
-                                            </div>
+                                    ) : (
+                                        <div className="text-xs text-slate-500/50 flex items-center h-full">
+                                            Waiting for amount...
                                         </div>
                                     )}
                                 </div>
+
+                                <CompactAmountInput
+                                    token={targetToken}
+                                    value={targetValue ? formatCompactNumber(targetValue) : ''}
+                                    onChange={() => undefined}
+                                    maxAmount={0n}
+                                    decimals={targetToken?.decimals || 18}
+                                    formattedBalance="0"
+                                    onTokenSelect={() => setTokenSelectorOpen(true)}
+                                    secondaryValue={targetSecondaryValue}
+                                    displaySymbol={targetToken?.symbol}
+                                    readOnly={true}
+                                    isLoading={isQuoteLoading}
+                                    loadingLabel="Loading quote..."
+                                    showQuickActions={false}
+                                />
+
+                                {initialAsset && targetToken && (
+                                    <div className="flex flex-col items-center mt-1 space-y-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setInvertRate(!invertRate)}
+                                            className="flex items-center gap-2 text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-300 transition-colors cursor-pointer group"
+                                            title="Invert rate"
+                                        >
+                                            <span>1 {invertRate ? targetToken.symbol : initialAsset.symbol}</span>
+                                            <ArrowRightLeft className="w-3 h-3 text-slate-400 dark:text-slate-500 group-hover:text-slate-600 dark:group-hover:text-slate-400" />
+                                            <span>
+                                                {(() => {
+                                                    const inputF = parseFloat(formatUnits(withdrawAmount, initialAsset.decimals || 18));
+                                                    const outputF = swapQuote?.destAmount
+                                                        ? parseFloat(formatUnits(BigInt(swapQuote.destAmount), targetToken.decimals || 18))
+                                                        : 0;
+
+                                                    if (inputF > 0 && outputF > 0) {
+                                                        return invertRate
+                                                            ? `${(inputF / outputF).toLocaleString('en-US', { maximumFractionDigits: 6 })} ${initialAsset.symbol}`
+                                                            : `${(outputF / inputF).toLocaleString('en-US', { maximumFractionDigits: 6 })} ${targetToken.symbol}`;
+                                                    }
+
+                                                    const fromPrice = parseFloat(initialAsset.priceInUSD || '0');
+                                                    const toPrice = parseFloat(targetToken.priceInUSD || '0');
+
+                                                    if (fromPrice > 0 && toPrice > 0) {
+                                                        return invertRate
+                                                            ? `${(toPrice / fromPrice).toLocaleString('en-US', { maximumFractionDigits: 6 })} ${initialAsset.symbol}`
+                                                            : `${(fromPrice / toPrice).toLocaleString('en-US', { maximumFractionDigits: 6 })} ${targetToken.symbol}`;
+                                                    }
+
+                                                    return '-';
+                                                })()}
+                                            </span>
+                                        </button>
+                                    </div>
+                                )}
                             </div>
                         )}
 
                         {/* Overview / Simulations */}
-                        {initialAsset && (
-                            <div className="bg-slate-50 dark:bg-slate-800/20 rounded-2xl p-4 border border-slate-200/50 dark:border-slate-800/50 space-y-3 text-xs">
-                                {activeTab === 'swap' && swapQuote && (
-                                    <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                                        <span>Exchange Rate</span>
-                                        <span className="font-mono">
-                                            1 {initialAsset.symbol} ≈ {parseFloat(formatUnits(BigInt(swapQuote.destAmount), targetToken?.decimals || 18)) / parseFloat(formatUnits(withdrawAmount, initialAsset.decimals || 18))} {targetToken?.symbol}
-                                        </span>
-                                    </div>
-                                )}
-
-                                <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                                    <div className="flex items-center gap-1">
-                                        <span>Health Factor</span>
-                                        <InfoTooltip content="Estimated Health Factor change after withdrawing. Warning: Do not let HF fall below 1.05 to avoid liquidations." />
-                                    </div>
-                                    <div className="flex items-center gap-1.5 font-mono">
-                                        <span>{formatHF(summary?.healthFactor)}</span>
-                                        {simulation && (
-                                            <>
-                                                <span>→</span>
-                                                <span className={simulation.isDanger ? 'text-red-500 font-bold' : simulation.isSafe ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
-                                                    {formatHF(simulation.simulatedHF)}
+                        {initialAsset && isTransactionOverviewReady && (
+                            <div className="mt-1 mb-1">
+                                <div className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-0.5 px-1">Transaction overview</div>
+                                <div className="transition-all">
+                                    <button
+                                        onClick={() => setShowTransactionOverview(!showTransactionOverview)}
+                                        className="w-full flex items-center justify-between px-1 py-1 transition-colors"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <span className="font-medium text-[13px] text-slate-600 dark:text-slate-300">Costs & Fees</span>
+                                            {swapQuote?.discountPercent > 0 && (
+                                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold whitespace-nowrap">
+                                                    Discount Applied
                                                 </span>
-                                            </>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
+                                            <span className="font-medium">{costsAndFees.totalUSD > 0 ? formatUSD(costsAndFees.totalUSD) : '< $0.01'}</span>
+                                            {showTransactionOverview ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                        </div>
+                                    </button>
+
+                                    {showTransactionOverview && (
+                                        <div className="relative ml-4 pl-4 pr-3 pb-1 pt-2 space-y-3 text-xs border-l border-dashed border-slate-300 dark:border-slate-700/50">
+                                            <div className="flex justify-between items-center group">
+                                                <div className="flex items-center gap-1.5 text-slate-500">
+                                                    <span>Network costs</span>
+                                                    <InfoTooltip content="Estimated network gas cost." size={12} />
+                                                </div>
+                                                <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+                                                    <span>{costsAndFees.gasUSD > 0 ? formatUSD(costsAndFees.gasUSD) : '< $0.01'}</span>
+                                                </div>
+                                            </div>
+
+                                            {activeTab === 'swap' && targetToken && (
+                                                <div className="flex justify-between items-center group">
+                                                    <div className="flex items-center gap-1.5 text-slate-500">
+                                                        <span>Service Fee ({(costsAndFees.feeBps / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}%)</span>
+                                                        {swapQuote?.discountPercent > 0 && (
+                                                            <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
+                                                                {swapQuote.discountPercent}% OFF
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+                                                        <div className="w-3.5 h-3.5 rounded-full overflow-hidden">
+                                                            <img src={getTokenLogo(targetToken.symbol)} className="w-full h-full object-cover" />
+                                                        </div>
+                                                        <span>
+                                                            {costsAndFees.feeBps === 0
+                                                                ? 'Free'
+                                                                : costsAndFees.serviceFeeToken < 0.00001
+                                                                    ? '< 0.00001'
+                                                                    : costsAndFees.serviceFeeToken.toLocaleString('en-US', { maximumFractionDigits: 6 })}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    {/* Persistent Rows Below Fees */}
+                                    <div className="px-1 pb-1 pt-1 space-y-2">
+                                        {remainingSupplyDisplay && (
+                                            <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>Remaining supply</span>
+                                                    <InfoTooltip content="Your estimated token balance in the protocol after the withdraw is completed." size={12} />
+                                                </div>
+                                                <div className="text-right font-medium">
+                                                    <span className="text-slate-900 dark:text-slate-100">{remainingSupplyDisplay}</span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        {/* Health Factor Row */}
+                                        <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
+                                            <div className="flex items-center gap-1.5">
+                                                <span>Health factor</span>
+                                                <InfoTooltip content="Safety of your collateral against your debt." size={12} />
+                                            </div>
+                                            <div className="text-right font-medium">
+                                                <div className="flex items-center gap-1.5 font-bold">
+                                                    <span>{formatHF(summary?.healthFactor)}</span>
+                                                    {simulation && (
+                                                        <>
+                                                            <span className="text-slate-400 font-normal">-&gt;</span>
+                                                            <InfoTooltip content="Liquidation < 1.0" size={12}>
+                                                                <span className={`${getHealthFactorColor(parseFiniteNumber(simulation.simulatedHF, -1))} font-bold`}>
+                                                                    {formatHF(simulation.simulatedHF)}
+                                                                </span>
+                                                            </InfoTooltip>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {simulation && (
+                                            <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>Collateral power</span>
+                                                    <InfoTooltip content="Total value of collateral considered for collateralization." size={12} />
+                                                </div>
+                                                <div className="text-right font-medium">
+                                                    <div className="flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
+                                                        <span>{formatUSD(simulation.currentCollateralPower)}</span>
+                                                        <span className="text-slate-400 font-normal">-&gt;</span>
+                                                        <span className={simulation.simulatedCollateralPower < simulation.currentCollateralPower ? 'text-amber-500 font-bold' : 'text-slate-900 dark:text-slate-100'}>
+                                                            {formatUSD(simulation.simulatedCollateralPower)}
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
+                                            <div className="flex items-center gap-1.5">
+                                                <span>Supply APY</span>
+                                                <InfoTooltip content="Annual yield on deposited assets." size={12} />
+                                            </div>
+                                            <div className="text-right font-medium">
+                                                <span className="text-slate-900 dark:text-slate-100">{formatAPY((initialAsset.supplyAPY ?? 0) * 100)}</span>
+                                            </div>
+                                        </div>
+
+                                        {simulation && (
+                                            <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>Liquidation threshold</span>
+                                                    <InfoTooltip content="The weight average of your collateral's liquidation thresholds." size={12} />
+                                                </div>
+                                                <div className="text-right font-medium">
+                                                    <div className="flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
+                                                        <span>{Math.round(simulation.currentLiquidationThreshold * 100)}%</span>
+                                                        <span className="text-slate-400 font-normal">-&gt;</span>
+                                                        <span className={simulation.simulatedLiquidationThreshold < simulation.currentLiquidationThreshold ? 'text-amber-500 font-bold' : 'text-slate-900 dark:text-slate-100'}>
+                                                            {Math.round(simulation.simulatedLiquidationThreshold * 100)}%
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </div>
                                         )}
                                     </div>
-                                </div>
-
-                                <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                                    <span>Gas Token Cost</span>
-                                    <span className="font-mono text-slate-500">&lt; $0.08</span>
                                 </div>
                             </div>
                         )}
@@ -640,8 +1524,24 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                             <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 dark:border-red-900/30 dark:bg-red-950/20 p-3">
                                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500 animate-pulse" />
                                 <p className="text-xs font-semibold text-red-800 dark:text-red-300">
-                                    High Risk: This withdrawal reduces your collateral too much and risks immediate liquidation.
+                                    This withdrawal would reduce your Health Factor below {MIN_HEALTH_FACTOR_AFTER_WITHDRAW.toFixed(2)}. Reduce the amount to continue.
                                 </p>
+                            </div>
+                        )}
+
+                        {requiresRiskAcceptance && !simulation?.isDanger && (
+                            <div className="space-y-1.5 mt-2 mb-2 px-4 text-center">
+                                <p className="mx-auto max-w-97.5 text-[11px] font-bold leading-snug text-red-600 dark:text-red-400">
+                                    Withdrawing this amount will reduce your Health Factor and increase liquidation risk.
+                                </p>
+                                <label className="flex items-center justify-center gap-2 text-[11px] font-bold text-red-600 dark:text-red-400">
+                                    <Checkbox
+                                        checked={riskAccepted}
+                                        onCheckedChange={(checked) => setRiskAccepted(checked === true)}
+                                        className="border-red-500/60 data-[state=checked]:bg-red-500 data-[state=checked]:border-red-500"
+                                    />
+                                    I acknowledge the risks involved.
+                                </label>
                             </div>
                         )}
 
@@ -653,33 +1553,55 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         )}
 
                         {/* Action Button */}
-                        <div className="pt-2">
+                        <div className="pt-3">
                             {isWrongNetwork ? (
                                 <Button
                                     onClick={handleSwitchChain}
                                     disabled={isLoading}
-                                    className="w-full py-6 text-sm font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-2xl"
+                                    className="w-full py-3 h-auto font-bold rounded-xl bg-amber-500 hover:bg-amber-600 text-white"
                                 >
-                                    {isLoading ? <RefreshCw className="w-5 h-5 animate-spin mr-2" /> : null}
+                                    {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
                                     Switch Network to {market?.shortLabel || 'Market Chain'}
                                 </Button>
                             ) : isApproveRequired ? (
                                 <Button
                                     onClick={handleApprove}
-                                    disabled={isLoading || withdrawAmount === 0n}
-                                    className="w-full py-6 text-sm font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-2xl"
+                                    disabled={isLoading || withdrawAmount === 0n || isWithdrawBlocked || !isSwapQuoteReady}
+                                    className="w-full py-3 h-auto font-bold rounded-xl bg-violet-600 hover:bg-violet-700 text-white"
                                 >
-                                    {isLoading ? <RefreshCw className="w-5 h-5 animate-spin mr-2" /> : null}
-                                    Approve {initialAsset?.symbol} receipt
+                                    {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+                                    {!isSwapQuoteReady
+                                        ? 'Getting quote...'
+                                        : isWithdrawOverMax
+                                            ? 'Amount exceeds available'
+                                            : simulation?.isDanger
+                                                ? 'Unsafe Health Factor'
+                                                : requiresRiskAcceptance && !riskAccepted
+                                                    ? 'Accept risk to continue'
+                                                    : activeTab === 'swap'
+                                                        ? 'Approve & Withdraw Swap'
+                                                        : `Approve ${initialAsset?.symbol} receipt`}
                                 </Button>
                             ) : (
                                 <Button
-                                    onClick={handleConfirm}
-                                    disabled={isLoading || withdrawAmount === 0n || (simulation?.isDanger ?? false)}
-                                    className="w-full py-6 text-sm font-bold bg-linear-to-r from-purple-600 to-blue-600 text-white rounded-2xl"
+                                    onClick={() => handleConfirm()}
+                                    disabled={isLoading || withdrawAmount === 0n || isWithdrawBlocked || !isSwapQuoteReady}
+                                    className="w-full py-3 h-auto font-bold rounded-xl"
                                 >
-                                    {isLoading ? <RefreshCw className="w-5 h-5 animate-spin mr-2" /> : null}
-                                    {activeTab === 'swap' ? 'Confirm Swap & Withdraw' : `Withdraw ${isNativeSelected && isWrappedNative ? nativeInfo.native : initialAsset?.symbol}`}
+                                    {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
+                                    {!isSwapQuoteReady
+                                        ? 'Getting quote...'
+                                        : isWithdrawOverMax
+                                            ? 'Amount exceeds available'
+                                            : simulation?.isDanger
+                                                ? 'Unsafe Health Factor'
+                                                : requiresRiskAcceptance && !riskAccepted
+                                                    ? 'Accept risk to continue'
+                                                    : withdrawAmount === 0n
+                                                        ? 'Enter an amount'
+                                                        : activeTab === 'swap'
+                                                            ? 'Confirm Withdraw & Swap'
+                                                            : `Withdraw ${isNativeSelected && isWrappedNative ? nativeInfo.native : initialAsset?.symbol}`}
                                 </Button>
                             )}
                         </div>
@@ -691,9 +1613,41 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             <TokenSelector
                 isOpen={tokenSelectorOpen}
                 onClose={() => setTokenSelectorOpen(false)}
-                onSelect={(tok) => { setTargetToken(tok); setSwapQuote(null); }}
+                onSelect={(tok) => {
+                    setTargetToken(tok);
+                    setSwapQuote(null);
+                    if (tok.isCustom) {
+                        persistCustomTargetToken(tok);
+                    }
+                }}
                 tokens={swappableTokens}
                 title="Select Asset to Receive"
+                description="Choose a token or paste a token address"
+                searchPlaceholder="Search name or paste address"
+                renderStatus={renderTargetTokenStatus}
+                marketAssets={marketAssets}
+                allowCustomTokens
+                onImportToken={handleImportTargetToken}
+                sortByAmount
+            />
+            <TokenSelector
+                isOpen={sourceSelectorOpen}
+                onClose={() => setSourceSelectorOpen(false)}
+                onSelect={(token) => {
+                    setSelectedAsset(token);
+                    setInputValue('');
+                    setWithdrawAmount(0n);
+                    setSwapQuote(null);
+                    setErrorText(null);
+                    setRiskAccepted(false);
+                    setSourceSelectorOpen(false);
+                }}
+                tokens={selectableSupplyTokens}
+                title="Select Position to Withdraw"
+                description="Choose a token to withdraw from your supply positions"
+                renderStatus={renderSourceTokenStatus}
+                rateField="supplyAPY"
+                marketAssets={marketAssets}
             />
         </Modal>
     );
