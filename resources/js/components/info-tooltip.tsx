@@ -7,13 +7,14 @@ import {
 } from "./ui/tooltip";
 
 interface InfoTooltipProps {
-    message?: string;
-    content?: string;
+    message?: React.ReactNode;
+    content?: React.ReactNode;
     size?: number;
     maxWidth?: string;
     children?: React.ReactNode;
     disableClick?: boolean;
     disableHover?: boolean;
+    interactive?: boolean;
 }
 
 export const InfoTooltip: React.FC<InfoTooltipProps> = ({
@@ -23,7 +24,8 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
     maxWidth = '250px',
     children,
     disableClick = false,
-    disableHover = false
+    disableHover = false,
+    interactive = false
 }) => {
     const id = useId();
     const [open, setOpen] = useState(false);
@@ -91,16 +93,18 @@ export const InfoTooltip: React.FC<InfoTooltipProps> = ({
             </TooltipTrigger>
             <TooltipContent
                 showArrow={false}
-                className="p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl pointer-events-none select-none"
+                className={`p-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 shadow-xl ${
+                    interactive ? 'pointer-events-auto select-text' : 'pointer-events-none select-none'
+                }`}
                 style={{ maxWidth }}
                 onPointerDownOutside={() => {
                     setIsClicked(false);
                     setOpen(false);
                 }}
             >
-                <p className="text-[12px] text-slate-800 dark:text-slate-300 text-center leading-relaxed">
+                <div className="text-[12px] text-slate-800 dark:text-slate-300 text-center leading-relaxed">
                     {tooltipText}
-                </p>
+                </div>
             </TooltipContent>
         </Tooltip>
     );

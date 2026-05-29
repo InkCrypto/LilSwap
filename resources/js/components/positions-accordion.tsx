@@ -1,5 +1,5 @@
 import { AlertCircle, ArrowDownRight, ArrowUpRight, CircleDashed, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, RefreshCw } from 'lucide-react';
-import React, { lazy, Suspense, useEffect, useMemo, useState, useCallback } from 'react';
+import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
 import { getMarketByKey } from '../constants/networks';
 import type { DonatorInfo, ChainInfo, PositionInfo } from '../hooks/use-all-positions';
@@ -20,7 +20,6 @@ const CollateralToggleModal = lazy(() => import('./collateral-toggle-modal').the
 const SupplyModal = lazy(() => import('./supply-modal').then(module => ({ default: module.SupplyModal })));
 const WithdrawModal = lazy(() => import('./withdraw-modal').then(module => ({ default: module.WithdrawModal })));
 const BorrowModal = lazy(() => import('./borrow-modal').then(module => ({ default: module.BorrowModal })));
-const RepayModal = lazy(() => import('./repay-modal').then(module => ({ default: module.RepayModal })));
 
 // Formatting helpers removed in favor of centralized ones in ../utils/formatters.ts
 
@@ -67,6 +66,10 @@ const getEmptyChainIconClass = (marketKey: string, variant: 'summary' | 'list' =
     return `${baseSize} object-contain shrink-0 saturate-75 brightness-90 opacity-90 ${gnosisAdjustment}`.trim();
 };
 
+const positionActionButtonBase = 'border border-slate-300 bg-slate-50 shadow-sm transition-colors hover:bg-white hover:shadow-md dark:border-slate-700 dark:bg-slate-800/60 dark:shadow-xs dark:hover:bg-slate-800 cursor-pointer';
+const positionActionButtonMobile = 'h-6 rounded-md px-2 py-0 text-[10px]';
+const positionActionButtonDesktop = 'h-7 rounded-lg px-3 text-xs';
+
 /**
  * PositionsAccordion Component
  * Displays user positions across multiple networks in an accordion layout
@@ -103,7 +106,6 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
     const [supplyModal, setSupplyModal] = useState<{ open: boolean; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, chainId: 0, marketKey: null, marketAssets: [], summary: null });
     const [withdrawModal, setWithdrawModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; supplies: any[]; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null, supplies: [] });
     const [borrowModal, setBorrowModal] = useState<{ open: boolean; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, chainId: 0, marketKey: null, marketAssets: [], summary: null });
-    const [repayModal, setRepayModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; supplies: any[]; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null, supplies: [] });
     const [timeTick, setTimeTick] = useState(() => Date.now());
 
     useEffect(() => {
@@ -113,7 +115,6 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         void import('./supply-modal');
         void import('./withdraw-modal');
         void import('./borrow-modal');
-        void import('./repay-modal');
     }, []);
 
     useEffect(() => {
@@ -136,7 +137,6 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         setSupplyModal(prev => ({ ...prev, open: false }));
         setWithdrawModal(prev => ({ ...prev, open: false }));
         setBorrowModal(prev => ({ ...prev, open: false }));
-        setRepayModal(prev => ({ ...prev, open: false }));
     }, [walletAddress]);
 
     const handleOpenSwap = (
@@ -189,6 +189,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         });
 
         const market = getMarketByKey(marketKey);
+
         if (market) {
             void setSelectedNetwork(market.key).catch((err: any) => {
                 logger.debug('Chain switch did not complete during collateral toggle open', {
@@ -206,33 +207,31 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
     const handleOpenSupply = (marketKey: string, chainIdNum: number, marketAssets: any[], summary: any) => {
         setSupplyModal({ open: true, chainId: chainIdNum, marketKey, marketAssets, summary });
+
         const market = getMarketByKey(marketKey);
+
         if (market) {
-            void setSelectedNetwork(market.key).catch(() => {});
+            void setSelectedNetwork(market.key).catch(() => { });
         }
     };
 
     const handleOpenWithdraw = (marketKey: string, chainIdNum: number, asset: any | null, summary: any, marketAssets: any[], supplies: any[] = []) => {
         setWithdrawModal({ open: true, asset, chainId: chainIdNum, marketKey, marketAssets, summary, supplies });
+
         const market = getMarketByKey(marketKey);
+
         if (market) {
-            void setSelectedNetwork(market.key).catch(() => {});
+            void setSelectedNetwork(market.key).catch(() => { });
         }
     };
 
     const handleOpenBorrow = (marketKey: string, chainIdNum: number, marketAssets: any[], summary: any) => {
         setBorrowModal({ open: true, chainId: chainIdNum, marketKey, marketAssets, summary });
-        const market = getMarketByKey(marketKey);
-        if (market) {
-            void setSelectedNetwork(market.key).catch(() => {});
-        }
-    };
 
-    const handleOpenRepay = (marketKey: string, chainIdNum: number, asset: any, summary: any, supplies: any[], marketAssets: any[]) => {
-        setRepayModal({ open: true, asset, chainId: chainIdNum, marketKey, marketAssets, summary, supplies });
         const market = getMarketByKey(marketKey);
+
         if (market) {
-            void setSelectedNetwork(market.key).catch(() => {});
+            void setSelectedNetwork(market.key).catch(() => { });
         }
     };
 
@@ -607,10 +606,26 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                 <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Supplies</h4>
                                             </div>
                                             <div className="flex items-center gap-1.5">
-                                                <Button size="sm" variant="outline" className="h-6 rounded-md text-[10px] px-2 py-0 border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className={`${positionActionButtonBase} ${positionActionButtonMobile} text-emerald-600 dark:text-emerald-400`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
+                                                    }}
+                                                >
                                                     + Supply
                                                 </Button>
-                                                <Button size="sm" variant="outline" className="h-6 rounded-md text-[10px] px-2 py-0 border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies); }}>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className={`${positionActionButtonBase} ${positionActionButtonMobile} text-blue-600 dark:text-blue-400`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies);
+                                                    }}
+                                                >
                                                     Withdraw
                                                 </Button>
                                             </div>
@@ -643,7 +658,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                     onClick={(e) => e.stopPropagation()}
                                                                 />
                                                             </div>
-                                                            <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
+                                                            <Button
+                                                                size="sm"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true);
+                                                                }}
+                                                                className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer"
+                                                            >
                                                                 <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
                                                             </Button>
                                                         </div>
@@ -660,7 +682,15 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                     <ArrowDownRight className="w-3 h-3 text-primary" />
                                                     <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Borrows</h4>
                                                 </div>
-                                                <Button size="sm" variant="outline" className="h-6 rounded-md text-[10px] px-2 py-0 border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className={`${positionActionButtonBase} ${positionActionButtonMobile} text-violet-600 dark:text-violet-400`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
+                                                    }}
+                                                >
                                                     + Borrow
                                                 </Button>
                                                 {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
@@ -733,11 +763,27 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                 <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Supplies</h4>
                                             </div>
                                             <div className="flex items-center gap-2">
-                                                <Button size="sm" variant="outline" className="h-7 rounded-lg text-xs border-emerald-500/30 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className={`${positionActionButtonBase} ${positionActionButtonDesktop} text-emerald-600 dark:text-emerald-400`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
+                                                    }}
+                                                >
                                                     + Supply
                                                 </Button>
-                                                <Button size="sm" variant="outline" className="h-7 rounded-lg text-xs border-slate-300 dark:border-slate-600 text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies); }}>
-                                                    Withdraw
+                                                <Button
+                                                    size="sm"
+                                                    variant="outline"
+                                                    className={`${positionActionButtonBase} ${positionActionButtonDesktop} text-blue-600 dark:text-blue-400`}
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies);
+                                                    }}
+                                                >
+                                                    - Withdraw
                                                 </Button>
                                             </div>
                                         </div>
@@ -754,7 +800,15 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                     </div>
                                                 )}
                                             </div>
-                                            <Button size="sm" variant="outline" className="h-7 rounded-lg text-xs border-blue-500/30 text-blue-600 dark:text-blue-400 hover:bg-blue-500/10 cursor-pointer" onClick={(e) => { e.stopPropagation(); handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary); }}>
+                                            <Button
+                                                size="sm"
+                                                variant="outline"
+                                                className={`${positionActionButtonBase} ${positionActionButtonDesktop} text-violet-600 dark:text-violet-400`}
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
+                                                }}
+                                            >
                                                 + Borrow
                                             </Button>
                                         </div>
@@ -796,7 +850,14 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                                 onClick={(e) => e.stopPropagation()}
                                                                             />
                                                                         </div>
-                                                                        <Button size="sm" onClick={(e) => { e.stopPropagation(); handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true); }} className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer">
+                                                                        <Button
+                                                                            size="sm"
+                                                                            onClick={(e) => {
+                                                                                e.stopPropagation();
+                                                                                handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true);
+                                                                            }}
+                                                                            className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer"
+                                                                        >
                                                                             <ArrowLeftRight className="w-3 h-3" /> Swap
                                                                         </Button>
                                                                     </div>
@@ -860,13 +921,6 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                                     </div>
                                                                                 </InfoTooltip>
                                                                             )}
-                                                                            <Button
-                                                                                size="sm"
-                                                                                onClick={(e) => { e.stopPropagation(); handleOpenRepay(chain.marketKey, chain.chainId, borrow, chain.summary, chain.supplies, chain.marketAssets); }}
-                                                                                className="bg-slate-200 dark:bg-slate-700 hover:bg-slate-350 dark:hover:bg-slate-650 text-slate-800 dark:text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer"
-                                                                            >
-                                                                                Repay
-                                                                            </Button>
                                                                         </div>
                                                                     </div>
                                                                 </div>
@@ -1023,21 +1077,6 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                         marketAssets={borrowModal.marketAssets}
                         walletAddress={walletAddress}
                         summary={borrowModal.summary}
-                        onSuccess={() => refresh(true)}
-                    />
-                )}
-
-                {repayModal.open && (
-                    <RepayModal
-                        isOpen={repayModal.open}
-                        onClose={() => setRepayModal(prev => ({ ...prev, open: false }))}
-                        initialAsset={repayModal.asset}
-                        marketKey={repayModal.marketKey}
-                        chainId={repayModal.chainId}
-                        marketAssets={repayModal.marketAssets}
-                        walletAddress={walletAddress}
-                        summary={repayModal.summary}
-                        supplies={repayModal.supplies}
                         onSuccess={() => refresh(true)}
                     />
                 )}

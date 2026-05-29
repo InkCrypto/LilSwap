@@ -1,8 +1,8 @@
 import { ChevronDown, X, ArrowUpDown, RefreshCw } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
+import { formatCompactNumber } from '../utils/formatters';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
-import { formatCompactNumber } from '../utils/formatters';
 
 interface CompactAmountInputProps {
     token: {
@@ -19,6 +19,7 @@ interface CompactAmountInputProps {
     decimals: number;
     disabled?: boolean;
     formattedBalance?: string;
+    balanceLabel?: string;
     onTokenSelect: () => void;
     isUSDMode?: boolean;
     onToggleUSDMode?: () => void;
@@ -45,9 +46,9 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
     onApplyMax,
     onApplyPct,
     maxAmount,
-    decimals,
     disabled = false,
     formattedBalance,
+    balanceLabel = 'Balance',
     onTokenSelect,
     isUSDMode = false,
     onToggleUSDMode,
@@ -207,7 +208,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                 {/* Balance + optional % popover + MAX — hidden for read-only inputs */}
                 {!readOnly && (
                     <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <span className="text-slate-500 font-medium whitespace-nowrap">Balance {formattedBalance ? formatCompactNumber(formattedBalance) : '0'}</span>
+                        <span className="text-slate-500 font-medium whitespace-nowrap">{balanceLabel} {formattedBalance ? formatCompactNumber(formattedBalance) : '0'}</span>
 
                         {/* % button + custom popover */}
                         {showQuickActions && (

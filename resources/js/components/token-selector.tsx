@@ -19,8 +19,9 @@ import {
 import { Input } from './ui/input';
 
 const TOKEN_ROW_HEIGHT = 68;
+const RICH_TOKEN_ROW_HEIGHT = 84;
 const TOKEN_ROW_OVERSCAN = 8;
-const TOKEN_LIST_BOTTOM_PADDING = 16;
+const TOKEN_LIST_BOTTOM_PADDING = 0;
 const LOCAL_ICON_SYMBOLS = new Set([
     'ETH',
     'WETH',
@@ -281,13 +282,27 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
         return () => cancelAnimationFrame(frame);
     }, [search, isOpen, updateViewportHeight]);
 
+    const tokenRowHeight = useMemo(() => {
+        if (!renderStatus) {
+            return TOKEN_ROW_HEIGHT;
+        }
+
+        const hasRichRows = filteredTokens.some((token) => {
+            const status = renderStatus(token);
+
+            return !!status.contractAddress;
+        });
+
+        return hasRichRows ? RICH_TOKEN_ROW_HEIGHT : TOKEN_ROW_HEIGHT;
+    }, [filteredTokens, renderStatus]);
+
     const virtualStart = Math.max(
         0,
-        Math.floor(scrollTop / TOKEN_ROW_HEIGHT) - TOKEN_ROW_OVERSCAN,
+        Math.floor(scrollTop / tokenRowHeight) - TOKEN_ROW_OVERSCAN,
     );
     const virtualEnd = Math.min(
         filteredTokens.length,
-        Math.ceil((scrollTop + viewportHeight) / TOKEN_ROW_HEIGHT) +
+        Math.ceil((scrollTop + viewportHeight) / tokenRowHeight) +
             TOKEN_ROW_OVERSCAN,
     );
     const visibleTokens = filteredTokens.slice(virtualStart, virtualEnd);
@@ -359,14 +374,14 @@ export const TokenSelector: React.FC<TokenSelectorProps> = ({
                             className="relative"
                             style={{
                                 height:
-                                    filteredTokens.length * TOKEN_ROW_HEIGHT +
+                                    filteredTokens.length * tokenRowHeight +
                                     TOKEN_LIST_BOTTOM_PADDING,
                             }}
                         >
                             <div
                                 className="absolute inset-x-0 top-0 space-y-1"
                                 style={{
-                                    transform: `translateY(${virtualStart * TOKEN_ROW_HEIGHT}px)`,
+                                    transform: `translateY(${virtualStart * tokenRowHeight}px)`,
                                 }}
                             >
                                 {visibleTokens.map((token) => {
