@@ -2,24 +2,32 @@ import {
     AlertTriangle,
     CheckCircle2,
     ChevronDown,
+    ChevronUp,
     RefreshCw,
-    Wallet,
-    Info,
 } from 'lucide-react';
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { getAddress, parseAbi, formatUnits, parseUnits } from 'viem';
-import { usePublicClient, useWalletClient } from 'wagmi';
-import { useWeb3 } from '../contexts/web3-context';
-import { useTransactionTracker } from '../contexts/transaction-tracker-context';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { formatUnits, getAddress, parseAbi, parseUnits } from 'viem';
 import { ABIS } from '../constants/abis';
-import { MARKETS, getMarketByKey } from '../constants/networks';
+import { getMarketByKey } from '../constants/networks';
+import { useTransactionTracker } from '../contexts/transaction-tracker-context';
+import { useWeb3 } from '../contexts/web3-context';
+import {
+    clearWalletMarketBalanceCache,
+    useWalletMarketBalances,
+} from '../hooks/use-wallet-market-balances';
+import {
+    formatUSD,
+    formatHF,
+    formatCompactNumber,
+    formatAPY,
+} from '../utils/formatters';
+import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
+import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
+import { CompactAmountInput } from './compact-amount-input';
+import { InfoTooltip } from './info-tooltip';
 import { Modal } from './modal';
 import { TokenSelector } from './token-selector';
 import { Button } from './ui/button';
-import { Input } from './ui/input';
-import { InfoTooltip } from './info-tooltip';
-import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
-import { formatUSD, formatHF, formatCompactNumber, formatAPY } from '../utils/formatters';
 
 interface SupplyModalProps {
     isOpen: boolean;
@@ -32,6 +40,82 @@ interface SupplyModalProps {
     onSuccess?: () => void;
 }
 
+const MAX_UINT256 = 2n ** 256n - 1n;
+const GAS_TOKEN_RESERVE_MULTIPLIER = 2n;
+const FALLBACK_NATIVE_SUPPLY_GAS = 150_000n;
+
+const parseFiniteNumber = (value: any, fallback = 0) => {
+    const parsed =
+        typeof value === 'string' ? parseFloat(value) : Number(value);
+
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const getHealthFactorColor = (hf: number) => {
+    if (!Number.isFinite(hf) || hf > 100) {
+        return 'text-emerald-500';
+    }
+
+    if (hf >= 3) {
+        return 'text-emerald-500';
+    }
+
+    if (hf >= 1.1) {
+        return 'text-amber-500';
+    }
+
+    return 'text-red-500';
+};
+
+const formatPlainAmount = (value: number, maxFractionDigits = 8) => {
+    if (!Number.isFinite(value) || value <= 0) {
+        return '';
+    }
+
+    return value
+        .toLocaleString('en-US', {
+            useGrouping: false,
+            maximumFractionDigits: maxFractionDigits,
+        })
+        .replace(/(\.\d*?)0+$/, '$1')
+        .replace(/\.$/, '');
+};
+
+const getTokenAddress = (token: any): string | null => {
+    const raw = token?.isNativeSupplyAsset
+        ? token?.wrappedUnderlyingAsset
+        : token?.underlyingAsset || token?.address;
+
+    if (!raw || typeof raw !== 'string' || !raw.startsWith('0x')) {
+        return null;
+    }
+
+    try {
+        return getAddress(raw);
+    } catch {
+        return null;
+    }
+};
+
+const getExplorerTokenUrl = (
+    explorer: string | undefined,
+    address: string | null,
+) => {
+    if (!explorer || !address) {
+        return undefined;
+    }
+
+    return `${explorer.replace(/\/$/, '')}/token/${address}`;
+};
+
+const formatContractAddress = (address: string | null) => {
+    if (!address) {
+        return undefined;
+    }
+
+    return `${address.slice(0, 6)}...${address.slice(-4)}`;
+};
+
 export const SupplyModal: React.FC<SupplyModalProps> = ({
     isOpen,
     onClose,
@@ -42,267 +126,658 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
     summary,
     onSuccess,
 }) => {
-    const { publicClient, walletClient, selectedNetwork, setSelectedNetwork } = useWeb3();
+    const { publicClient, walletClient, selectedNetwork, setSelectedNetwork } =
+        useWeb3();
     const { addTransaction } = useTransactionTracker();
 
-    // Local State
     const [selectedToken, setSelectedToken] = useState<any>(null);
-    const [isNativeSelected, setIsNativeSelected] = useState(true);
     const [tokenSelectorOpen, setTokenSelectorOpen] = useState(false);
     const [inputValue, setInputValue] = useState('');
     const [supplyAmount, setSupplyAmount] = useState<bigint>(0n);
-    const [balance, setBalance] = useState<bigint>(0n);
     const [allowance, setAllowance] = useState<bigint>(0n);
+    const [isUSDMode, setIsUSDMode] = useState(false);
+    const [showTransactionOverview, setShowTransactionOverview] =
+        useState(false);
+    const [estimatedGasCostUSD, setEstimatedGasCostUSD] = useState<
+        number | null
+    >(null);
+    const [nativeGasReserve, setNativeGasReserve] = useState<bigint>(0n);
     const [isLoading, setIsLoading] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
 
-    const market = useMemo(() => marketKey ? getMarketByKey(marketKey) : selectedNetwork, [marketKey, selectedNetwork]);
+    const market = useMemo(
+        () => (marketKey ? getMarketByKey(marketKey) : selectedNetwork),
+        [marketKey, selectedNetwork],
+    );
     const poolAddress = market?.addresses.POOL;
     const gatewayAddress = market?.addresses.WETH_GATEWAY;
-
     const nativeInfo = useMemo(() => getNativeInfo(chainId), [chainId]);
 
-    // Filter active assets for supplying
-    const supplyableTokens = useMemo(() => {
-        return (marketAssets || []).filter(t => t.isActive && !t.isFrozen && !t.isPaused);
-    }, [marketAssets]);
+    const {
+        tokens: walletBalanceTokens,
+        isLoading: isLoadingWalletBalances,
+        refresh: refreshWalletBalances,
+    } = useWalletMarketBalances({
+        enabled: isOpen,
+        walletAddress,
+        chainId,
+        marketKey,
+        marketAssets,
+        publicClient,
+        nativeInfo,
+        gatewayAddress,
+    });
 
-    // Check if the selected token can be deposited as native gas token
-    const hasNativeOption = useMemo(() => {
-        if (!selectedToken) return false;
-        return selectedToken.symbol.toUpperCase() === nativeInfo.wrapped.toUpperCase() && !!gatewayAddress;
-    }, [selectedToken, nativeInfo, gatewayAddress]);
+    const selectedBalanceEntry = useMemo(() => {
+        if (!selectedToken) {
+            return null;
+        }
 
-    // Handle token selection
-    const handleSelectToken = (token: any) => {
-        setSelectedToken(token);
+        const key = selectedToken.isNativeSupplyAsset
+            ? `native:${chainId}`
+            : getTokenAddress(selectedToken)?.toLowerCase();
+
+        return (
+            walletBalanceTokens.find(
+                (entry) => entry.balanceKey.toLowerCase() === key,
+            ) || null
+        );
+    }, [chainId, selectedToken, walletBalanceTokens]);
+
+    const balance = selectedBalanceEntry?.balance || 0n;
+    const displaySymbol = selectedToken?.symbol || 'Asset';
+    const selectedPrice = parseFiniteNumber(selectedToken?.priceInUSD);
+    const isNativeSupply = !!selectedToken?.isNativeSupplyAsset;
+    const maxSupplyAmount = useMemo(() => {
+        if (!isNativeSupply) {
+            return balance;
+        }
+
+        if (nativeGasReserve >= balance) {
+            return 0n;
+        }
+
+        return balance - nativeGasReserve;
+    }, [balance, isNativeSupply, nativeGasReserve]);
+
+    const selectorTokens = useMemo(
+        () => walletBalanceTokens.map((entry) => entry.token),
+        [walletBalanceTokens],
+    );
+
+    const resetAmount = useCallback(() => {
         setInputValue('');
         setSupplyAmount(0n);
-        setErrorText(null);
-        // Default to native if available
-        if (token.symbol.toUpperCase() === nativeInfo.wrapped.toUpperCase() && !!gatewayAddress) {
-            setIsNativeSelected(true);
-        } else {
-            setIsNativeSelected(false);
-        }
-    };
+        setEstimatedGasCostUSD(null);
+        setShowTransactionOverview(false);
+    }, []);
 
-    // Auto-select first token on open if none selected
-    useEffect(() => {
-        if (isOpen && !selectedToken && supplyableTokens.length > 0) {
-            const first = supplyableTokens.find(t => t.symbol.toUpperCase() === nativeInfo.wrapped.toUpperCase()) || supplyableTokens[0];
-            handleSelectToken(first);
-        }
-    }, [isOpen, supplyableTokens, nativeInfo]);
-
-    // Fetch user wallet balance and allowance
-    const fetchBalanceAndAllowance = useCallback(async () => {
-        if (!walletAddress || !publicClient || !selectedToken) return;
-
-        try {
-            let userBalance = 0n;
-            if (hasNativeOption && isNativeSelected) {
-                userBalance = await publicClient.getBalance({ address: walletAddress as `0x${string}` });
-            } else {
-                userBalance = await publicClient.readContract({
-                    address: getAddress(selectedToken.underlyingAsset || selectedToken.address),
-                    abi: parseAbi(ABIS.ERC20),
-                    functionName: 'balanceOf',
-                    args: [getAddress(walletAddress)],
-                }) as bigint;
-            }
-            setBalance(userBalance);
-
-            if (hasNativeOption && isNativeSelected) {
-                setAllowance(2n ** 256n - 1n); // Native doesn't need allowance
-            } else if (poolAddress) {
-                const userAllowance = await publicClient.readContract({
-                    address: getAddress(selectedToken.underlyingAsset || selectedToken.address),
-                    abi: parseAbi(ABIS.ERC20),
-                    functionName: 'allowance',
-                    args: [getAddress(walletAddress), getAddress(poolAddress)],
-                }) as bigint;
-                setAllowance(userAllowance);
-            }
-        } catch (err) {
-            console.error('Error fetching balance/allowance:', err);
-        }
-    }, [walletAddress, publicClient, selectedToken, isNativeSelected, hasNativeOption, poolAddress]);
+    const handleSelectToken = useCallback(
+        (token: any) => {
+            setSelectedToken(token);
+            setAllowance(0n);
+            setErrorText(null);
+            resetAmount();
+        },
+        [resetAmount],
+    );
 
     useEffect(() => {
-        if (isOpen && selectedToken) {
-            void fetchBalanceAndAllowance();
-            const interval = setInterval(fetchBalanceAndAllowance, 15000);
-            return () => clearInterval(interval);
-        }
-    }, [isOpen, selectedToken, isNativeSelected, fetchBalanceAndAllowance]);
-
-    // Update supplyAmount when input value changes
-    const handleAmountChange = (val: string) => {
-        const cleaned = val.replace(/[^0-9.]/g, '');
-        setInputValue(cleaned);
-
-        if (!cleaned || isNaN(parseFloat(cleaned))) {
-            setSupplyAmount(0n);
+        if (!isOpen) {
             return;
         }
 
-        try {
-            const decimals = selectedToken?.decimals || 18;
-            const parsed = parseUnits(cleaned, decimals);
-            if (parsed > balance) {
-                setSupplyAmount(balance);
-                setInputValue(formatUnits(balance, decimals));
-            } else {
-                setSupplyAmount(parsed);
-            }
-        } catch {
-            // Ignore parse errors
+        if (walletBalanceTokens.length === 0) {
+            setSelectedToken(null);
+            resetAmount();
+
+            return;
         }
-    };
 
-    const handlePercentClick = (percent: number) => {
-        if (balance === 0n) return;
-        const amt = (balance * BigInt(percent)) / 100n;
-        const decimals = selectedToken?.decimals || 18;
-        setSupplyAmount(amt);
-        setInputValue(formatUnits(amt, decimals));
-    };
+        const selectedStillAvailable =
+            selectedToken &&
+            walletBalanceTokens.some((entry) => {
+                if (selectedToken.isNativeSupplyAsset) {
+                    return entry.isNative;
+                }
 
-    // HF Simulation
+                return (
+                    getTokenAddress(entry.token)?.toLowerCase() ===
+                    getTokenAddress(selectedToken)?.toLowerCase()
+                );
+            });
+
+        if (!selectedStillAvailable) {
+            const nativeToken = walletBalanceTokens.find(
+                (entry) => entry.isNative,
+            );
+
+            handleSelectToken((nativeToken || walletBalanceTokens[0]).token);
+        }
+    }, [
+        handleSelectToken,
+        isOpen,
+        resetAmount,
+        selectedToken,
+        walletBalanceTokens,
+    ]);
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const fetchAllowance = async () => {
+            if (
+                !isOpen ||
+                !publicClient ||
+                !walletAddress ||
+                !selectedToken ||
+                !poolAddress ||
+                isNativeSupply
+            ) {
+                setAllowance(MAX_UINT256);
+
+                return;
+            }
+
+            const tokenAddress = getTokenAddress(selectedToken);
+
+            if (!tokenAddress) {
+                return;
+            }
+
+            try {
+                const userAllowance = (await publicClient.readContract({
+                    address: getAddress(tokenAddress),
+                    abi: parseAbi(ABIS.ERC20),
+                    functionName: 'allowance',
+                    args: [getAddress(walletAddress), getAddress(poolAddress)],
+                })) as bigint;
+
+                if (!cancelled) {
+                    setAllowance(userAllowance);
+                }
+            } catch {
+                if (!cancelled) {
+                    setAllowance(0n);
+                }
+            }
+        };
+
+        void fetchAllowance();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        isNativeSupply,
+        isOpen,
+        poolAddress,
+        publicClient,
+        selectedToken,
+        walletAddress,
+    ]);
+
+    const amountAsToken = useMemo(() => {
+        if (!selectedToken || supplyAmount === 0n) {
+            return 0;
+        }
+
+        return parseFiniteNumber(
+            formatUnits(supplyAmount, selectedToken.decimals || 18),
+        );
+    }, [selectedToken, supplyAmount]);
+
+    const secondaryValue = useMemo(() => {
+        if (!selectedToken) {
+            return '';
+        }
+
+        if (isUSDMode) {
+            if (supplyAmount === 0n) {
+                return `${formatCompactNumber(0)} ${displaySymbol}`;
+            }
+
+            return `${formatCompactNumber(formatUnits(supplyAmount, selectedToken.decimals || 18))} ${displaySymbol}`;
+        }
+
+        return formatUSD(amountAsToken * selectedPrice);
+    }, [
+        amountAsToken,
+        displaySymbol,
+        isUSDMode,
+        selectedPrice,
+        selectedToken,
+        supplyAmount,
+    ]);
+
+    const handleAmountChange = useCallback(
+        (value: string) => {
+            const cleaned = normalizeDecimalInput(value);
+            setInputValue(cleaned);
+            setErrorText(null);
+
+            if (
+                !selectedToken ||
+                !cleaned ||
+                cleaned === '.' ||
+                parseFiniteNumber(cleaned) <= 0
+            ) {
+                setSupplyAmount(0n);
+
+                return;
+            }
+
+            try {
+                const decimals = selectedToken.decimals || 18;
+                let tokenAmountHuman = cleaned;
+
+                if (isUSDMode) {
+                    if (selectedPrice <= 0) {
+                        setSupplyAmount(0n);
+
+                        return;
+                    }
+
+                    tokenAmountHuman = formatPlainAmount(
+                        parseFiniteNumber(cleaned) / selectedPrice,
+                        decimals,
+                    );
+                }
+
+                const parsed = parseUnits(tokenAmountHuman || '0', decimals);
+
+                if (parsed > maxSupplyAmount) {
+                    setSupplyAmount(maxSupplyAmount);
+                    const maxTokenAmount = parseFiniteNumber(
+                        formatUnits(maxSupplyAmount, decimals),
+                    );
+
+                    setInputValue(
+                        isUSDMode
+                            ? formatPlainAmount(
+                                  maxTokenAmount * selectedPrice,
+                                  2,
+                              )
+                            : formatUnits(maxSupplyAmount, decimals),
+                    );
+
+                    return;
+                }
+
+                setSupplyAmount(parsed);
+            } catch {
+                setSupplyAmount(0n);
+            }
+        },
+        [isUSDMode, maxSupplyAmount, selectedPrice, selectedToken],
+    );
+
+    const handlePercentClick = useCallback(
+        (percent: number) => {
+            if (!selectedToken || maxSupplyAmount === 0n) {
+                return;
+            }
+
+            const amount = (maxSupplyAmount * BigInt(percent)) / 100n;
+            const decimals = selectedToken.decimals || 18;
+            const tokenAmount = parseFiniteNumber(
+                formatUnits(amount, decimals),
+            );
+
+            setSupplyAmount(amount);
+            setInputValue(
+                isUSDMode
+                    ? formatPlainAmount(tokenAmount * selectedPrice, 2)
+                    : formatUnits(amount, decimals),
+            );
+        },
+        [isUSDMode, maxSupplyAmount, selectedPrice, selectedToken],
+    );
+
+    const handleApplyMax = useCallback(
+        () => handlePercentClick(100),
+        [handlePercentClick],
+    );
+
+    useEffect(() => {
+        if (
+            !selectedToken ||
+            !isNativeSupply ||
+            supplyAmount === 0n ||
+            supplyAmount <= maxSupplyAmount
+        ) {
+            return;
+        }
+
+        const decimals = selectedToken.decimals || 18;
+        const nextAmount = maxSupplyAmount;
+        const nextTokenAmount = parseFiniteNumber(
+            formatUnits(nextAmount, decimals),
+        );
+
+        setSupplyAmount(nextAmount);
+        setInputValue(
+            isUSDMode
+                ? formatPlainAmount(nextTokenAmount * selectedPrice, 2)
+                : formatUnits(nextAmount, decimals),
+        );
+    }, [
+        isNativeSupply,
+        isUSDMode,
+        maxSupplyAmount,
+        selectedPrice,
+        selectedToken,
+        supplyAmount,
+    ]);
+
+    const handleToggleUSDMode = useCallback(() => {
+        if (!selectedToken) {
+            setIsUSDMode((value) => !value);
+
+            return;
+        }
+
+        const nextIsUSDMode = !isUSDMode;
+        setIsUSDMode(nextIsUSDMode);
+
+        if (supplyAmount === 0n) {
+            setInputValue('');
+
+            return;
+        }
+
+        const decimals = selectedToken.decimals || 18;
+        const tokenAmount = parseFiniteNumber(
+            formatUnits(supplyAmount, decimals),
+        );
+
+        setInputValue(
+            nextIsUSDMode
+                ? formatPlainAmount(tokenAmount * selectedPrice, 2)
+                : formatUnits(supplyAmount, decimals),
+        );
+    }, [isUSDMode, selectedPrice, selectedToken, supplyAmount]);
+
     const simulation = useMemo(() => {
-        if (!summary || !selectedToken || supplyAmount === 0n) return null;
+        if (!summary || !selectedToken || supplyAmount === 0n) {
+            return null;
+        }
 
-        const currentHF = parseFloat(summary.healthFactor || '0');
-        const totalCollateral = parseFloat(summary.totalCollateralUSD || '0');
-        const totalDebt = parseFloat(summary.totalBorrowsUSD || '0');
+        const currentHF = parseFiniteNumber(summary.healthFactor, Infinity);
+        const totalCollateral = parseFiniteNumber(summary.totalCollateralUSD);
+        const totalDebt = parseFiniteNumber(summary.totalBorrowsUSD);
+        let avgLT = parseFiniteNumber(summary.currentLiquidationThreshold);
 
-        let avgLT = parseFloat(summary.currentLiquidationThreshold || '0');
-        if (avgLT > 1) avgLT = avgLT / 10000;
+        if (avgLT > 1) {
+            avgLT = avgLT / 10000;
+        }
 
-        const addedAmount = parseFloat(formatUnits(supplyAmount, selectedToken.decimals || 18));
-        const price = parseFloat(selectedToken.priceInUSD || '0');
-        const addedUSD = addedAmount * price;
+        const addedUSD = amountAsToken * selectedPrice;
+        let assetLT = parseFiniteNumber(
+            selectedToken.reserveLiquidationThreshold ||
+                selectedToken.baseLTVasCollateral,
+        );
 
-        let assetLT = parseFloat(selectedToken.reserveLiquidationThreshold || selectedToken.baseLTVasCollateral || '0');
-        if (assetLT > 1) assetLT = assetLT / 10000;
+        if (assetLT > 1) {
+            assetLT = assetLT / 10000;
+        }
 
-        // In Aave, supply is enabled as collateral by default if not LTV = 0
         const isCollateral = assetLT > 0;
-        if (!isCollateral) return null;
-
-        const currentNumerator = totalDebt > 0 ? currentHF * totalDebt : totalCollateral * avgLT;
-        const assetContribution = addedUSD * assetLT;
-        const simulatedNumerator = currentNumerator + assetContribution;
-        const simulatedHF = totalDebt > 0 ? simulatedNumerator / totalDebt : Infinity;
+        const currentCollateralPower =
+            totalDebt > 0 && Number.isFinite(currentHF)
+                ? currentHF * totalDebt
+                : totalCollateral * avgLT;
+        const simulatedCollateralPower =
+            currentCollateralPower + (isCollateral ? addedUSD * assetLT : 0);
+        const simulatedTotalCollateral = totalCollateral + addedUSD;
+        const simulatedHF =
+            totalDebt > 0 ? simulatedCollateralPower / totalDebt : Infinity;
+        const simulatedLiquidationThreshold =
+            simulatedTotalCollateral > 0
+                ? simulatedCollateralPower / simulatedTotalCollateral
+                : avgLT;
 
         return {
-            currentHF: currentHF.toString(),
-            simulatedHF: simulatedHF === Infinity ? 'Infinity' : simulatedHF.toString(),
-            isSafe: simulatedHF > 1.5 || simulatedHF === Infinity,
+            currentHF,
+            simulatedHF,
+            currentCollateralPower,
+            simulatedCollateralPower,
+            currentLiquidationThreshold: avgLT,
+            simulatedLiquidationThreshold,
+            isCollateral,
         };
-    }, [summary, selectedToken, supplyAmount]);
-
-    // Contract Writes
-    const handleApprove = async () => {
-        if (!walletClient || !selectedToken || !poolAddress) return;
-        setIsLoading(true);
-        setErrorText(null);
-
-        try {
-            const currentChainId = await walletClient.getChainId();
-            if (currentChainId !== chainId) {
-                await walletClient.switchChain({ id: chainId });
-            }
-
-            const txHash = await walletClient.writeContract({
-                account: getAddress(walletAddress),
-                address: getAddress(selectedToken.underlyingAsset || selectedToken.address),
-                abi: parseAbi(ABIS.ERC20),
-                functionName: 'approve',
-                args: [getAddress(poolAddress), 2n ** 256n - 1n],
-            });
-
-            addTransaction({
-                hash: txHash,
-                chainId,
-                description: `Approve ${selectedToken.symbol} for Aave Pool`,
-                marketKey: marketKey || selectedNetwork.key,
-            });
-
-            if (publicClient) {
-                await publicClient.waitForTransactionReceipt({ hash: txHash });
-            }
-            await fetchBalanceAndAllowance();
-        } catch (err: any) {
-            setErrorText(err.shortMessage || err.message || 'Approval failed');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleConfirm = async () => {
-        if (!walletClient || !selectedToken || !poolAddress || supplyAmount === 0n) return;
-        setIsLoading(true);
-        setErrorText(null);
-
-        try {
-            const currentChainId = await walletClient.getChainId();
-            if (currentChainId !== chainId) {
-                await walletClient.switchChain({ id: chainId });
-            }
-
-            let txHash: `0x${string}`;
-            const displaySymbol = hasNativeOption && isNativeSelected ? nativeInfo.native : selectedToken.symbol;
-
-            if (hasNativeOption && isNativeSelected) {
-                if (!gatewayAddress) throw new Error('WETH Gateway address missing');
-                txHash = await walletClient.writeContract({
-                    account: getAddress(walletAddress),
-                    address: getAddress(gatewayAddress),
-                    abi: parseAbi(ABIS.WETH_GATEWAY),
-                    functionName: 'depositETH',
-                    args: [getAddress(poolAddress), getAddress(walletAddress), 0],
-                    value: supplyAmount,
-                });
-            } else {
-                txHash = await walletClient.writeContract({
-                    account: getAddress(walletAddress),
-                    address: getAddress(poolAddress),
-                    abi: parseAbi(ABIS.POOL),
-                    functionName: 'supply',
-                    args: [getAddress(selectedToken.underlyingAsset || selectedToken.address), supplyAmount, getAddress(walletAddress), 0],
-                });
-            }
-
-            addTransaction({
-                hash: txHash,
-                chainId,
-                description: `Supply ${formatUnits(supplyAmount, selectedToken.decimals)} ${displaySymbol}`,
-                marketKey: marketKey || selectedNetwork.key,
-            });
-
-            setIsSuccess(true);
-            onSuccess?.();
-            setTimeout(() => {
-                onClose();
-                setIsSuccess(false);
-                setInputValue('');
-                setSupplyAmount(0n);
-            }, 2000);
-        } catch (err: any) {
-            setErrorText(err.shortMessage || err.message || 'Deposit failed');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    }, [amountAsToken, selectedPrice, selectedToken, summary, supplyAmount]);
 
     const isWrongNetwork = selectedNetwork?.chainId !== chainId;
+    const isApproveRequired =
+        !!selectedToken && !isNativeSupply && allowance < supplyAmount;
+    const isAmountInvalid =
+        supplyAmount === 0n || supplyAmount > maxSupplyAmount;
+    const isTransactionOverviewReady = !!selectedToken && supplyAmount > 0n;
+
+    useEffect(() => {
+        let cancelled = false;
+
+        const estimateNetworkCost = async () => {
+            if (
+                !publicClient ||
+                !walletAddress ||
+                !selectedToken ||
+                !poolAddress ||
+                (!isNativeSupply && supplyAmount === 0n)
+            ) {
+                setEstimatedGasCostUSD(null);
+                setNativeGasReserve(0n);
+
+                return;
+            }
+
+            const tokenAddress = getTokenAddress(selectedToken);
+
+            if (!tokenAddress) {
+                setEstimatedGasCostUSD(null);
+
+                return;
+            }
+
+            try {
+                const account = getAddress(walletAddress);
+                let gas = 0n;
+
+                if (isApproveRequired) {
+                    gas += await publicClient.estimateContractGas({
+                        account,
+                        address: getAddress(tokenAddress),
+                        abi: parseAbi(ABIS.ERC20),
+                        functionName: 'approve',
+                        args: [getAddress(poolAddress), MAX_UINT256],
+                    });
+                }
+
+                if (isNativeSupply) {
+                    if (!gatewayAddress) {
+                        throw new Error('WETH Gateway address missing');
+                    }
+
+                    const estimateValue =
+                        supplyAmount > 0n
+                            ? supplyAmount
+                            : balance > 1n
+                              ? 1n
+                              : balance;
+
+                    if (estimateValue === 0n) {
+                        setNativeGasReserve(0n);
+                        setEstimatedGasCostUSD(null);
+
+                        return;
+                    }
+
+                    gas += await publicClient.estimateContractGas({
+                        account,
+                        address: getAddress(gatewayAddress),
+                        abi: parseAbi(ABIS.WETH_GATEWAY),
+                        functionName: 'depositETH',
+                        args: [getAddress(poolAddress), account, 0],
+                        value: estimateValue,
+                    });
+                } else {
+                    gas += await publicClient.estimateContractGas({
+                        account,
+                        address: getAddress(poolAddress),
+                        abi: parseAbi(ABIS.POOL),
+                        functionName: 'supply',
+                        args: [
+                            getAddress(tokenAddress),
+                            supplyAmount,
+                            account,
+                            0,
+                        ],
+                    });
+                }
+
+                const gasPrice = await publicClient.getGasPrice();
+                const nativeGasAmount = Number(gas * gasPrice) / 1e18;
+                const nativePrice = parseFiniteNumber(
+                    marketAssets.find(
+                        (token) =>
+                            String(token.symbol || '').toUpperCase() ===
+                            nativeInfo.wrapped.toUpperCase(),
+                    )?.priceInUSD ??
+                        marketAssets.find(
+                            (token) =>
+                                String(token.symbol || '').toUpperCase() ===
+                                'WETH',
+                        )?.priceInUSD,
+                );
+
+                if (!cancelled) {
+                    setNativeGasReserve(
+                        isNativeSupply
+                            ? gas * gasPrice * GAS_TOKEN_RESERVE_MULTIPLIER
+                            : 0n,
+                    );
+                    setEstimatedGasCostUSD(
+                        supplyAmount > 0n && nativePrice > 0
+                            ? nativeGasAmount * nativePrice
+                            : null,
+                    );
+                }
+            } catch {
+                if (!cancelled) {
+                    if (isNativeSupply && publicClient) {
+                        try {
+                            const fallbackGasPrice =
+                                await publicClient.getGasPrice();
+
+                            if (!cancelled) {
+                                setNativeGasReserve(
+                                    FALLBACK_NATIVE_SUPPLY_GAS *
+                                        fallbackGasPrice *
+                                        GAS_TOKEN_RESERVE_MULTIPLIER,
+                                );
+                            }
+                        } catch {
+                            setNativeGasReserve(0n);
+                        }
+                    } else {
+                        setNativeGasReserve(0n);
+                    }
+
+                    setEstimatedGasCostUSD(null);
+                }
+            }
+        };
+
+        void estimateNetworkCost();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [
+        gatewayAddress,
+        isApproveRequired,
+        isNativeSupply,
+        marketAssets,
+        nativeInfo.wrapped,
+        poolAddress,
+        publicClient,
+        selectedToken,
+        supplyAmount,
+        walletAddress,
+        balance,
+    ]);
+
+    const walletBalanceAfterSupply = useMemo(() => {
+        if (!selectedToken) {
+            return null;
+        }
+
+        const remaining = balance > supplyAmount ? balance - supplyAmount : 0n;
+
+        return formatCompactNumber(
+            formatUnits(remaining, selectedToken.decimals || 18),
+        );
+    }, [balance, selectedToken, supplyAmount]);
+
+    const gasReserveTooltip = useMemo(() => {
+        if (!selectedToken || !isNativeSupply || nativeGasReserve <= 0n) {
+            return 'Your estimated wallet balance after this supply is completed.';
+        }
+
+        const reserve = nativeGasReserve > balance ? balance : nativeGasReserve;
+        const formattedReserve = `${formatCompactNumber(formatUnits(reserve, selectedToken.decimals || 18))} ${displaySymbol}`;
+
+        return `Your estimated wallet balance after this supply. MAX keeps about ${formattedReserve} reserved for network costs.`;
+    }, [
+        balance,
+        displaySymbol,
+        isNativeSupply,
+        nativeGasReserve,
+        selectedToken,
+    ]);
+
+    const renderSelectorStatus = useCallback(
+        (token: any) => {
+            const key = token.isNativeSupplyAsset
+                ? `native:${chainId}`
+                : getTokenAddress(token)?.toLowerCase();
+            const entry = walletBalanceTokens.find(
+                (item) => item.balanceKey.toLowerCase() === key,
+            );
+            const address = token.isNativeSupplyAsset
+                ? null
+                : getTokenAddress(token);
+
+            return {
+                disabled: !entry || entry.balance <= 0n,
+                reasons:
+                    !entry || entry.balance <= 0n ? ['No wallet balance'] : [],
+                amount: entry
+                    ? formatCompactNumber(entry.formatted)
+                    : undefined,
+                amountRaw: entry ? entry.usdValue : 0,
+                amountUSD: entry ? formatUSD(entry.usdValue) : undefined,
+                contractAddress: token.isNativeSupplyAsset
+                    ? undefined
+                    : formatContractAddress(address),
+                contractUrl: token.isNativeSupplyAsset
+                    ? undefined
+                    : getExplorerTokenUrl(market?.explorer, address),
+                hideRate: true,
+            };
+        },
+        [chainId, market?.explorer, walletBalanceTokens],
+    );
 
     const handleSwitchChain = async () => {
-        if (!market) return;
+        if (!market) {
+            return;
+        }
+
         setIsLoading(true);
+
         try {
             await setSelectedNetwork(market.key);
         } finally {
@@ -310,176 +785,538 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
         }
     };
 
-    const isApproveRequired = allowance < supplyAmount;
+    const executeSupply = useCallback(
+        async (token: any, amount: bigint) => {
+            if (!walletClient || !poolAddress || amount === 0n) {
+                return;
+            }
+
+            const tokenAddress = getTokenAddress(token);
+
+            if (!tokenAddress) {
+                throw new Error('Token address missing');
+            }
+
+            let txHash: `0x${string}`;
+            const account = getAddress(walletAddress);
+
+            if (token.isNativeSupplyAsset) {
+                if (!gatewayAddress) {
+                    throw new Error('WETH Gateway address missing');
+                }
+
+                txHash = await walletClient.writeContract({
+                    account,
+                    address: getAddress(gatewayAddress),
+                    abi: parseAbi(ABIS.WETH_GATEWAY),
+                    functionName: 'depositETH',
+                    args: [getAddress(poolAddress), account, 0],
+                    value: amount,
+                });
+            } else {
+                txHash = await walletClient.writeContract({
+                    account,
+                    address: getAddress(poolAddress),
+                    abi: parseAbi(ABIS.POOL),
+                    functionName: 'supply',
+                    args: [getAddress(tokenAddress), amount, account, 0],
+                });
+            }
+
+            addTransaction({
+                hash: txHash,
+                chainId,
+                description: `Supply ${formatUnits(amount, token.decimals || 18)} ${token.symbol}`,
+                marketKey: marketKey || selectedNetwork.key,
+            });
+
+            setIsSuccess(true);
+            clearWalletMarketBalanceCache(walletAddress, chainId, marketKey);
+            onSuccess?.();
+            setTimeout(() => {
+                onClose();
+                setIsSuccess(false);
+                resetAmount();
+            }, 2000);
+        },
+        [
+            addTransaction,
+            chainId,
+            gatewayAddress,
+            marketKey,
+            onClose,
+            onSuccess,
+            poolAddress,
+            resetAmount,
+            selectedNetwork.key,
+            walletAddress,
+            walletClient,
+        ],
+    );
+
+    const handleApproveAndSupply = async () => {
+        if (
+            !walletClient ||
+            !selectedToken ||
+            !poolAddress ||
+            isAmountInvalid
+        ) {
+            return;
+        }
+
+        const lockedToken = selectedToken;
+        const lockedAmount = supplyAmount;
+        const tokenAddress = getTokenAddress(lockedToken);
+
+        if (!tokenAddress) {
+            return;
+        }
+
+        setIsLoading(true);
+        setErrorText(null);
+
+        try {
+            const currentChainId = await walletClient.getChainId();
+
+            if (currentChainId !== chainId) {
+                await walletClient.switchChain({ id: chainId });
+            }
+
+            if (!lockedToken.isNativeSupplyAsset && allowance < lockedAmount) {
+                const approveHash = await walletClient.writeContract({
+                    account: getAddress(walletAddress),
+                    address: getAddress(tokenAddress),
+                    abi: parseAbi(ABIS.ERC20),
+                    functionName: 'approve',
+                    args: [getAddress(poolAddress), MAX_UINT256],
+                });
+
+                addTransaction({
+                    hash: approveHash,
+                    chainId,
+                    description: `Approve ${lockedToken.symbol} for Aave Pool`,
+                    marketKey: marketKey || selectedNetwork.key,
+                });
+
+                if (publicClient) {
+                    await publicClient.waitForTransactionReceipt({
+                        hash: approveHash,
+                    });
+                }
+
+                setAllowance(MAX_UINT256);
+            }
+
+            await executeSupply(lockedToken, lockedAmount);
+        } catch (err: any) {
+            setErrorText(err.shortMessage || err.message || 'Supply failed');
+        } finally {
+            setIsLoading(false);
+        }
+    };
+
+    const actionLabel = useMemo(() => {
+        if (walletBalanceTokens.length === 0) {
+            return 'No supported wallet balance';
+        }
+
+        if (isNativeSupply && maxSupplyAmount === 0n) {
+            return 'Insufficient gas reserve';
+        }
+
+        if (supplyAmount === 0n) {
+            return 'Enter an amount';
+        }
+
+        if (isApproveRequired) {
+            return 'Approve & Supply';
+        }
+
+        return `Supply ${displaySymbol}`;
+    }, [
+        displaySymbol,
+        isApproveRequired,
+        isNativeSupply,
+        maxSupplyAmount,
+        supplyAmount,
+        walletBalanceTokens.length,
+    ]);
 
     return (
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            title="Supply Assets"
-            maxWidth="460px"
+            title={selectedToken ? `Supply ${displaySymbol}` : 'Supply Assets'}
+            maxWidth="520px"
             headerBorder={false}
         >
-            <div className="space-y-4 p-4">
+            <div className="space-y-3 p-4">
                 {isSuccess ? (
-                    <div className="flex flex-col items-center justify-center py-10 text-center animate-in zoom-in-95 duration-200">
+                    <div className="flex animate-in flex-col items-center justify-center py-10 text-center duration-200 zoom-in-95">
                         <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-emerald-500/10">
                             <CheckCircle2 className="h-8 w-8 text-emerald-500" />
                         </div>
-                        <h3 className="text-lg font-bold text-slate-900 dark:text-white">Transaction Broadcasted</h3>
-                        <p className="text-xs text-slate-500 mt-1">Your supply request is processing on-chain.</p>
+                        <h3 className="text-lg font-bold text-slate-900 dark:text-white">
+                            Transaction Broadcasted
+                        </h3>
+                        <p className="mt-1 text-xs text-slate-500">
+                            Your supply request is processing on-chain.
+                        </p>
                     </div>
                 ) : (
                     <>
-                        {/* Token Selection Button */}
-                        <div className="flex items-center justify-between bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-3 rounded-2xl">
-                            <div className="flex items-center gap-3">
-                                <div className="w-10 h-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-700">
-                                    {selectedToken && (
-                                        <img
-                                            src={getTokenLogo(isNativeSelected ? nativeInfo.native : selectedToken.symbol)}
-                                            alt={selectedToken.symbol}
-                                            className="w-full h-full object-cover"
-                                            onError={onTokenImgError(isNativeSelected ? nativeInfo.native : selectedToken.symbol)}
+                        {walletBalanceTokens.length === 0 &&
+                        !isLoadingWalletBalances ? (
+                            <div className="space-y-3">
+                                <div className="rounded-xl border border-slate-200/70 bg-slate-50 p-4 text-sm font-medium text-slate-500 dark:border-slate-800/70 dark:bg-slate-900/30 dark:text-slate-400">
+                                    No supported wallet balance found for this
+                                    market.
+                                </div>
+                                <div className="flex justify-center">
+                                    <button
+                                        type="button"
+                                        onClick={() =>
+                                            void refreshWalletBalances(true)
+                                        }
+                                        disabled={isLoadingWalletBalances}
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-slate-700 disabled:opacity-50 dark:hover:text-slate-300"
+                                    >
+                                        <RefreshCw
+                                            className={`h-3 w-3 ${isLoadingWalletBalances ? 'animate-spin' : ''}`}
                                         />
-                                    )}
-                                </div>
-                                <div>
-                                    <div className="text-sm font-black uppercase tracking-wider text-slate-400">Asset</div>
-                                    <button
-                                        onClick={() => setTokenSelectorOpen(true)}
-                                        className="flex items-center gap-1.5 text-base font-bold text-slate-900 dark:text-white hover:opacity-80 transition-opacity"
-                                    >
-                                        <span>{isNativeSelected ? nativeInfo.native : selectedToken?.symbol}</span>
-                                        <ChevronDown className="w-4 h-4 text-slate-400" />
+                                        Update balances
                                     </button>
                                 </div>
                             </div>
-
-                            {/* Native/Wrapped toggle if WETH/wrapped token selected */}
-                            {hasNativeOption && (
-                                <div className="flex bg-slate-100 dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-800 text-[11px] font-bold">
-                                    <button
-                                        onClick={() => { setIsNativeSelected(true); setInputValue(''); setSupplyAmount(0n); }}
-                                        className={`px-3 py-1.5 rounded-md transition-all ${isNativeSelected ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-400'}`}
-                                    >
-                                        {nativeInfo.native}
-                                    </button>
-                                    <button
-                                        onClick={() => { setIsNativeSelected(false); setInputValue(''); setSupplyAmount(0n); }}
-                                        className={`px-3 py-1.5 rounded-md transition-all ${!isNativeSelected ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs' : 'text-slate-400'}`}
-                                    >
-                                        {nativeInfo.wrapped}
-                                    </button>
-                                </div>
-                            )}
-                        </div>
-
-                        {/* Amount Input */}
-                        <div className="bg-slate-50 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 p-4 rounded-2xl space-y-3">
-                            <div className="flex justify-between items-center text-xs">
-                                <span className="font-bold text-slate-400 uppercase tracking-wider">Amount</span>
-                                <span className="text-slate-500 font-mono">
-                                    Wallet Balance: {formatCompactNumber(formatUnits(balance, selectedToken?.decimals || 18))} {isNativeSelected ? nativeInfo.native : selectedToken?.symbol}
-                                </span>
-                            </div>
-
-                            <div className="relative">
-                                <Input
-                                    type="text"
-                                    placeholder="0.00"
+                        ) : (
+                            <div className="space-y-2">
+                                <CompactAmountInput
+                                    token={selectedToken}
                                     value={inputValue}
-                                    onChange={(e) => handleAmountChange(e.target.value)}
-                                    className="w-full bg-transparent border-0 focus:ring-0 p-0 text-3xl font-mono font-bold text-slate-900 dark:text-white shadow-none"
+                                    isUSDMode={isUSDMode}
+                                    onToggleUSDMode={handleToggleUSDMode}
+                                    onChange={(val) =>
+                                        handleAmountChange(
+                                            normalizeDecimalInput(val),
+                                        )
+                                    }
+                                    onApplyMax={handleApplyMax}
+                                    onApplyPct={handlePercentClick}
+                                    maxAmount={maxSupplyAmount}
+                                    decimals={
+                                        isUSDMode
+                                            ? 2
+                                            : selectedToken?.decimals || 18
+                                    }
+                                    formattedBalance={
+                                        selectedBalanceEntry?.formatted || '0'
+                                    }
+                                    onTokenSelect={() =>
+                                        setTokenSelectorOpen(true)
+                                    }
+                                    secondaryValue={secondaryValue}
+                                    displaySymbol={displaySymbol}
+                                    disabled={isLoading || !selectedToken}
+                                    isError={supplyAmount > maxSupplyAmount}
+                                    isLoading={
+                                        isLoadingWalletBalances &&
+                                        !selectedToken
+                                    }
+                                    loadingLabel="Loading balances..."
                                 />
-                                <div className="absolute right-0 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
-                                    <span className="text-sm font-bold text-slate-400">{isNativeSelected ? nativeInfo.native : selectedToken?.symbol}</span>
-                                </div>
-                            </div>
-
-                            <div className="flex gap-2 pt-2 border-t border-slate-200/50 dark:border-slate-800/50">
-                                {[25, 50, 75, 100].map((pct) => (
+                                <div className="flex justify-center">
                                     <button
-                                        key={pct}
-                                        onClick={() => handlePercentClick(pct)}
-                                        className="flex-1 py-1.5 rounded-lg bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-800 text-xs font-bold transition-all"
+                                        type="button"
+                                        onClick={() =>
+                                            void refreshWalletBalances(true)
+                                        }
+                                        disabled={isLoadingWalletBalances}
+                                        className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-500 transition-colors hover:text-slate-700 disabled:opacity-50 dark:hover:text-slate-300"
                                     >
-                                        {pct === 100 ? 'MAX' : `${pct}%`}
+                                        <RefreshCw
+                                            className={`h-3 w-3 ${isLoadingWalletBalances ? 'animate-spin' : ''}`}
+                                        />
+                                        Update balances
                                     </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        {/* Overview */}
-                        {selectedToken && (
-                            <div className="bg-slate-50 dark:bg-slate-800/20 rounded-2xl p-4 border border-slate-200/50 dark:border-slate-800/50 space-y-3 text-xs">
-                                <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                                    <span>Supply APY</span>
-                                    <span className="font-mono font-bold text-emerald-500">{formatAPY((selectedToken.supplyAPY || 0) * 100)}</span>
                                 </div>
+                            </div>
+                        )}
 
-                                <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                                    <div className="flex items-center gap-1">
-                                        <span>Health Factor</span>
-                                        <InfoTooltip content="Estimated Health Factor change after this deposit. High HF protects against liquidation." />
-                                    </div>
-                                    <div className="flex items-center gap-1.5 font-mono">
-                                        <span>{formatHF(summary?.healthFactor)}</span>
+                        {isTransactionOverviewReady && selectedToken && (
+                            <div className="mt-1 mb-1">
+                                <div className="mb-0.5 px-1 text-sm font-bold text-slate-600 dark:text-slate-400">
+                                    Transaction overview
+                                </div>
+                                <div className="transition-all">
+                                    <button
+                                        onClick={() =>
+                                            setShowTransactionOverview(
+                                                !showTransactionOverview,
+                                            )
+                                        }
+                                        className="flex w-full items-center justify-between px-1 py-1 transition-colors"
+                                    >
+                                        <div className="flex items-center gap-2">
+                                            <span className="text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                                                Costs & Fees
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
+                                            <span className="font-medium">
+                                                {estimatedGasCostUSD != null
+                                                    ? formatUSD(
+                                                          estimatedGasCostUSD,
+                                                      )
+                                                    : '--'}
+                                            </span>
+                                            {showTransactionOverview ? (
+                                                <ChevronUp className="h-4 w-4" />
+                                            ) : (
+                                                <ChevronDown className="h-4 w-4" />
+                                            )}
+                                        </div>
+                                    </button>
+
+                                    {showTransactionOverview && (
+                                        <div className="relative ml-4 space-y-3 border-l border-dashed border-slate-300 pt-2 pr-3 pb-1 pl-4 text-xs dark:border-slate-700/50">
+                                            <div className="group flex items-center justify-between">
+                                                <div className="flex items-center gap-1.5 text-slate-500">
+                                                    <span>Network costs</span>
+                                                    <InfoTooltip
+                                                        content="Estimated network gas cost."
+                                                        size={12}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+                                                    <span>
+                                                        {estimatedGasCostUSD !=
+                                                        null
+                                                            ? formatUSD(
+                                                                  estimatedGasCostUSD,
+                                                              )
+                                                            : '--'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    <div className="space-y-2 px-1 pt-1 pb-1">
+                                        {walletBalanceAfterSupply && (
+                                            <div className="flex items-start justify-between text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>
+                                                        Wallet balance after
+                                                        supply
+                                                    </span>
+                                                    <InfoTooltip
+                                                        content={
+                                                            gasReserveTooltip
+                                                        }
+                                                        size={12}
+                                                    />
+                                                </div>
+                                                <div className="flex items-center justify-end gap-1 text-right font-medium">
+                                                    <span className="h-3.5 w-3.5 overflow-hidden rounded-full">
+                                                        <img
+                                                            src={getTokenLogo(
+                                                                displaySymbol,
+                                                            )}
+                                                            alt={displaySymbol}
+                                                            className="h-full w-full object-cover"
+                                                            onError={onTokenImgError(
+                                                                displaySymbol,
+                                                            )}
+                                                        />
+                                                    </span>
+                                                    <span className="text-slate-900 dark:text-slate-100">
+                                                        {
+                                                            walletBalanceAfterSupply
+                                                        }{' '}
+                                                        {displaySymbol}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        )}
+
+                                        <div className="flex items-start justify-between text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                                            <div className="flex items-center gap-1.5">
+                                                <span>Supply APY</span>
+                                                <InfoTooltip
+                                                    content="Annual yield on deposited assets."
+                                                    size={12}
+                                                />
+                                            </div>
+                                            <div className="text-right font-medium">
+                                                <span className="text-slate-900 dark:text-slate-100">
+                                                    {formatAPY(
+                                                        (selectedToken.supplyAPY ??
+                                                            0) * 100,
+                                                    )}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-start justify-between text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                                            <div className="flex items-center gap-1.5">
+                                                <span>Health factor</span>
+                                                <InfoTooltip
+                                                    content="Safety of your collateral against your debt."
+                                                    size={12}
+                                                />
+                                            </div>
+                                            <div className="text-right font-medium">
+                                                <div className="flex items-center gap-1.5 font-bold">
+                                                    <span>
+                                                        {formatHF(
+                                                            summary?.healthFactor,
+                                                        )}
+                                                    </span>
+                                                    {simulation && (
+                                                        <>
+                                                            <span className="font-normal text-slate-400">
+                                                                -&gt;
+                                                            </span>
+                                                            <InfoTooltip
+                                                                content="Liquidation < 1.0"
+                                                                size={12}
+                                                            >
+                                                                <span
+                                                                    className={`${getHealthFactorColor(simulation.simulatedHF)} font-bold`}
+                                                                >
+                                                                    {formatHF(
+                                                                        simulation.simulatedHF,
+                                                                    )}
+                                                                </span>
+                                                            </InfoTooltip>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+
                                         {simulation && (
                                             <>
-                                                <span>→</span>
-                                                <span className={simulation.isSafe ? 'text-emerald-500 font-bold' : 'text-amber-500 font-bold'}>
-                                                    {formatHF(simulation.simulatedHF)}
-                                                </span>
+                                                <div className="flex items-start justify-between text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span>
+                                                            Collateral power
+                                                        </span>
+                                                        <InfoTooltip
+                                                            content="Total value of collateral considered for collateralization."
+                                                            size={12}
+                                                        />
+                                                    </div>
+                                                    <div className="text-right font-medium">
+                                                        <div className="flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
+                                                            <span>
+                                                                {formatUSD(
+                                                                    simulation.currentCollateralPower,
+                                                                )}
+                                                            </span>
+                                                            <span className="font-normal text-slate-400">
+                                                                -&gt;
+                                                            </span>
+                                                            <span
+                                                                className={
+                                                                    simulation.simulatedCollateralPower >
+                                                                    simulation.currentCollateralPower
+                                                                        ? 'font-bold text-emerald-500'
+                                                                        : 'text-slate-900 dark:text-slate-100'
+                                                                }
+                                                            >
+                                                                {formatUSD(
+                                                                    simulation.simulatedCollateralPower,
+                                                                )}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-start justify-between text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                                                    <div className="flex items-center gap-1.5">
+                                                        <span>
+                                                            Liquidation
+                                                            threshold
+                                                        </span>
+                                                        <InfoTooltip
+                                                            content="The weighted average of your collateral liquidation thresholds."
+                                                            size={12}
+                                                        />
+                                                    </div>
+                                                    <div className="text-right font-medium">
+                                                        <div className="flex items-center gap-1.5 text-slate-900 dark:text-slate-100">
+                                                            <span>
+                                                                {Math.round(
+                                                                    simulation.currentLiquidationThreshold *
+                                                                        100,
+                                                                )}
+                                                                %
+                                                            </span>
+                                                            <span className="font-normal text-slate-400">
+                                                                -&gt;
+                                                            </span>
+                                                            <span
+                                                                className={
+                                                                    simulation.simulatedLiquidationThreshold >
+                                                                    simulation.currentLiquidationThreshold
+                                                                        ? 'font-bold text-emerald-500'
+                                                                        : 'text-slate-900 dark:text-slate-100'
+                                                                }
+                                                            >
+                                                                {Math.round(
+                                                                    simulation.simulatedLiquidationThreshold *
+                                                                        100,
+                                                                )}
+                                                                %
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </>
                                         )}
                                     </div>
-                                </div>
-
-                                <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
-                                    <div className="flex items-center gap-1.5">
-                                        <span>Gas Token Cost</span>
-                                    </div>
-                                    <span className="font-mono text-slate-500">&lt; $0.05</span>
                                 </div>
                             </div>
                         )}
 
                         {errorText && (
-                            <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 dark:border-red-900/30 dark:bg-red-950/20 p-3">
+                            <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900/30 dark:bg-red-950/20">
                                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
-                                <p className="text-xs font-semibold text-red-800 dark:text-red-300">{errorText}</p>
+                                <p className="text-xs font-semibold text-red-800 dark:text-red-300">
+                                    {errorText}
+                                </p>
                             </div>
                         )}
 
-                        {/* Action Button */}
-                        <div className="pt-2">
+                        <div className="pt-3">
                             {isWrongNetwork ? (
                                 <Button
                                     onClick={handleSwitchChain}
                                     disabled={isLoading}
-                                    className="w-full py-6 text-sm font-bold bg-amber-500 hover:bg-amber-600 text-white rounded-2xl"
+                                    className="h-auto w-full rounded-xl bg-amber-500 py-3 font-bold text-white hover:bg-amber-600"
                                 >
-                                    {isLoading ? <RefreshCw className="w-5 h-5 animate-spin mr-2" /> : null}
-                                    Switch Network to {market?.shortLabel || 'Market Chain'}
-                                </Button>
-                            ) : isApproveRequired ? (
-                                <Button
-                                    onClick={handleApprove}
-                                    disabled={isLoading || supplyAmount === 0n}
-                                    className="w-full py-6 text-sm font-bold bg-purple-600 hover:bg-purple-700 text-white rounded-2xl"
-                                >
-                                    {isLoading ? <RefreshCw className="w-5 h-5 animate-spin mr-2" /> : null}
-                                    Approve {selectedToken?.symbol}
+                                    {isLoading ? (
+                                        <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : null}
+                                    Switch Network to{' '}
+                                    {market?.shortLabel || 'Market Chain'}
                                 </Button>
                             ) : (
                                 <Button
-                                    onClick={handleConfirm}
-                                    disabled={isLoading || supplyAmount === 0n}
-                                    className="w-full py-6 text-sm font-bold bg-linear-to-r from-purple-600 to-blue-600 text-white rounded-2xl"
+                                    onClick={handleApproveAndSupply}
+                                    disabled={
+                                        isLoading ||
+                                        isAmountInvalid ||
+                                        walletBalanceTokens.length === 0 ||
+                                        !selectedToken
+                                    }
+                                    className="h-auto w-full rounded-xl bg-linear-to-r from-purple-600 to-blue-600 py-3 font-bold text-white disabled:opacity-60"
                                 >
-                                    {isLoading ? <RefreshCw className="w-5 h-5 animate-spin mr-2" /> : null}
-                                    Supply {isNativeSelected ? nativeInfo.native : selectedToken?.symbol}
+                                    {isLoading ? (
+                                        <RefreshCw className="h-4 w-4 animate-spin" />
+                                    ) : null}
+                                    {actionLabel}
                                 </Button>
                             )}
                         </div>
@@ -487,14 +1324,18 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                 )}
             </div>
 
-            {/* Token Selector Modal */}
             <TokenSelector
                 isOpen={tokenSelectorOpen}
                 onClose={() => setTokenSelectorOpen(false)}
                 onSelect={handleSelectToken}
-                tokens={supplyableTokens}
+                tokens={selectorTokens}
                 title="Select Asset to Supply"
+                description="Choose a supported token with wallet balance"
+                searchPlaceholder="Search token..."
+                isLoading={isLoadingWalletBalances}
+                renderStatus={renderSelectorStatus}
                 rateField="supplyAPY"
+                sortByAmount={true}
             />
         </Modal>
     );
