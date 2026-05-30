@@ -694,7 +694,7 @@ export const getLimitOrders = async (params: {
     }
 
     try {
-        const response = await apiClient.get('/limit-orders', { params });
+        const response = await apiClient.post('/limit-orders', params);
 
         return response.data as LimitOrdersResponse;
     } catch (error) {
