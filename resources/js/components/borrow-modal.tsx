@@ -1258,7 +1258,7 @@ const getNativeInfo = (chainId: number) => {
         case 56:
             return { native: 'BNB', wrapped: 'WBNB' };
         case 137:
-            return { native: 'POL', wrapped: 'WMATIC' };
+            return { native: 'POL', wrapped: 'WPOL' };
         case 43114:
             return { native: 'AVAX', wrapped: 'WAVAX' };
         case 100:

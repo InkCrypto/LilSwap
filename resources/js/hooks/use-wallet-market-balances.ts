@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatUnits, getAddress, parseAbi } from 'viem';
 import type { PublicClient } from 'viem';
 import { ABIS } from '../constants/abis';
@@ -108,14 +108,37 @@ export const useWalletMarketBalances = ({
     const [lastUpdated, setLastUpdated] = useState<number | null>(() => {
         return cacheKey ? balanceCache.get(cacheKey)?.timestamp || null : null;
     });
+    const [hasLoaded, setHasLoaded] = useState(() => {
+        return cacheKey ? balanceCache.has(cacheKey) : false;
+    });
+    const latestCacheKeyRef = useRef(cacheKey);
+
+    useEffect(() => {
+        latestCacheKeyRef.current = cacheKey;
+
+        const cached = cacheKey ? balanceCache.get(cacheKey) : null;
+
+        setTokens(cached?.tokens || []);
+        setLastUpdated(cached?.timestamp || null);
+        setHasLoaded(Boolean(cached));
+        setIsLoading(enabled && Boolean(cacheKey) && !cached);
+    }, [cacheKey, enabled]);
 
     const refresh = useCallback(
         async (force = false) => {
             if (!enabled || !cacheKey || !walletAddress || !publicClient) {
                 setTokens([]);
                 setLastUpdated(null);
+                setHasLoaded(false);
+                setIsLoading(false);
 
                 return [];
+            }
+
+            const clientChainId = Number(publicClient.chain?.id || 0);
+
+            if (clientChainId && clientChainId !== chainId) {
+                return balanceCache.get(cacheKey)?.tokens || [];
             }
 
             const cached = balanceCache.get(cacheKey);
@@ -124,6 +147,7 @@ export const useWalletMarketBalances = ({
             if (cached && !force && now - cached.timestamp < CACHE_TTL_MS) {
                 setTokens(cached.tokens);
                 setLastUpdated(cached.timestamp);
+                setHasLoaded(true);
 
                 return cached.tokens;
             }
@@ -131,16 +155,21 @@ export const useWalletMarketBalances = ({
             if (cached) {
                 setTokens(cached.tokens);
                 setLastUpdated(cached.timestamp);
+                setHasLoaded(true);
             }
 
             const existingRequest = activeRequests.get(cacheKey);
 
             if (existingRequest && !force) {
                 const result = await existingRequest;
-                setTokens(result);
-                setLastUpdated(
-                    balanceCache.get(cacheKey)?.timestamp || Date.now(),
-                );
+
+                if (latestCacheKeyRef.current === cacheKey) {
+                    setTokens(result);
+                    setLastUpdated(
+                        balanceCache.get(cacheKey)?.timestamp || Date.now(),
+                    );
+                    setHasLoaded(true);
+                }
 
                 return result;
             }
@@ -248,15 +277,22 @@ export const useWalletMarketBalances = ({
 
             try {
                 const result = await request;
-                setTokens(result);
-                setLastUpdated(
-                    balanceCache.get(cacheKey)?.timestamp || Date.now(),
-                );
+
+                if (latestCacheKeyRef.current === cacheKey) {
+                    setTokens(result);
+                    setLastUpdated(
+                        balanceCache.get(cacheKey)?.timestamp || Date.now(),
+                    );
+                    setHasLoaded(true);
+                }
 
                 return result;
             } finally {
                 activeRequests.delete(cacheKey);
-                setIsLoading(false);
+
+                if (latestCacheKeyRef.current === cacheKey) {
+                    setIsLoading(false);
+                }
             }
         },
         [
@@ -283,6 +319,7 @@ export const useWalletMarketBalances = ({
     return {
         tokens,
         isLoading,
+        hasLoaded,
         lastUpdated,
         refresh,
     };

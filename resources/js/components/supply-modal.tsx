@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatUnits, getAddress, parseAbi, parseUnits } from 'viem';
+import { usePublicClient } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { getMarketByKey } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
@@ -128,6 +129,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
 }) => {
     const { publicClient, walletClient, selectedNetwork, setSelectedNetwork } =
         useWeb3();
+    const marketPublicClient = usePublicClient({ chainId });
     const { addTransaction } = useTransactionTracker();
 
     const [selectedToken, setSelectedToken] = useState<any>(null);
@@ -157,6 +159,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
     const {
         tokens: walletBalanceTokens,
         isLoading: isLoadingWalletBalances,
+        hasLoaded: hasLoadedWalletBalances,
         refresh: refreshWalletBalances,
     } = useWalletMarketBalances({
         enabled: isOpen,
@@ -164,7 +167,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
         chainId,
         marketKey,
         marketAssets,
-        publicClient,
+        publicClient: marketPublicClient || publicClient,
         nativeInfo,
         gatewayAddress,
     });
@@ -738,6 +741,10 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
         selectedToken,
     ]);
 
+    const modalTitle = selectedToken
+        ? `Supply ${displaySymbol}`
+        : `Supply assets on ${market?.shortLabel || market?.label || 'Market'}`;
+
     const renderSelectorStatus = useCallback(
         (token: any) => {
             const key = token.isNativeSupplyAsset
@@ -916,6 +923,10 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
     };
 
     const actionLabel = useMemo(() => {
+        if (!hasLoadedWalletBalances || isLoadingWalletBalances) {
+            return 'Loading balances...';
+        }
+
         if (walletBalanceTokens.length === 0) {
             return 'No supported wallet balance';
         }
@@ -935,7 +946,9 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
         return `Supply ${displaySymbol}`;
     }, [
         displaySymbol,
+        hasLoadedWalletBalances,
         isApproveRequired,
+        isLoadingWalletBalances,
         isNativeSupply,
         maxSupplyAmount,
         supplyAmount,
@@ -946,7 +959,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
         <Modal
             isOpen={isOpen}
             onClose={onClose}
-            title={selectedToken ? `Supply ${displaySymbol}` : 'Supply Assets'}
+            title={modalTitle}
             maxWidth="520px"
             headerBorder={false}
         >
@@ -966,6 +979,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                 ) : (
                     <>
                         {walletBalanceTokens.length === 0 &&
+                        hasLoadedWalletBalances &&
                         !isLoadingWalletBalances ? (
                             <div className="space-y-3">
                                 <div className="rounded-xl border border-slate-200/70 bg-slate-50 p-4 text-sm font-medium text-slate-500 dark:border-slate-800/70 dark:bg-slate-900/30 dark:text-slate-400">
@@ -1019,8 +1033,9 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                                     disabled={isLoading || !selectedToken}
                                     isError={supplyAmount > maxSupplyAmount}
                                     isLoading={
-                                        isLoadingWalletBalances &&
-                                        !selectedToken
+                                        !hasLoadedWalletBalances ||
+                                        (isLoadingWalletBalances &&
+                                            !selectedToken)
                                     }
                                     loadingLabel="Loading balances..."
                                 />
@@ -1307,6 +1322,8 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                                     onClick={handleApproveAndSupply}
                                     disabled={
                                         isLoading ||
+                                        !hasLoadedWalletBalances ||
+                                        isLoadingWalletBalances ||
                                         isAmountInvalid ||
                                         walletBalanceTokens.length === 0 ||
                                         !selectedToken
@@ -1351,7 +1368,7 @@ const getNativeInfo = (chainId: number) => {
         case 56:
             return { native: 'BNB', wrapped: 'WBNB' };
         case 137:
-            return { native: 'POL', wrapped: 'WMATIC' };
+            return { native: 'POL', wrapped: 'WPOL' };
         case 43114:
             return { native: 'AVAX', wrapped: 'WAVAX' };
         case 100:

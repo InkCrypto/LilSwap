@@ -350,6 +350,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
     const activeChains = chainEntries.filter(c => c.hasPositions);
     const emptyChains = chainEntries.filter(c => !c.hasPositions);
+    const emptyMarketsTitle = activeChains.length > 0 ? 'Available markets' : 'No positions';
+    const emptyMarketsAction = activeChains.length > 0 ? 'Supply on another market' : 'Start lending';
 
     const portfolioOverview = useMemo<PortfolioOverview | null>(() => {
         if (activeChains.length < 2) {
@@ -960,8 +962,8 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
             {emptyChains.length > 0 && (
                 <Card className="bg-white dark:bg-slate-800/30 border-border-light dark:border-border-dark/50 overflow-hidden">
                     <div className="flex p-4 w-full items-center cursor-pointer hover:bg-slate-50 dark:hover:bg-slate-900/30" onClick={() => setOpenEmptyChains(!openEmptyChains)}>
-                        <div className="flex justify-between items-center w-full">
-                            <div className="flex items-center gap-3">
+                        <div className="flex justify-between items-center gap-3 w-full">
+                            <div className="flex min-w-0 items-center gap-3">
                                 <div className="flex -space-x-2">
                                     {emptyChains.slice(0, 5).map((chain) => (
                                         chain.icon && (
@@ -978,23 +980,49 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                         <div className="w-5 h-5 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-[8px] font-bold text-slate-500 dark:text-slate-300">+{emptyChains.length - 5}</div>
                                     )}
                                 </div>
-                                <span className="text-sm italic text-slate-400 ml-1">No positions</span>
+                                <span className="text-sm italic text-slate-400 ml-1 truncate">{emptyMarketsTitle}</span>
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className={`${positionActionButtonBase} ${positionActionButtonDesktop} ml-1 text-emerald-600 dark:text-emerald-400`}
+                                    onClick={(event) => {
+                                        event.stopPropagation();
+                                        setOpenEmptyChains(!openEmptyChains);
+                                    }}
+                                >
+                                    {emptyMarketsAction}
+                                </Button>
                             </div>
-                            {openEmptyChains ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                            <div className="flex shrink-0 items-center">
+                                {openEmptyChains ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+                            </div>
                         </div>
                     </div>
                     {openEmptyChains && (
-                        <div className="border-t border-border-light dark:border-border-dark p-4 flex flex-wrap gap-4">
+                        <div className="border-t border-border-light dark:border-border-dark divide-y divide-slate-200 dark:divide-slate-700/80">
                             {emptyChains.map((chain) => (
-                                <div key={chain.marketKey} className="flex items-center gap-2">
-                                    {chain.icon && (
-                                        <img
-                                            src={chain.icon}
-                                            alt={chain.label}
-                                            className={getEmptyChainIconClass(chain.marketKey, 'list')}
-                                        />
-                                    )}
-                                    <span className="text-xs font-medium text-slate-500 dark:text-slate-400">{chain.label}</span>
+                                <div key={chain.marketKey} className="flex items-center justify-between gap-3 px-4 py-3">
+                                    <div className="flex min-w-0 items-center gap-2">
+                                        {chain.icon && (
+                                            <img
+                                                src={chain.icon}
+                                                alt={chain.label}
+                                                className={getEmptyChainIconClass(chain.marketKey, 'list')}
+                                            />
+                                        )}
+                                        <span className="truncate text-xs font-medium text-slate-500 dark:text-slate-400">{chain.label}</span>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        variant="outline"
+                                        className={`${positionActionButtonBase} ${positionActionButtonMobile} shrink-0 text-emerald-600 dark:text-emerald-400`}
+                                        onClick={(event) => {
+                                            event.stopPropagation();
+                                            handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
+                                        }}
+                                    >
+                                        Supply
+                                    </Button>
                                 </div>
                             ))}
                         </div>
