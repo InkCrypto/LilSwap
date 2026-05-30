@@ -43,6 +43,7 @@ const RISK_HEALTH_FACTOR_THRESHOLD = 1.5;
 const CUSTOM_TARGET_TOKENS_STORAGE_PREFIX = 'lilswap:withdraw-swap-custom-target-tokens';
 const NATIVE_TOKEN_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const TARGET_BALANCE_MULTICALL_CHUNK_SIZE = 80;
+const MAX_UINT256 = 2n ** 256n - 1n;
 
 const getAssetAddress = (asset: any) => (asset?.underlyingAsset || asset?.address || '').toLowerCase();
 
@@ -211,6 +212,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     // Local State
     const [inputValue, setInputValue] = useState('');
     const [withdrawAmount, setWithdrawAmount] = useState<bigint>(0n);
+    const [isMaxWithdrawSelected, setIsMaxWithdrawSelected] = useState(false);
     const [balance, setBalance] = useState<bigint>(0n); // Supplied position balance
     const [aTokenBalance, setATokenBalance] = useState<bigint>(0n); // Balance of aToken
     const [allowance, setAllowance] = useState<bigint>(0n); // Standard allowance of aToken/token depending on mode
@@ -244,6 +246,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         setSelectedAsset(defaultWithdrawAsset);
         setInputValue('');
         setWithdrawAmount(0n);
+        setIsMaxWithdrawSelected(false);
         setSwapQuote(null);
         setErrorText(null);
         setIsUSDMode(false);
@@ -537,6 +540,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             const aBalResult = results[0];
             if (aBalResult?.status === 'success' && typeof aBalResult.result === 'bigint') {
                 setATokenBalance(aBalResult.result);
+                setBalance(aBalResult.result);
             }
 
             if (allowanceIndex >= 0) {
@@ -588,13 +592,32 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         return [balance, maxByLiquidity, maxByHealthFactor].reduce((min, value) => value < min ? value : min, balance);
     }, [balance, initialAsset, summary]);
 
-    const isWithdrawOverMax = withdrawAmount > 0n && withdrawAmount > maxWithdrawAmount;
+    const isFullBalanceMaxSelected = isMaxWithdrawSelected
+        && aTokenBalance > 0n
+        && maxWithdrawAmount === aTokenBalance;
+    const isWithdrawOverMax = withdrawAmount > 0n
+        && withdrawAmount > maxWithdrawAmount
+        && !isFullBalanceMaxSelected;
+
+    const fetchCurrentATokenBalance = useCallback(async () => {
+        if (!walletAddress || !publicClient || !aTokenAddress) {
+            return null;
+        }
+
+        return publicClient.readContract({
+            address: getAddress(aTokenAddress),
+            abi: parseAbi(ABIS.ERC20),
+            functionName: 'balanceOf',
+            args: [getAddress(walletAddress)],
+        }) as Promise<bigint>;
+    }, [aTokenAddress, publicClient, walletAddress]);
 
     // Amount change handlers
     const handleAmountChange = (val: string) => {
         const cleaned = val.replace(/[^0-9.]/g, '');
         setInputValue(cleaned);
         setRiskAccepted(false);
+        setIsMaxWithdrawSelected(false);
 
         if (!cleaned || isNaN(parseFloat(cleaned))) {
             setWithdrawAmount(0n);
@@ -645,6 +668,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         const decimals = initialAsset?.decimals || 18;
         const tokenAmount = formatUnits(amt, decimals);
         setWithdrawAmount(amt);
+        setIsMaxWithdrawSelected(percent === 100);
         setRiskAccepted(false);
 
         if (isUSDMode) {
@@ -879,6 +903,14 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             let txHash: `0x${string}`;
 
             if (activeTab === 'withdraw') {
+                const freshATokenBalance = isFullBalanceMaxSelected
+                    ? await fetchCurrentATokenBalance()
+                    : null;
+                const displayWithdrawAmount = freshATokenBalance ?? withdrawAmount;
+                const contractWithdrawAmount = freshATokenBalance !== null
+                    ? MAX_UINT256
+                    : withdrawAmount;
+
                 if (isWrappedNative && isNativeSelected) {
                     if (!gatewayAddress) throw new Error('WETH Gateway address missing');
                     txHash = await walletClient.writeContract({
@@ -886,7 +918,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         address: getAddress(gatewayAddress),
                         abi: parseAbi(ABIS.WETH_GATEWAY),
                         functionName: 'withdrawETH',
-                        args: [getAddress(poolAddress), withdrawAmount, getAddress(walletAddress)],
+                        args: [getAddress(poolAddress), contractWithdrawAmount, getAddress(walletAddress)],
                     });
                 } else {
                     txHash = await walletClient.writeContract({
@@ -894,21 +926,44 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         address: getAddress(poolAddress),
                         abi: parseAbi(ABIS.POOL),
                         functionName: 'withdraw',
-                        args: [getAddress(initialAsset.underlyingAsset || initialAsset.address), withdrawAmount, getAddress(walletAddress)],
+                        args: [getAddress(initialAsset.underlyingAsset || initialAsset.address), contractWithdrawAmount, getAddress(walletAddress)],
                     });
                 }
 
                 addTransaction({
                     hash: txHash,
                     chainId,
-                    description: `Withdraw ${formatUnits(withdrawAmount, initialAsset.decimals)} ${isWrappedNative && isNativeSelected ? nativeInfo.native : initialAsset.symbol}`,
+                    description: `Withdraw ${formatUnits(displayWithdrawAmount, initialAsset.decimals)} ${isWrappedNative && isNativeSelected ? nativeInfo.native : initialAsset.symbol}`,
                     marketKey: marketKey || selectedNetwork.key,
                 });
             } else {
                 // Withdraw & Swap route
                 if (!withdrawSwapAdapterAddress || !quoteForExecution) throw new Error('Withdraw Swap parameters missing');
 
-                const isMax = withdrawAmount === balance;
+                const isMax = isFullBalanceMaxSelected;
+                const freshATokenBalance = isMax
+                    ? await fetchCurrentATokenBalance()
+                    : null;
+                const quoteAmount = freshATokenBalance ?? withdrawAmount;
+                const latestQuote = isMax
+                    ? await getWithdrawSwapQuote({
+                        fromToken: {
+                            address: getAddress(initialAsset.underlyingAsset || initialAsset.address),
+                            decimals: initialAsset.decimals,
+                            symbol: initialAsset.symbol,
+                        },
+                        toToken: {
+                            address: getAddress(targetToken.underlyingAsset || targetToken.address),
+                            decimals: targetToken.decimals,
+                            symbol: targetToken.symbol,
+                        },
+                        srcAmount: quoteAmount.toString(),
+                        adapterAddress: getAddress(withdrawSwapAdapterAddress),
+                        chainId,
+                        walletAddress,
+                        marketKey,
+                    })
+                    : quoteForExecution;
 
                 // Build swap transaction calldata
                 const txData = await buildWithdrawSwapTx({
@@ -922,9 +977,9 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         decimals: targetToken.decimals,
                         symbol: targetToken.symbol,
                     },
-                    priceRoute: quoteForExecution.priceRoute,
+                    priceRoute: latestQuote.priceRoute,
                     adapterAddress: getAddress(withdrawSwapAdapterAddress),
-                    srcAmount: withdrawAmount.toString(),
+                    srcAmount: quoteAmount.toString(),
                     isMaxSwap: isMax,
                     slippageBps: slippage * 100,
                     chainId,
@@ -948,7 +1003,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                     args: [
                         getAddress(initialAsset.underlyingAsset || initialAsset.address),
                         getAddress(targetToken.underlyingAsset || targetToken.address),
-                        withdrawAmount,
+                        isMax ? MAX_UINT256 : withdrawAmount,
                         BigInt(txData.minAmountToReceive),
                         BigInt(txData.swapAllBalanceOffset),
                         txData.swapCallData,
@@ -960,7 +1015,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 addTransaction({
                     hash: txHash,
                     chainId,
-                    description: `Withdraw & Swap ${formatUnits(withdrawAmount, initialAsset.decimals)} ${initialAsset.symbol} to ${targetToken.symbol}`,
+                    description: `Withdraw & Swap ${formatUnits(quoteAmount, initialAsset.decimals)} ${initialAsset.symbol} to ${targetToken.symbol}`,
                     marketKey: marketKey || selectedNetwork.key,
                 });
             }
@@ -972,6 +1027,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 setIsSuccess(false);
                 setInputValue('');
                 setWithdrawAmount(0n);
+                setIsMaxWithdrawSelected(false);
             }, 2000);
         } catch (err: any) {
             setErrorText(err.shortMessage || err.message || 'Withdrawal failed');
@@ -992,9 +1048,10 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         }
     };
 
+    const requiredAllowanceAmount = isFullBalanceMaxSelected ? MAX_UINT256 : withdrawAmount;
     const isApproveRequired = activeTab === 'swap'
-        ? allowance < withdrawAmount
-        : (isWrappedNative && isNativeSelected && allowance < withdrawAmount);
+        ? allowance < requiredAllowanceAmount
+        : (isWrappedNative && isNativeSelected && allowance < requiredAllowanceAmount);
 
     useEffect(() => {
         let cancelled = false;
@@ -1028,7 +1085,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         address: getAddress(gatewayAddress),
                         abi: parseAbi(ABIS.WETH_GATEWAY),
                         functionName: 'withdrawETH',
-                        args: [getAddress(poolAddress), withdrawAmount, account],
+                        args: [getAddress(poolAddress), isFullBalanceMaxSelected ? MAX_UINT256 : withdrawAmount, account],
                     });
                 } else {
                     if (!poolAddress) throw new Error('Pool address missing');
@@ -1038,7 +1095,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         address: getAddress(poolAddress),
                         abi: parseAbi(ABIS.POOL),
                         functionName: 'withdraw',
-                        args: [getAddress(initialAsset.underlyingAsset || initialAsset.address), withdrawAmount, account],
+                        args: [getAddress(initialAsset.underlyingAsset || initialAsset.address), isFullBalanceMaxSelected ? MAX_UINT256 : withdrawAmount, account],
                     });
                 }
 
@@ -1071,6 +1128,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         gatewayAddress,
         initialAsset,
         isApproveRequired,
+        isFullBalanceMaxSelected,
         isNativeSelected,
         isWrappedNative,
         marketAssets,
@@ -1637,6 +1695,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                     setSelectedAsset(token);
                     setInputValue('');
                     setWithdrawAmount(0n);
+                    setIsMaxWithdrawSelected(false);
                     setSwapQuote(null);
                     setErrorText(null);
                     setRiskAccepted(false);
