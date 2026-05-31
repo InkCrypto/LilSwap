@@ -1,9 +1,10 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
-import { Hex } from 'viem';
+import type { Hex } from 'viem';
 import { getMarketByKey } from '../constants/networks';
 import { createRpcProvider } from '../helpers/rpc-helper';
 import logger from '../utils/logger';
+import { schedulePositionRefresh } from '../utils/schedule-position-refresh';
 import { useToast } from './toast-context';
 import { useWeb3 } from './web3-context';
 
@@ -18,6 +19,7 @@ export interface PendingTransaction {
     toTokenSymbol?: string;
     revertReason?: string;
     txStatus?: string;
+    suppressPositionRefresh?: boolean;
 }
 
 interface TransactionTrackerContextType {
@@ -118,9 +120,9 @@ export const TransactionTrackerProvider: React.FC<{ children: ReactNode }> = ({ 
                             item.hash === tx.hash ? { ...item, status: isSuccess ? 'success' : 'error' } : item
                         ));
 
-                        if (isSuccess) {
-                            logger.info('[TransactionTracker] Transaction successful, triggering position refresh');
-                            window.dispatchEvent(new CustomEvent('lilswap:refresh-positions'));
+                        if (isSuccess && !tx.suppressPositionRefresh) {
+                            logger.info('[TransactionTracker] Transaction successful, scheduling position refresh');
+                            schedulePositionRefresh('transaction-tracker');
                         }
 
                         const toastId = toastMap.current.get(tx.hash);

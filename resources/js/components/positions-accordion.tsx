@@ -1,11 +1,12 @@
 import { AlertCircle, ArrowDownRight, ArrowUpRight, CircleDashed, ArrowLeftRight, ChevronDown, ChevronUp, ExternalLink, RefreshCw } from 'lucide-react';
-import React, { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import React, { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useWeb3 } from '@/contexts/web3-context';
 import { getMarketByKey } from '../constants/networks';
 import type { DonatorInfo, ChainInfo, PositionInfo } from '../hooks/use-all-positions';
 import { formatUSD, formatCompactToken, formatAPY, formatHF } from '../utils/formatters';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import logger from '../utils/logger';
+import { schedulePositionRefresh } from '../utils/schedule-position-refresh';
 import { InfoTooltip } from './info-tooltip';
 import { PortfolioOverviewCard } from './portfolio-overview-card';
 import type { PortfolioOverview } from './portfolio-overview-card';
@@ -20,6 +21,7 @@ const CollateralToggleModal = lazy(() => import('./collateral-toggle-modal').the
 const SupplyModal = lazy(() => import('./supply-modal').then(module => ({ default: module.SupplyModal })));
 const WithdrawModal = lazy(() => import('./withdraw-modal').then(module => ({ default: module.WithdrawModal })));
 const BorrowModal = lazy(() => import('./borrow-modal').then(module => ({ default: module.BorrowModal })));
+const RepayModal = lazy(() => import('./repay-modal').then(module => ({ default: module.RepayModal })));
 
 // Formatting helpers removed in favor of centralized ones in ../utils/formatters.ts
 
@@ -60,15 +62,198 @@ const parseAmount = (value: string | number | null | undefined): number => {
 };
 
 const getEmptyChainIconClass = (marketKey: string, variant: 'summary' | 'list' = 'summary') => {
-    const baseSize = variant === 'summary' ? 'w-5 h-5' : 'w-4 h-4';
+    const baseSize = variant === 'summary' ? 'w-5 h-5' : 'w-6 h-6';
     const gnosisAdjustment = marketKey === 'AaveV3Gnosis' ? 'scale-110' : '';
 
     return `${baseSize} object-contain shrink-0 saturate-75 brightness-90 opacity-90 ${gnosisAdjustment}`.trim();
 };
 
 const positionActionButtonBase = 'border border-slate-300 bg-slate-50 shadow-sm transition-colors hover:bg-white hover:shadow-md dark:border-slate-700 dark:bg-slate-800/60 dark:shadow-xs dark:hover:bg-slate-800 cursor-pointer';
-const positionActionButtonMobile = 'h-6 rounded-md px-2 py-0 text-[10px]';
-const positionActionButtonDesktop = 'h-7 rounded-lg px-3 text-xs';
+const positionActionButtonSize = 'h-6 rounded-md px-2 py-0 text-[10px] md:h-7 md:rounded-lg md:px-3 md:text-xs';
+const positionActionTone = {
+    supply: 'text-emerald-600 dark:text-emerald-400',
+    withdraw: 'text-blue-600 dark:text-blue-400',
+    borrow: 'text-violet-600 dark:text-violet-400',
+    repay: 'text-blue-600 dark:text-blue-400',
+} as const;
+
+const eModeLabel = (chain: any) => chain.eModes?.find((m: any) => m.id === chain.eModeCategoryId)?.label || 'Active';
+
+const hasActiveEMode = (chain: any) => !!chain.eModeCategoryId && chain.eModeCategoryId !== 0;
+
+const EModeBadge = ({ chain }: { chain: any }) => {
+    if (!hasActiveEMode(chain)) {
+        return null;
+    }
+
+    return (
+        <div className="flex items-center gap-1 px-1.5 py-0 rounded bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800">
+            <div className="w-1 h-1 rounded-full bg-sky-500 animate-pulse" />
+            <span className="text-[9px] font-black text-sky-700 dark:text-sky-400 uppercase tracking-wider">
+                E-Mode: {eModeLabel(chain)}
+            </span>
+        </div>
+    );
+};
+
+const PositionActionButton = ({
+    tone,
+    children,
+    onClick,
+}: {
+    tone: keyof typeof positionActionTone;
+    children: React.ReactNode;
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) => (
+    <Button
+        size="sm"
+        variant="outline"
+        className={`${positionActionButtonBase} ${positionActionButtonSize} ${positionActionTone[tone]}`}
+        onClick={onClick}
+    >
+        {children}
+    </Button>
+);
+
+const PositionSectionHeader = ({
+    title,
+    icon,
+    actions,
+    eMode,
+    className = '',
+}: {
+    title: string;
+    icon: React.ReactNode;
+    actions: React.ReactNode;
+    eMode?: React.ReactNode;
+    className?: string;
+}) => (
+    <div className={`mb-2 flex items-center justify-between ${className}`}>
+        <div className="flex min-w-0 items-center gap-2">
+            {icon}
+            <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">
+                {title}
+            </h4>
+            {eMode}
+        </div>
+        <div className="flex shrink-0 items-center gap-1.5 md:gap-2">
+            {actions}
+        </div>
+    </div>
+);
+
+const PositionTokenLogo = ({ symbol }: { symbol: string }) => (
+    <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
+        <img
+            src={getTokenLogo(symbol)}
+            alt={symbol}
+            className="w-full h-full object-cover"
+            onError={(event) => onTokenImgError(symbol)(event as any)}
+        />
+    </div>
+);
+
+const PositionAssetSummary = ({ asset }: { asset: PositionInfo }) => (
+    <div className="flex items-center gap-3 min-w-0">
+        <PositionTokenLogo symbol={asset.symbol} />
+        <div className="min-w-0">
+            <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">
+                {formatUSD(parseAmount(asset.formattedAmount) * parseAmount(asset.priceInUSD))}
+            </div>
+            <div className="text-[10px] text-slate-500 font-medium truncate">
+                {formatCompactToken(asset.formattedAmount, asset.symbol)}
+            </div>
+        </div>
+    </div>
+);
+
+const CollateralControl = ({
+    checked,
+    onChange,
+}: {
+    checked: boolean;
+    onChange: () => void;
+}) => (
+    <div className="flex flex-col items-center gap-1">
+        <span className="text-[7px] font-black uppercase tracking-widest text-slate-500/80">Collateral</span>
+        <Switch
+            checked={checked}
+            onCheckedChange={onChange}
+            onClick={(event) => event.stopPropagation()}
+        />
+    </div>
+);
+
+const PositionSwapButton = ({
+    enabled = true,
+    compactIcon = false,
+    onClick,
+}: {
+    enabled?: boolean;
+    compactIcon?: boolean;
+    onClick: () => void;
+}) => {
+    const iconClass = compactIcon ? 'w-3 h-3' : 'w-3.5 h-3.5';
+    const button = (
+        <Button
+            size="sm"
+            variant={enabled ? 'default' : 'secondary'}
+            tabIndex={enabled ? undefined : -1}
+            onClick={enabled ? onClick : undefined}
+            className={enabled
+                ? 'gap-1.5 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-xs h-8 px-2.5 text-xs cursor-pointer'
+                : 'gap-1.5 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none h-8 px-2.5 text-xs'}
+        >
+            <ArrowLeftRight className={iconClass} /> Swap
+        </Button>
+    );
+
+    if (enabled) {
+        return button;
+    }
+
+    return (
+        <InfoTooltip message="No alternative tokens available in your E-Mode category" disableClick={true}>
+            <div className="cursor-not-allowed flex">
+                {button}
+            </div>
+        </InfoTooltip>
+    );
+};
+
+const PositionAssetRow = ({
+    asset,
+    actions,
+    className,
+}: {
+    asset: PositionInfo;
+    actions: React.ReactNode;
+    className: string;
+}) => (
+    <div className={className}>
+        <div className="flex items-center justify-between gap-3">
+            <PositionAssetSummary asset={asset} />
+            {actions}
+        </div>
+    </div>
+);
+
+const EmptyBorrowsState = ({ compact }: { compact: boolean }) => (
+    compact ? (
+        <div className="flex items-center gap-3 px-6 h-full min-h-13.5 opacity-60">
+            <CircleDashed className="w-4 h-4 text-slate-300 dark:text-slate-600" />
+            <div className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">No active borrows</div>
+        </div>
+    ) : (
+        <div className="flex-1 flex flex-col items-center pt-10 text-center px-6">
+            <div className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-900/50 flex items-center justify-center mb-4">
+                <CircleDashed className="w-5 h-5 text-slate-300 dark:text-slate-500" />
+            </div>
+            <div className="text-sm font-bold text-slate-900 dark:text-white mb-1.5 leading-none">No active borrows</div>
+            <div className="text-[11px] text-slate-500 dark:text-slate-400 max-w-45 leading-tight">Assets you borrow on this network will appear here.</div>
+        </div>
+    )
+);
 
 /**
  * PositionsAccordion Component
@@ -106,7 +291,12 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
     const [supplyModal, setSupplyModal] = useState<{ open: boolean; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, chainId: 0, marketKey: null, marketAssets: [], summary: null });
     const [withdrawModal, setWithdrawModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; supplies: any[]; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null, supplies: [] });
     const [borrowModal, setBorrowModal] = useState<{ open: boolean; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; }>({ open: false, chainId: 0, marketKey: null, marketAssets: [], summary: null });
+    const [repayModal, setRepayModal] = useState<{ open: boolean; asset: any | null; chainId: number; marketKey: string | null; marketAssets: any[]; summary: any; supplies: any[]; borrows: any[]; }>({ open: false, asset: null, chainId: 0, marketKey: null, marketAssets: [], summary: null, supplies: [], borrows: [] });
     const [timeTick, setTimeTick] = useState(() => Date.now());
+    const [isPositionRefreshScheduled, setIsPositionRefreshScheduled] = useState(false);
+    const schedulePostTransactionRefresh = useCallback(() => {
+        schedulePositionRefresh('positions-accordion');
+    }, []);
 
     useEffect(() => {
         void import('./debt-swap-modal');
@@ -115,6 +305,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         void import('./supply-modal');
         void import('./withdraw-modal');
         void import('./borrow-modal');
+        void import('./repay-modal');
     }, []);
 
     useEffect(() => {
@@ -129,6 +320,47 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         return () => window.clearInterval(interval);
     }, [lastFetch]);
 
+    useEffect(() => {
+        let refreshTimer: number | null = null;
+
+        const handleScheduledRefresh = (event: Event) => {
+            const delayMs = event instanceof CustomEvent && typeof event.detail?.delayMs === 'number'
+                ? event.detail.delayMs
+                : 8000;
+
+            if (refreshTimer) {
+                window.clearTimeout(refreshTimer);
+            }
+
+            setIsPositionRefreshScheduled(true);
+            refreshTimer = window.setTimeout(() => {
+                setIsPositionRefreshScheduled(false);
+                refreshTimer = null;
+            }, delayMs + 1200);
+        };
+
+        const handleRefresh = () => {
+            setIsPositionRefreshScheduled(false);
+
+            if (refreshTimer) {
+                window.clearTimeout(refreshTimer);
+                refreshTimer = null;
+            }
+        };
+
+        window.addEventListener('lilswap:position-refresh-scheduled', handleScheduledRefresh);
+        window.addEventListener('lilswap:refresh-positions', handleRefresh);
+
+        return () => {
+            if (refreshTimer) {
+                window.clearTimeout(refreshTimer);
+            }
+
+            window.removeEventListener('lilswap:position-refresh-scheduled', handleScheduledRefresh);
+            window.removeEventListener('lilswap:refresh-positions', handleRefresh);
+        };
+    }, []);
+
     // Reset accordion state when walletAddress changes
     useEffect(() => {
         setOpenMarket(null);
@@ -137,6 +369,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         setSupplyModal(prev => ({ ...prev, open: false }));
         setWithdrawModal(prev => ({ ...prev, open: false }));
         setBorrowModal(prev => ({ ...prev, open: false }));
+        setRepayModal(prev => ({ ...prev, open: false }));
     }, [walletAddress]);
 
     const handleOpenSwap = (
@@ -227,6 +460,16 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
 
     const handleOpenBorrow = (marketKey: string, chainIdNum: number, marketAssets: any[], summary: any) => {
         setBorrowModal({ open: true, chainId: chainIdNum, marketKey, marketAssets, summary });
+
+        const market = getMarketByKey(marketKey);
+
+        if (market) {
+            void setSelectedNetwork(market.key).catch(() => { });
+        }
+    };
+
+    const handleOpenRepay = (marketKey: string, chainIdNum: number, asset: any | null, summary: any, marketAssets: any[], supplies: any[] = [], borrows: any[] = []) => {
+        setRepayModal({ open: true, asset, chainId: chainIdNum, marketKey, marketAssets, summary, supplies, borrows });
 
         const market = getMarketByKey(marketKey);
 
@@ -351,7 +594,13 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
     const activeChains = chainEntries.filter(c => c.hasPositions);
     const emptyChains = chainEntries.filter(c => !c.hasPositions);
     const emptyMarketsTitle = activeChains.length > 0 ? 'Available markets' : 'No positions';
-    const emptyMarketsAction = activeChains.length > 0 ? 'Supply on another market' : 'Start lending';
+    const emptyMarketsAction = activeChains.length > 0 ? 'View markets to supply' : 'View markets to start lending';
+
+    useEffect(() => {
+        if (chainEntries.length > 0 && activeChains.length === 0 && emptyChains.length > 0) {
+            setOpenEmptyChains(true);
+        }
+    }, [activeChains.length, chainEntries.length, emptyChains.length]);
 
     const portfolioOverview = useMemo<PortfolioOverview | null>(() => {
         if (activeChains.length < 2) {
@@ -438,15 +687,15 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
         <div className="flex items-end gap-3 shrink-0">
             {lastFetch && (
                 <span className="hidden sm:inline text-[9px] leading-[1.05] font-bold uppercase tracking-[0.16em] text-slate-400 whitespace-nowrap">
-                    Updated {getLastFetchText()}
+                    {isPositionRefreshScheduled ? 'Updating...' : `Updated ${getLastFetchText()}`}
                 </span>
             )}
             <button
                 onClick={() => refresh(true)}
-                disabled={loading}
+                disabled={loading || isPositionRefreshScheduled}
                 className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-all group rounded-full disabled:opacity-50 disabled:cursor-not-allowed"
             >
-                <RefreshCw className={`w-5 h-5 translate-y-1 ${loading ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`w-5 h-5 translate-y-1 ${(loading || isPositionRefreshScheduled) ? 'animate-spin' : ''}`} />
             </button>
         </div>
     );
@@ -600,359 +849,213 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                     {openMarket === chain.marketKey && (
                         <div className="border-t border-border-light dark:border-border-dark bg-slate-50/80 px-0 pt-3 pb-0 dark:bg-slate-950/40 flex flex-col gap-6 transition-colors duration-300 md:flex-row md:px-4">
                             <div className="w-full">
-                                <div className="md:hidden space-y-4">
-                                    <div>
-                                        <div className="mb-2 flex items-center justify-between px-3">
-                                            <div className="flex items-center gap-2">
-                                                <ArrowUpRight className="w-3 h-3 text-emerald-500" />
-                                                <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Supplies</h4>
-                                            </div>
-                                            <div className="flex items-center gap-1.5">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className={`${positionActionButtonBase} ${positionActionButtonMobile} text-emerald-600 dark:text-emerald-400`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
-                                                    }}
-                                                >
-                                                    + Supply
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className={`${positionActionButtonBase} ${positionActionButtonMobile} text-blue-600 dark:text-blue-400`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies);
-                                                    }}
-                                                >
-                                                    Withdraw
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        <div className="border-t border-slate-200 divide-y divide-slate-200 dark:border-slate-700/80 dark:divide-slate-700/80 md:-mx-4 md:border-x">
-                                            {chain.supplies.map((supply) => (
-                                                <div key={`mobile-supply-${supply.underlyingAsset}`} className="bg-white px-3 py-2.5 transition-colors duration-200 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-800">
-                                                    <div className="flex items-center justify-between gap-3">
-                                                        <div className="flex items-center gap-3 min-w-0">
-                                                            <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
-                                                                <img src={getTokenLogo(supply.symbol)} alt={supply.symbol} className="w-full h-full object-cover" onError={(e) => onTokenImgError(supply.symbol)(e as any)} />
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                                <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || '0'))}</div>
-                                                                <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(supply.formattedAmount, supply.symbol)}</div>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center gap-4 shrink-0 px-2">
-                                                            {/* Shadcn Switch */}
-                                                            <div className="flex flex-col items-center gap-1">
-                                                                <span className="text-[7px] font-black uppercase tracking-widest text-slate-500/80">Collateral</span>
-                                                                <Switch
-                                                                    checked={supply.usageAsCollateralEnabledOnUser}
-                                                                    onCheckedChange={() => handleOpenToggleCollateral(chain.marketKey, supply, {
-                                                                        healthFactor: chain.healthFactor?.toString(),
-                                                                        totalCollateralUSD: chain.totalSuppliedUSD.toString(),
-                                                                        totalBorrowsUSD: chain.totalBorrowedUSD.toString(),
-                                                                        currentLiquidationThreshold: chain.currentLiquidationThreshold?.toString()
-                                                                    }, chain.supplies, chain.marketAssets)}
-                                                                    onClick={(e) => e.stopPropagation()}
-                                                                />
-                                                            </div>
-                                                            <Button
-                                                                size="sm"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true);
-                                                                }}
-                                                                className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer"
-                                                            >
-                                                                <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                            </Button>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-
-                                    {chain.borrows.length > 0 && (
-                                        <div>
-                                            <div className="mb-2 flex items-center justify-between px-3">
-                                                <div className="flex items-center gap-2">
-                                                    <ArrowDownRight className="w-3 h-3 text-primary" />
-                                                    <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest leading-none">Borrows</h4>
-                                                </div>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className={`${positionActionButtonBase} ${positionActionButtonMobile} text-violet-600 dark:text-violet-400`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
-                                                    }}
-                                                >
-                                                    + Borrow
-                                                </Button>
-                                                {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
-                                                    <div className="flex items-center gap-1 px-1.5 py-0 rounded bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800">
-                                                        <div className="w-1 h-1 rounded-full bg-sky-500 animate-pulse" />
-                                                        <span className="text-[9px] font-black text-sky-700 dark:text-sky-400 uppercase tracking-wider">
-                                                            E-Mode: {chain.eModes?.find((m: any) => m.id === chain.eModeCategoryId)?.label || 'Active'}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="border-t border-slate-200 divide-y divide-slate-200 dark:border-slate-700/80 dark:divide-slate-700/80 md:-mx-4 md:border-x">
-                                                {chain.borrows.map((borrow) => {
-                                                    const borrowAddr = borrow.underlyingAsset.toLowerCase();
-                                                    const hasAlternatives = (chain.marketAssets || []).some(
-                                                        (a: any) => a.canBeDebtSwapDestination &&
-                                                            (a.address || a.underlyingAsset || '').toLowerCase() !== borrowAddr
-                                                    );
-
-                                                    return (
-                                                        <div key={`mobile-borrow-${borrow.underlyingAsset}`} className="bg-white px-3 py-2.5 transition-colors duration-200 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-800">
-                                                            <div className="flex items-center justify-between gap-3">
-                                                                <div className="flex items-center gap-3 min-w-0">
-                                                                    <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
-                                                                        <img src={getTokenLogo(borrow.symbol)} alt={borrow.symbol} className="w-full h-full object-cover" onError={(e) => onTokenImgError(borrow.symbol)(e as any)} />
-                                                                    </div>
-                                                                    <div className="min-w-0">
-                                                                        <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || '0'))}</div>
-                                                                        <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(borrow.formattedAmount, borrow.symbol)}</div>
-                                                                    </div>
-                                                                </div>
-                                                                {hasAlternatives ? (
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="default"
-                                                                        onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
-                                                                        className="gap-2 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-sm"
-                                                                    >
-                                                                        <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                                    </Button>
-                                                                ) : (
-                                                                    <InfoTooltip message="No alternative tokens available in your E-Mode category" disableClick={true}>
-                                                                        <div className="cursor-not-allowed flex">
-                                                                            <Button
-                                                                                size="sm"
-                                                                                variant="secondary"
-                                                                                tabIndex={-1}
-                                                                                className="gap-2 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none"
-                                                                            >
-                                                                                <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                                            </Button>
-                                                                        </div>
-                                                                    </InfoTooltip>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    );
-                                                })}
-
-                                            </div>
-                                        </div>
-                                    )}
-                                </div>
-
-                                <div className="hidden md:block">
-                                    <div className="grid grid-cols-2 gap-6 mb-2">
-                                        <div className="flex items-center justify-between px-1">
-                                            <div className="flex items-center gap-2">
-                                                <ArrowUpRight className="w-3 h-3 text-emerald-500" />
-                                                <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Supplies</h4>
-                                            </div>
-                                            <div className="flex items-center gap-2">
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className={`${positionActionButtonBase} ${positionActionButtonDesktop} text-emerald-600 dark:text-emerald-400`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
-                                                    }}
-                                                >
-                                                    + Supply
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="outline"
-                                                    className={`${positionActionButtonBase} ${positionActionButtonDesktop} text-blue-600 dark:text-blue-400`}
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies);
-                                                    }}
-                                                >
-                                                    - Withdraw
-                                                </Button>
-                                            </div>
-                                        </div>
-                                        <div className="flex items-center justify-between px-1">
-                                            <div className="flex items-center gap-2">
-                                                <ArrowDownRight className="w-3 h-3 text-primary" />
-                                                <h4 className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest">Borrows</h4>
-                                                {!!chain.eModeCategoryId && chain.eModeCategoryId !== 0 && (
-                                                    <div className="flex items-center gap-1 px-1.5 py-0 rounded bg-sky-100 dark:bg-sky-900/30 border border-sky-200 dark:border-sky-800">
-                                                        <div className="w-1 h-1 rounded-full bg-sky-500 animate-pulse" />
-                                                        <span className="text-[9px] font-black text-sky-700 dark:text-sky-400 uppercase tracking-wider">
-                                                            E-Mode: {chain.eModes?.find((m: any) => m.id === chain.eModeCategoryId)?.label || 'Active'}
-                                                        </span>
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <Button
-                                                size="sm"
-                                                variant="outline"
-                                                className={`${positionActionButtonBase} ${positionActionButtonDesktop} text-violet-600 dark:text-violet-400`}
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
+                                {(() => {
+                                    const supplyActions = (
+                                        <>
+                                            <PositionActionButton
+                                                tone="supply"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
+                                                }}
+                                            >
+                                                + Supply
+                                            </PositionActionButton>
+                                            <PositionActionButton
+                                                tone="withdraw"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies);
+                                                }}
+                                            >
+                                                - Withdraw
+                                            </PositionActionButton>
+                                        </>
+                                    );
+                                    const borrowActions = (
+                                        <>
+                                            <PositionActionButton
+                                                tone="borrow"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
                                                     handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
                                                 }}
                                             >
                                                 + Borrow
-                                            </Button>
-                                        </div>
-                                    </div>
-                                    {(() => {
-                                        const maxLen = Math.max(chain.supplies.length, chain.borrows.length, 1);
+                                            </PositionActionButton>
+                                            <PositionActionButton
+                                                tone="repay"
+                                                onClick={(event) => {
+                                                    event.stopPropagation();
+                                                    handleOpenRepay(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies, chain.borrows);
+                                                }}
+                                            >
+                                                - Repay
+                                            </PositionActionButton>
+                                        </>
+                                    );
+                                    const supplyToggleSummary = () => ({
+                                        healthFactor: chain.healthFactor?.toString(),
+                                        totalCollateralUSD: chain.totalSuppliedUSD.toString(),
+                                        totalBorrowsUSD: chain.totalBorrowedUSD.toString(),
+                                        currentLiquidationThreshold: chain.currentLiquidationThreshold?.toString()
+                                    });
+                                    const borrowHasAlternatives = (borrow: PositionInfo) => {
+                                        const borrowAddr = borrow.underlyingAsset.toLowerCase();
 
-                                        return (
-                                            <div className="grid grid-cols-[1fr_auto_1fr] -mx-4 border-x border-t border-b border-slate-200 dark:border-slate-700/80 bg-white dark:bg-[#131d2f] transition-colors duration-200">
-                                                {/* Supplies Column */}
-                                                <div className="flex flex-col">
-                                                    {chain.supplies.map((supply, index) => {
-                                                        const isAtBottom = index === maxLen - 1;
-
-                                                        return (
-                                                            <div key={`${chain.marketKey}-supply-${index}`} className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
-                                                                <div className="flex items-center justify-between gap-3">
-                                                                    <div className="flex items-center gap-3 min-w-0">
-                                                                        <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
-                                                                            <img src={getTokenLogo(supply.symbol)} alt={supply.symbol} className="w-full h-full object-cover" onError={(e) => onTokenImgError(supply.symbol)(e as any)} />
-                                                                        </div>
-                                                                        <div className="min-w-0">
-                                                                            <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(supply.formattedAmount) * parseFloat(supply.priceInUSD || '0'))}</div>
-                                                                            <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(parseFloat(supply.formattedAmount), supply.symbol)}</div>
-                                                                        </div>
-                                                                    </div>
-                                                                    <div className="flex items-center gap-5 shrink-0">
-                                                                        {/* Shadcn Switch */}
-                                                                        <div className="flex flex-col items-center gap-1">
-                                                                            <span className="text-[7px] font-black uppercase tracking-widest text-slate-500/80">Collateral</span>
-                                                                            <Switch
-                                                                                checked={supply.usageAsCollateralEnabledOnUser}
-                                                                                onCheckedChange={() => handleOpenToggleCollateral(chain.marketKey, supply, {
-                                                                                    healthFactor: chain.healthFactor?.toString(),
-                                                                                    totalCollateralUSD: chain.totalSuppliedUSD.toString(),
-                                                                                    totalBorrowsUSD: chain.totalBorrowedUSD.toString(),
-                                                                                    currentLiquidationThreshold: chain.currentLiquidationThreshold?.toString()
-                                                                                }, chain.supplies, chain.marketAssets)}
-                                                                                onClick={(e) => e.stopPropagation()}
-                                                                            />
-                                                                        </div>
-                                                                        <Button
-                                                                            size="sm"
-                                                                            onClick={(e) => {
-                                                                                e.stopPropagation();
-                                                                                handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true);
-                                                                            }}
-                                                                            className="bg-primary hover:bg-primary/90 text-white gap-1.5 rounded-lg shrink-0 h-8 px-2.5 text-xs cursor-pointer"
-                                                                        >
-                                                                            <ArrowLeftRight className="w-3 h-3" /> Swap
-                                                                        </Button>
-                                                                    </div>
-                                                                </div>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                    {/* Fill space if borrows column is taller */}
-                                                    {chain.supplies.length < chain.borrows.length && (
-                                                        <div className="flex-1" />
-                                                    )}
-                                                </div>
-
-                                                {/* Row Divider */}
-                                                <div className="w-px self-stretch bg-slate-200/60 dark:bg-slate-600/40" />
-
-                                                {/* Borrows Column */}
-                                                <div className="flex flex-col">
-                                                    {chain.borrows.length > 0 ? (
-                                                        chain.borrows.map((borrow, index) => {
-                                                            const isAtBottom = index === maxLen - 1;
-                                                            const borrowAddr = borrow.underlyingAsset.toLowerCase();
-                                                            const hasAlternatives = (chain.marketAssets || []).some(
-                                                                (a: any) => a.canBeDebtSwapDestination &&
-                                                                    (a.address || a.underlyingAsset || '').toLowerCase() !== borrowAddr
-                                                            );
-
-                                                            return (
-                                                                <div key={`${chain.marketKey}-borrow-${index}`} className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}>
-                                                                    <div className="flex items-center justify-between gap-3">
-                                                                        <div className="flex items-center gap-3 min-w-0">
-                                                                            <div className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-slate-200 dark:border-slate-600/30">
-                                                                                <img src={getTokenLogo(borrow.symbol)} alt={borrow.symbol} className="w-full h-full object-cover" onError={(e) => onTokenImgError(borrow.symbol)(e as any)} />
-                                                                            </div>
-                                                                            <div className="min-w-0">
-                                                                                <div className="font-mono text-base font-bold text-slate-900 dark:text-white truncate">{formatUSD(parseFloat(borrow.formattedAmount) * parseFloat(borrow.priceInUSD || '0'))}</div>
-                                                                                <div className="text-[10px] text-slate-500 font-medium truncate">{formatCompactToken(parseFloat(borrow.formattedAmount), borrow.symbol)}</div>
-                                                                            </div>
-                                                                        </div>
-                                                                        <div className="flex items-center gap-2">
-                                                                            {hasAlternatives ? (
-                                                                                <Button
-                                                                                    size="sm"
-                                                                                    variant="default"
-                                                                                    onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
-                                                                                    className="gap-1.5 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-xs h-8 px-2.5 text-xs cursor-pointer"
-                                                                                >
-                                                                                    <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                                                </Button>
-                                                                            ) : (
-                                                                                <InfoTooltip message="No alternative tokens available in your E-Mode category" disableClick={true}>
-                                                                                    <div className="cursor-not-allowed flex">
-                                                                                        <Button
-                                                                                            size="sm"
-                                                                                            variant="secondary"
-                                                                                            tabIndex={-1}
-                                                                                            className="gap-1.5 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none h-8 px-2.5 text-xs"
-                                                                                        >
-                                                                                            <ArrowLeftRight className="w-3.5 h-3.5" /> Swap
-                                                                                        </Button>
-                                                                                    </div>
-                                                                                </InfoTooltip>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })
-                                                    ) : (
-                                                        chain.supplies.length <= 2 ? (
-                                                            <div className="flex items-center gap-3 px-6 h-full min-h-13.5 opacity-60">
-                                                                <CircleDashed className="w-4 h-4 text-slate-300 dark:text-slate-600" />
-                                                                <div className="text-[11px] font-bold text-slate-400 uppercase tracking-tight">No active borrows</div>
-                                                            </div>
-                                                        ) : (
-                                                            <div className="flex-1 flex flex-col items-center pt-10 text-center px-6">
-                                                                <div className="w-10 h-10 rounded-full bg-slate-50 dark:bg-slate-900/50 flex items-center justify-center mb-4">
-                                                                    <CircleDashed className="w-5 h-5 text-slate-300 dark:text-slate-500" />
-                                                                </div>
-                                                                <div className="text-sm font-bold text-slate-900 dark:text-white mb-1.5 leading-none">No active borrows</div>
-                                                                <div className="text-[11px] text-slate-500 dark:text-slate-400 max-w-45 leading-tight">Assets you borrow on this network will appear here.</div>
-                                                            </div>
-                                                        )
-                                                    )}
-                                                    {/* Fill space if supplies column is taller */}
-                                                    {chain.borrows.length > 0 && chain.borrows.length < chain.supplies.length && (
-                                                        <div className="flex-1" />
-                                                    )}
-                                                </div>
-                                            </div>
+                                        return (chain.marketAssets || []).some(
+                                            (asset: any) => asset.canBeDebtSwapDestination &&
+                                                (asset.address || asset.underlyingAsset || '').toLowerCase() !== borrowAddr
                                         );
-                                    })()}
-                                </div>
+                                    };
+
+                                    return (
+                                        <>
+                                            <div className="md:hidden space-y-4">
+                                                <div>
+                                                    <PositionSectionHeader
+                                                        title="Supplies"
+                                                        icon={<ArrowUpRight className="w-3 h-3 text-emerald-500" />}
+                                                        actions={supplyActions}
+                                                        className="px-3"
+                                                    />
+                                                    <div className="border-t border-slate-200 divide-y divide-slate-200 dark:border-slate-700/80 dark:divide-slate-700/80">
+                                                        {chain.supplies.map((supply) => (
+                                                            <PositionAssetRow
+                                                                key={`mobile-supply-${supply.underlyingAsset}`}
+                                                                asset={supply}
+                                                                className="bg-white px-3 py-2.5 transition-colors duration-200 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-800"
+                                                                actions={(
+                                                                    <div className="flex items-center gap-4 shrink-0 px-2">
+                                                                        <CollateralControl
+                                                                            checked={supply.usageAsCollateralEnabledOnUser}
+                                                                            onChange={() => handleOpenToggleCollateral(chain.marketKey, supply, supplyToggleSummary(), chain.supplies, chain.marketAssets)}
+                                                                        />
+                                                                        <PositionSwapButton onClick={() => handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true)} />
+                                                                    </div>
+                                                                )}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                </div>
+
+                                                {chain.borrows.length > 0 && (
+                                                    <div>
+                                                        <PositionSectionHeader
+                                                            title="Borrows"
+                                                            icon={<ArrowDownRight className="w-3 h-3 text-primary" />}
+                                                            actions={borrowActions}
+                                                            eMode={<EModeBadge chain={chain} />}
+                                                            className="px-3"
+                                                        />
+                                                        <div className="border-t border-slate-200 divide-y divide-slate-200 dark:border-slate-700/80 dark:divide-slate-700/80">
+                                                            {chain.borrows.map((borrow) => (
+                                                                <PositionAssetRow
+                                                                    key={`mobile-borrow-${borrow.underlyingAsset}`}
+                                                                    asset={borrow}
+                                                                    className="bg-white px-3 py-2.5 transition-colors duration-200 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-800"
+                                                                    actions={(
+                                                                        <PositionSwapButton
+                                                                            enabled={borrowHasAlternatives(borrow)}
+                                                                            onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
+                                                                        />
+                                                                    )}
+                                                                />
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            <div className="hidden md:block">
+                                                <div className="grid grid-cols-2 gap-6 mb-2">
+                                                    <PositionSectionHeader
+                                                        title="Supplies"
+                                                        icon={<ArrowUpRight className="w-3 h-3 text-emerald-500" />}
+                                                        actions={supplyActions}
+                                                        className="px-1"
+                                                    />
+                                                    <PositionSectionHeader
+                                                        title="Borrows"
+                                                        icon={<ArrowDownRight className="w-3 h-3 text-primary" />}
+                                                        actions={borrowActions}
+                                                        eMode={<EModeBadge chain={chain} />}
+                                                        className="px-1"
+                                                    />
+                                                </div>
+                                                {(() => {
+                                                    const maxLen = Math.max(chain.supplies.length, chain.borrows.length, 1);
+
+                                                    return (
+                                                        <div className="grid grid-cols-[1fr_auto_1fr] -mx-4 border-x border-t border-b border-slate-200 dark:border-slate-700/80 bg-white dark:bg-[#131d2f] transition-colors duration-200">
+                                                            {/* Supplies Column */}
+                                                            <div className="flex flex-col">
+                                                                {chain.supplies.map((supply, index) => {
+                                                                    const isAtBottom = index === maxLen - 1;
+
+                                                                    return (
+                                                                        <PositionAssetRow
+                                                                            key={`${chain.marketKey}-supply-${index}`}
+                                                                            asset={supply}
+                                                                            className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}
+                                                                            actions={(
+                                                                                <div className="flex items-center gap-5 shrink-0">
+                                                                                    <CollateralControl
+                                                                                        checked={supply.usageAsCollateralEnabledOnUser}
+                                                                                        onChange={() => handleOpenToggleCollateral(chain.marketKey, supply, supplyToggleSummary(), chain.supplies, chain.marketAssets)}
+                                                                                    />
+                                                                                    <PositionSwapButton compactIcon onClick={() => handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true)} />
+                                                                                </div>
+                                                                            )}
+                                                                        />
+                                                                    );
+                                                                })}
+                                                                {/* Fill space if borrows column is taller */}
+                                                                {chain.supplies.length < chain.borrows.length && (
+                                                                    <div className="flex-1" />
+                                                                )}
+                                                            </div>
+
+                                                            {/* Row Divider */}
+                                                            <div className="w-px self-stretch bg-slate-200/60 dark:bg-slate-600/40" />
+
+                                                            {/* Borrows Column */}
+                                                            <div className="flex flex-col">
+                                                                {chain.borrows.length > 0 ? (
+                                                                    chain.borrows.map((borrow, index) => {
+                                                                        const isAtBottom = index === maxLen - 1;
+
+                                                                        return (
+                                                                            <PositionAssetRow
+                                                                                key={`${chain.marketKey}-borrow-${index}`}
+                                                                                asset={borrow}
+                                                                                className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}
+                                                                                actions={(
+                                                                                    <div className="flex items-center gap-2">
+                                                                                        <PositionSwapButton
+                                                                                            enabled={borrowHasAlternatives(borrow)}
+                                                                                            onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
+                                                                                        />
+                                                                                    </div>
+                                                                                )}
+                                                                            />
+                                                                        );
+                                                                    })
+                                                                ) : (
+                                                                    <EmptyBorrowsState compact={chain.supplies.length <= 2} />
+                                                                )}
+                                                                {/* Fill space if supplies column is taller */}
+                                                                {chain.borrows.length > 0 && chain.borrows.length < chain.supplies.length && (
+                                                                    <div className="flex-1" />
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    );
+                                                })()}
+                                            </div>
+                                        </>
+                                    );
+                                })()}
                             </div>
                         </div>
                     )}
@@ -981,17 +1084,16 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                     )}
                                 </div>
                                 <span className="text-sm italic text-slate-400 ml-1 truncate">{emptyMarketsTitle}</span>
-                                <Button
-                                    size="sm"
-                                    variant="outline"
-                                    className={`${positionActionButtonBase} ${positionActionButtonDesktop} ml-1 text-emerald-600 dark:text-emerald-400`}
+                                <button
+                                    type="button"
+                                    className="ml-1 inline-flex max-w-56 shrink truncate text-[11px] font-bold text-emerald-600 transition-colors hover:text-emerald-700 hover:underline dark:text-emerald-400 dark:hover:text-emerald-300 sm:text-xs"
                                     onClick={(event) => {
                                         event.stopPropagation();
                                         setOpenEmptyChains(!openEmptyChains);
                                     }}
                                 >
                                     {emptyMarketsAction}
-                                </Button>
+                                </button>
                             </div>
                             <div className="flex shrink-0 items-center">
                                 {openEmptyChains ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
@@ -999,32 +1101,37 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                         </div>
                     </div>
                     {openEmptyChains && (
-                        <div className="border-t border-border-light dark:border-border-dark divide-y divide-slate-200 dark:divide-slate-700/80">
-                            {emptyChains.map((chain) => (
-                                <div key={chain.marketKey} className="flex items-center justify-between gap-3 px-4 py-3">
-                                    <div className="flex min-w-0 items-center gap-2">
-                                        {chain.icon && (
-                                            <img
-                                                src={chain.icon}
-                                                alt={chain.label}
-                                                className={getEmptyChainIconClass(chain.marketKey, 'list')}
-                                            />
-                                        )}
-                                        <span className="truncate text-xs font-medium text-slate-500 dark:text-slate-400">{chain.label}</span>
-                                    </div>
-                                    <Button
-                                        size="sm"
-                                        variant="outline"
-                                        className={`${positionActionButtonBase} ${positionActionButtonMobile} shrink-0 text-emerald-600 dark:text-emerald-400`}
+                        <div className="border-t border-border-light dark:border-border-dark p-3">
+                            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+                                {emptyChains.map((chain) => (
+                                    <button
+                                        key={chain.marketKey}
+                                        type="button"
+                                        className="group flex min-w-0 items-center gap-2 rounded-xl border border-slate-200 bg-slate-50/80 px-3 py-2 text-left transition-all hover:border-emerald-400/50 hover:bg-emerald-50/70 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-400/30 dark:border-slate-700/70 dark:bg-slate-900/35 dark:hover:border-emerald-400/40 dark:hover:bg-emerald-500/10"
                                         onClick={(event) => {
                                             event.stopPropagation();
                                             handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
                                         }}
                                     >
-                                        Supply
-                                    </Button>
-                                </div>
-                            ))}
+                                        {chain.icon && (
+                                            <img
+                                                src={chain.icon}
+                                                alt={chain.label}
+                                                className={getEmptyChainIconClass(chain.marketKey, 'list')}
+                                                onError={(event) => (event.currentTarget.style.display = 'none')}
+                                            />
+                                        )}
+                                        <span className="min-w-0">
+                                            <span className="block truncate text-xs font-bold text-slate-600 transition-colors group-hover:text-emerald-700 dark:text-slate-300 dark:group-hover:text-emerald-300">
+                                                {chain.label}
+                                            </span>
+                                            <span className="block truncate text-[10px] font-medium text-slate-400 transition-colors group-hover:text-emerald-600 dark:text-slate-500 dark:group-hover:text-emerald-400">
+                                                Supply assets
+                                            </span>
+                                        </span>
+                                    </button>
+                                ))}
+                            </div>
                         </div>
                     )}
                 </Card>
@@ -1077,7 +1184,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                         marketAssets={supplyModal.marketAssets}
                         walletAddress={walletAddress}
                         summary={supplyModal.summary}
-                        onSuccess={() => refresh(true)}
+                        onSuccess={schedulePostTransactionRefresh}
                     />
                 )}
 
@@ -1092,7 +1199,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                         supplies={withdrawModal.supplies}
                         walletAddress={walletAddress}
                         summary={withdrawModal.summary}
-                        onSuccess={() => refresh(true)}
+                        onSuccess={schedulePostTransactionRefresh}
                     />
                 )}
 
@@ -1105,7 +1212,23 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                         marketAssets={borrowModal.marketAssets}
                         walletAddress={walletAddress}
                         summary={borrowModal.summary}
-                        onSuccess={() => refresh(true)}
+                        onSuccess={schedulePostTransactionRefresh}
+                    />
+                )}
+
+                {repayModal.open && (
+                    <RepayModal
+                        isOpen={repayModal.open}
+                        onClose={() => setRepayModal(prev => ({ ...prev, open: false }))}
+                        initialAsset={repayModal.asset}
+                        marketKey={repayModal.marketKey}
+                        chainId={repayModal.chainId}
+                        marketAssets={repayModal.marketAssets}
+                        walletAddress={walletAddress}
+                        summary={repayModal.summary}
+                        supplies={repayModal.supplies}
+                        borrows={repayModal.borrows}
+                        onSuccess={schedulePostTransactionRefresh}
                     />
                 )}
 
@@ -1119,7 +1242,7 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                         summary={toggleModal.summary}
                         supplies={toggleModal.supplies}
                         marketAssets={toggleModal.marketAssets}
-                        onSuccess={() => refresh(true)}
+                        onSuccess={schedulePostTransactionRefresh}
                         onSwitchAsset={(newAsset) => {
                             handleOpenToggleCollateral(toggleModal.marketKey!, newAsset, toggleModal.summary, toggleModal.supplies, toggleModal.marketAssets);
                         }}

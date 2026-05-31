@@ -6,7 +6,7 @@ import {
     RefreshCw,
     ArrowRightLeft,
 } from 'lucide-react';
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { getAddress, parseAbi, formatUnits, parseUnits } from 'viem';
 import { useWeb3 } from '../contexts/web3-context';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
@@ -217,6 +217,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     const [aTokenBalance, setATokenBalance] = useState<bigint>(0n); // Balance of aToken
     const [allowance, setAllowance] = useState<bigint>(0n); // Standard allowance of aToken/token depending on mode
     const [isLoading, setIsLoading] = useState(false);
+    const [isFetchingBalances, setIsFetchingBalances] = useState(false);
     const [isSuccess, setIsSuccess] = useState(false);
     const [errorText, setErrorText] = useState<string | null>(null);
     const [isUSDMode, setIsUSDMode] = useState(false);
@@ -236,9 +237,23 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     const [sourceSelectorOpen, setSourceSelectorOpen] = useState(false);
     const [isQuoteLoading, setIsQuoteLoading] = useState(false);
     const [swapQuote, setSwapQuote] = useState<any>(null);
+    const [lockedSwapQuote, setLockedSwapQuote] = useState<any>(null);
+    const quoteLockedRef = useRef(false);
+    const optimisticAllowanceSpenderRef = useRef<string | null>(null);
     const [slippage, setSlippage] = useState<number>(0.5); // 0.5% default
     const [invertRate, setInvertRate] = useState(false);
     const [nextRefreshIn, setNextRefreshIn] = useState(30);
+
+    const lockSwapQuote = useCallback((quote: any) => {
+        quoteLockedRef.current = !!quote;
+        setIsQuoteLoading(false);
+        setLockedSwapQuote(quote);
+    }, []);
+
+    const clearLockedSwapQuote = useCallback(() => {
+        quoteLockedRef.current = false;
+        setLockedSwapQuote(null);
+    }, []);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -248,10 +263,12 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         setWithdrawAmount(0n);
         setIsMaxWithdrawSelected(false);
         setSwapQuote(null);
+        optimisticAllowanceSpenderRef.current = null;
+        clearLockedSwapQuote();
         setErrorText(null);
         setIsUSDMode(false);
         setRiskAccepted(false);
-    }, [isOpen, defaultWithdrawAsset]);
+    }, [clearLockedSwapQuote, isOpen, defaultWithdrawAsset]);
 
     useEffect(() => {
         if (!isOpen || typeof window === 'undefined') return;
@@ -336,6 +353,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         }).filter((token) => {
             const address = getAssetAddress(token);
             if (!address || address === sourceAddress || seen.has(address)) return false;
+            if (address === NATIVE_TOKEN_ADDRESS) return false;
             if (token.isActive === false) return false;
             if (!token.isCustom && (protocolTokenAddresses.has(address) || isProtocolTokenCandidate(token))) return false;
 
@@ -410,6 +428,12 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             setTargetToken(swappableTokens[0]);
         }
     }, [isOpen, swappableTokens, targetToken]);
+
+    useEffect(() => {
+        if (!isLoading) {
+            clearLockedSwapQuote();
+        }
+    }, [activeTab, clearLockedSwapQuote, initialAsset, isLoading, slippage, targetToken, withdrawAmount]);
 
     useEffect(() => {
         let cancelled = false;
@@ -492,6 +516,8 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     const fetchBalances = useCallback(async () => {
         if (!walletAddress || !publicClient || !initialAsset) return;
 
+        setIsFetchingBalances(true);
+
         try {
             // Fetch supplied balance from position info
             const amtStr = initialAsset.formattedAmount || initialAsset.amount || '0';
@@ -521,7 +547,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 allowanceSpender = getAddress(withdrawSwapAdapterAddress);
             }
 
-            if (allowanceSpender && withdrawAmount > 0n) {
+            if (allowanceSpender) {
                 allowanceIndex = contracts.length;
                 contracts.push({
                     address: aToken,
@@ -529,8 +555,6 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                     functionName: 'allowance',
                     args: [account, allowanceSpender],
                 });
-            } else if (allowanceSpender) {
-                setAllowance(0n);
             }
 
             const results = await publicClient.multicall({
@@ -545,23 +569,41 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
 
             if (allowanceIndex >= 0) {
                 const allowanceResult = results[allowanceIndex];
-                setAllowance(allowanceResult?.status === 'success' && typeof allowanceResult.result === 'bigint'
+                const nextAllowance = allowanceResult?.status === 'success' && typeof allowanceResult.result === 'bigint'
                     ? allowanceResult.result
-                    : 0n);
+                    : 0n;
+                const isOptimisticSpender = !!allowanceSpender
+                    && optimisticAllowanceSpenderRef.current === allowanceSpender.toLowerCase();
+
+                setAllowance((currentAllowance) => (
+                    isOptimisticSpender && currentAllowance >= MAX_UINT256 && nextAllowance < currentAllowance
+                        ? currentAllowance
+                        : nextAllowance
+                ));
             }
         } catch (err) {
             console.error('Error fetching balances/allowances:', err);
+        } finally {
+            setIsFetchingBalances(false);
         }
-    }, [walletAddress, publicClient, initialAsset, aTokenAddress, activeTab, isWrappedNative, isNativeSelected, gatewayAddress, withdrawAmount, withdrawSwapAdapterAddress]);
+    }, [walletAddress, publicClient, initialAsset, aTokenAddress, activeTab, isWrappedNative, isNativeSelected, gatewayAddress, withdrawSwapAdapterAddress]);
 
     useEffect(() => {
         if (isOpen && initialAsset) {
             void fetchBalances();
         }
-    }, [isOpen, initialAsset, activeTab, isNativeSelected, withdrawAmount, fetchBalances]);
+    }, [isOpen, initialAsset, activeTab, isNativeSelected, fetchBalances]);
 
-    const maxWithdrawAmount = useMemo(() => {
-        if (!initialAsset || balance === 0n) return 0n;
+    const withdrawLimits = useMemo(() => {
+        const emptyLimits = {
+            maxByBalance: balance,
+            maxByLiquidity: balance,
+            maxByHealthFactor: balance,
+            maxWithdrawAmount: balance,
+            limitReason: null as 'balance' | 'liquidity' | 'health-factor' | null,
+        };
+
+        if (!initialAsset || balance === 0n) return emptyLimits;
 
         const decimals = initialAsset.decimals || 18;
         const tokenBalance = parseFiniteNumber(formatUnits(balance, decimals));
@@ -581,16 +623,40 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             maxByLiquidity = parseUnits(Math.max(0, liquidity).toFixed(decimals), decimals);
         }
 
+        const dustTolerance = 10n ** BigInt(Math.max(0, decimals - 9));
+        if (balance > maxByLiquidity && balance - maxByLiquidity <= dustTolerance) {
+            maxByLiquidity = balance;
+        }
+
         let maxByHealthFactor = balance;
-        if (isCollateral && totalDebt > 0 && tokenPrice > 0) {
+        if (isCollateral && totalDebt > 0 && tokenPrice > 0 && assetLT > 0) {
             const excessHF = currentHF - MIN_HEALTH_FACTOR_AFTER_WITHDRAW;
             const maxWithdrawUSD = excessHF > 0 ? (excessHF * totalDebt) / assetLT : 0;
             const maxWithdrawTokens = Math.min(tokenBalance, Math.max(0, maxWithdrawUSD / tokenPrice));
             maxByHealthFactor = parseUnits(maxWithdrawTokens.toFixed(decimals), decimals);
         }
 
-        return [balance, maxByLiquidity, maxByHealthFactor].reduce((min, value) => value < min ? value : min, balance);
+        const maxWithdrawAmount = [balance, maxByLiquidity, maxByHealthFactor].reduce((min, value) => value < min ? value : min, balance);
+        let limitReason: 'balance' | 'liquidity' | 'health-factor' | null = null;
+
+        if (maxWithdrawAmount < balance) {
+            if (maxWithdrawAmount === maxByHealthFactor) {
+                limitReason = 'health-factor';
+            } else if (maxWithdrawAmount === maxByLiquidity) {
+                limitReason = 'liquidity';
+            }
+        }
+
+        return {
+            maxByBalance: balance,
+            maxByLiquidity,
+            maxByHealthFactor,
+            maxWithdrawAmount,
+            limitReason,
+        };
     }, [balance, initialAsset, summary]);
+
+    const maxWithdrawAmount = withdrawLimits.maxWithdrawAmount;
 
     const isFullBalanceMaxSelected = isMaxWithdrawSelected
         && aTokenBalance > 0n
@@ -598,6 +664,13 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     const isWithdrawOverMax = withdrawAmount > 0n
         && withdrawAmount > maxWithdrawAmount
         && !isFullBalanceMaxSelected;
+    const withdrawLimitReason = withdrawAmount > balance
+        ? 'balance'
+        : isWithdrawOverMax
+            ? withdrawLimits.limitReason
+            : null;
+    const isLimitStateSettling = isFetchingBalances || (activeTab === 'swap' && isMaxWithdrawSelected && isQuoteLoading && !swapQuote);
+    const shouldShowWithdrawLimitWarning = isWithdrawOverMax && !isLimitStateSettling && !isMaxWithdrawSelected;
 
     const fetchCurrentATokenBalance = useCallback(async () => {
         if (!walletAddress || !publicClient || !aTokenAddress) {
@@ -680,14 +753,50 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         }
     };
 
+    useEffect(() => {
+        if (
+            !isMaxWithdrawSelected ||
+            !initialAsset ||
+            maxWithdrawAmount === 0n ||
+            withdrawAmount === maxWithdrawAmount
+        ) {
+            return;
+        }
+
+        const decimals = initialAsset.decimals || 18;
+        const tokenAmount = formatUnits(maxWithdrawAmount, decimals);
+
+        setWithdrawAmount(maxWithdrawAmount);
+
+        if (isUSDMode) {
+            const price = parseFloat(initialAsset.priceInUSD || '0');
+            const usdAmount = parseFloat(tokenAmount) * price;
+            setInputValue(Number.isFinite(usdAmount) ? usdAmount.toFixed(2) : '');
+        } else {
+            setInputValue(tokenAmount);
+        }
+    }, [
+        initialAsset,
+        isMaxWithdrawSelected,
+        isUSDMode,
+        maxWithdrawAmount,
+        withdrawAmount,
+    ]);
+
     // Fetch quote for Withdraw & Swap
-    const fetchQuoteData = useCallback(async () => {
-        if (isLoading) {
+    const fetchQuoteData = useCallback(async (force = false) => {
+        if (isLoading || (quoteLockedRef.current && !force)) {
             return;
         }
 
         if (activeTab !== 'swap' || !initialAsset || !targetToken || withdrawAmount === 0n || !withdrawSwapAdapterAddress) {
             setSwapQuote(null);
+            return;
+        }
+
+        if (getAssetAddress(targetToken) === NATIVE_TOKEN_ADDRESS) {
+            setSwapQuote(null);
+            setErrorText(`${nativeInfo.native} output is not available for Withdraw & Swap yet. Choose ${nativeInfo.wrapped} instead.`);
             return;
         }
 
@@ -713,14 +822,24 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 marketKey,
             });
 
+            if (quoteLockedRef.current && !force) {
+                return;
+            }
+
             setSwapQuote(quote);
         } catch (err: any) {
+            if (quoteLockedRef.current && !force) {
+                return;
+            }
+
             setSwapQuote(null);
             setErrorText(err.message || 'Failed to fetch withdraw swap quote');
         } finally {
-            setIsQuoteLoading(false);
+            if (!quoteLockedRef.current || force) {
+                setIsQuoteLoading(false);
+            }
         }
-    }, [activeTab, initialAsset, isLoading, targetToken, withdrawAmount, withdrawSwapAdapterAddress, chainId, walletAddress, marketKey]);
+    }, [activeTab, chainId, initialAsset, isLoading, marketKey, nativeInfo.native, nativeInfo.wrapped, targetToken, walletAddress, withdrawAmount, withdrawSwapAdapterAddress]);
 
     useEffect(() => {
         const timer = setTimeout(() => {
@@ -730,7 +849,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     }, [withdrawAmount, targetToken, activeTab, fetchQuoteData]);
 
     useEffect(() => {
-        if (activeTab !== 'swap' || withdrawAmount === 0n || !swapQuote || isQuoteLoading) {
+        if (activeTab !== 'swap' || withdrawAmount === 0n || !swapQuote || isQuoteLoading || lockedSwapQuote) {
             setNextRefreshIn(30);
             return;
         }
@@ -748,7 +867,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         }, 1000);
 
         return () => clearInterval(interval);
-    }, [activeTab, fetchQuoteData, isQuoteLoading, swapQuote, withdrawAmount]);
+    }, [activeTab, fetchQuoteData, isQuoteLoading, lockedSwapQuote, swapQuote, withdrawAmount]);
 
     // HF Simulation
     const simulation = useMemo(() => {
@@ -840,6 +959,10 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             return;
         }
 
+        if (activeTab === 'swap') {
+            lockSwapQuote(lockedQuote);
+        }
+
         setIsLoading(true);
         setErrorText(null);
 
@@ -857,7 +980,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 address: getAddress(aTokenAddress),
                 abi: parseAbi(ABIS.ERC20),
                 functionName: 'approve',
-                args: [getAddress(spender), 2n ** 256n - 1n],
+                args: [getAddress(spender), MAX_UINT256],
             });
 
             addTransaction({
@@ -865,17 +988,19 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 chainId,
                 description: `Approve ${initialAsset.symbol} receipt for ${activeTab === 'withdraw' ? 'Gateway' : 'Swap Adapter'}`,
                 marketKey: marketKey || selectedNetwork.key,
+                suppressPositionRefresh: true,
             });
 
             if (publicClient) {
                 await publicClient.waitForTransactionReceipt({ hash: txHash });
             }
-            await fetchBalances();
 
-            if (activeTab === 'swap') {
-                await handleConfirm(lockedQuote);
-            }
+            optimisticAllowanceSpenderRef.current = getAddress(spender).toLowerCase();
+            setAllowance(MAX_UINT256);
+
+            await handleConfirm(lockedQuote);
         } catch (err: any) {
+            clearLockedSwapQuote();
             setErrorText(err.shortMessage || err.message || 'Approval failed');
         } finally {
             setIsLoading(false);
@@ -884,11 +1009,16 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
 
     const handleConfirm = async (lockedQuote?: any) => {
         if (!walletClient || !initialAsset || !poolAddress || withdrawAmount === 0n || isWithdrawBlocked) return;
-        const quoteForExecution = activeTab === 'swap' ? (lockedQuote || swapQuote) : null;
+        const quoteForExecution = activeTab === 'swap' ? (lockedQuote || lockedSwapQuote || swapQuote) : null;
+        const hasLockedQuoteForExecution = activeTab === 'swap' && !!(lockedQuote || lockedSwapQuote);
 
-        if (activeTab === 'swap' && (!quoteForExecution || isQuoteLoading)) {
+        if (activeTab === 'swap' && (!quoteForExecution || (!hasLockedQuoteForExecution && isQuoteLoading))) {
             setErrorText('Wait for the quote to finish before confirming.');
             return;
+        }
+
+        if (activeTab === 'swap' && quoteForExecution) {
+            lockSwapQuote(quoteForExecution);
         }
 
         setIsLoading(true);
@@ -939,31 +1069,16 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
             } else {
                 // Withdraw & Swap route
                 if (!withdrawSwapAdapterAddress || !quoteForExecution) throw new Error('Withdraw Swap parameters missing');
+                if (getAssetAddress(targetToken) === NATIVE_TOKEN_ADDRESS) {
+                    throw new Error(`${nativeInfo.native} output is not available for Withdraw & Swap yet. Choose ${nativeInfo.wrapped} instead.`);
+                }
 
                 const isMax = isFullBalanceMaxSelected;
                 const freshATokenBalance = isMax
                     ? await fetchCurrentATokenBalance()
                     : null;
                 const quoteAmount = freshATokenBalance ?? withdrawAmount;
-                const latestQuote = isMax
-                    ? await getWithdrawSwapQuote({
-                        fromToken: {
-                            address: getAddress(initialAsset.underlyingAsset || initialAsset.address),
-                            decimals: initialAsset.decimals,
-                            symbol: initialAsset.symbol,
-                        },
-                        toToken: {
-                            address: getAddress(targetToken.underlyingAsset || targetToken.address),
-                            decimals: targetToken.decimals,
-                            symbol: targetToken.symbol,
-                        },
-                        srcAmount: quoteAmount.toString(),
-                        adapterAddress: getAddress(withdrawSwapAdapterAddress),
-                        chainId,
-                        walletAddress,
-                        marketKey,
-                    })
-                    : quoteForExecution;
+                const latestQuote = quoteForExecution;
 
                 // Build swap transaction calldata
                 const txData = await buildWithdrawSwapTx({
@@ -1028,8 +1143,10 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 setInputValue('');
                 setWithdrawAmount(0n);
                 setIsMaxWithdrawSelected(false);
+                clearLockedSwapQuote();
             }, 2000);
         } catch (err: any) {
+            clearLockedSwapQuote();
             setErrorText(err.shortMessage || err.message || 'Withdrawal failed');
         } finally {
             setIsLoading(false);
@@ -1320,12 +1437,16 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                             secondaryValue={sourceSecondaryValue}
                             displaySymbol={withdrawToken?.symbol}
                             disabled={isLoading}
-                            isError={withdrawAmount > balance || isWithdrawOverMax}
+                            isError={shouldShowWithdrawLimitWarning}
                         />
 
-                        {isWithdrawOverMax && initialAsset && (
+                        {shouldShowWithdrawLimitWarning && initialAsset && (
                             <div className="px-1 text-xs font-medium text-amber-500">
-                                You can withdraw up to {formatCompactNumber(formatUnits(maxWithdrawAmount, initialAsset.decimals || 18))} {initialAsset.symbol} while keeping Health Factor above {MIN_HEALTH_FACTOR_AFTER_WITHDRAW.toFixed(2)}.
+                                {withdrawLimitReason === 'health-factor'
+                                    ? `You can withdraw up to ${formatCompactNumber(formatUnits(maxWithdrawAmount, initialAsset.decimals || 18))} ${initialAsset.symbol} while keeping Health Factor above ${MIN_HEALTH_FACTOR_AFTER_WITHDRAW.toFixed(2)}.`
+                                    : withdrawLimitReason === 'liquidity'
+                                        ? 'Available protocol liquidity is lower than your supplied balance.'
+                                        : 'Amount exceeds your supplied balance.'}
                             </div>
                         )}
 
@@ -1350,17 +1471,20 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                                             <button
                                                 type="button"
                                                 onClick={() => {
-                                                    void fetchQuoteData();
+                                                    clearLockedSwapQuote();
+                                                    void fetchQuoteData(true);
                                                     setNextRefreshIn(30);
                                                 }}
                                                 className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors"
                                                 title="Refresh quote"
-                                                disabled={isQuoteLoading}
+                                                disabled={isQuoteLoading || isLoading}
                                             >
                                                 <RefreshCw className={`w-3 h-3 ${isQuoteLoading ? 'animate-spin' : ''}`} />
                                             </button>
                                             {isQuoteLoading || !swapQuote ? (
                                                 'Loading quote...'
+                                            ) : lockedSwapQuote ? (
+                                                'Quote locked'
                                             ) : (
                                                 `Auto refresh in ${nextRefreshIn}s`
                                             )}
@@ -1630,8 +1754,10 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                                     {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
                                     {!isSwapQuoteReady
                                         ? 'Getting quote...'
-                                        : isWithdrawOverMax
-                                            ? 'Amount exceeds available'
+                                        : shouldShowWithdrawLimitWarning
+                                            ? withdrawLimitReason === 'health-factor'
+                                                ? 'Unsafe Health Factor'
+                                                : 'Amount exceeds available'
                                             : simulation?.isDanger
                                                 ? 'Unsafe Health Factor'
                                                 : requiresRiskAcceptance && !riskAccepted
@@ -1649,8 +1775,10 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                                     {isLoading ? <RefreshCw className="w-4 h-4 animate-spin" /> : null}
                                     {!isSwapQuoteReady
                                         ? 'Getting quote...'
-                                        : isWithdrawOverMax
-                                            ? 'Amount exceeds available'
+                                        : shouldShowWithdrawLimitWarning
+                                            ? withdrawLimitReason === 'health-factor'
+                                                ? 'Unsafe Health Factor'
+                                                : 'Amount exceeds available'
                                             : simulation?.isDanger
                                                 ? 'Unsafe Health Factor'
                                                 : requiresRiskAcceptance && !riskAccepted

@@ -230,7 +230,7 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
                 const isWrappedNative =
                     !!gatewayAddress &&
                     String(token.symbol || '').toUpperCase() ===
-                        nativeInfo.wrapped.toUpperCase();
+                    nativeInfo.wrapped.toUpperCase();
 
                 if (!isWrappedNative) {
                     return {
@@ -267,9 +267,9 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
         () =>
             selectedToken
                 ? {
-                      ...selectedToken,
-                      symbol: displaySymbol,
-                  }
+                    ...selectedToken,
+                    symbol: displaySymbol,
+                }
                 : null,
         [displaySymbol, selectedToken],
     );
@@ -322,7 +322,7 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
                 return (
                     !token.isNativeBorrowAsset &&
                     getTokenAddress(token)?.toLowerCase() ===
-                        selectedAddress?.toLowerCase()
+                    selectedAddress?.toLowerCase()
                 );
             });
 
@@ -860,6 +860,7 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
                     chainId,
                     description: `Approve credit delegation for ${lockedToken.symbol}`,
                     marketKey: marketKey || selectedNetwork.key,
+                    suppressPositionRefresh: true,
                 });
 
                 if (publicClient) {
@@ -969,9 +970,9 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
                                 formattedBalance={
                                     selectedToken
                                         ? formatUnits(
-                                              maxBorrowAmount,
-                                              selectedToken.decimals || 18,
-                                          )
+                                            maxBorrowAmount,
+                                            selectedToken.decimals || 18,
+                                        )
                                         : '0'
                                 }
                                 balanceLabel="Available"
@@ -1026,8 +1027,8 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
                                             <span className="font-medium">
                                                 {estimatedGasCostUSD != null
                                                     ? formatUSD(
-                                                          estimatedGasCostUSD,
-                                                      )
+                                                        estimatedGasCostUSD,
+                                                    )
                                                     : '--'}
                                             </span>
                                             {showTransactionOverview ? (
@@ -1051,8 +1052,8 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
                                                 <span className="font-medium text-slate-600 dark:text-slate-300">
                                                     {estimatedGasCostUSD != null
                                                         ? formatUSD(
-                                                              estimatedGasCostUSD,
-                                                          )
+                                                            estimatedGasCostUSD,
+                                                        )
                                                         : '--'}
                                                 </span>
                                             </div>

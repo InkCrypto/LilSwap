@@ -399,9 +399,9 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                     setInputValue(
                         isUSDMode
                             ? formatPlainAmount(
-                                  maxTokenAmount * selectedPrice,
-                                  2,
-                              )
+                                maxTokenAmount * selectedPrice,
+                                2,
+                            )
                             : formatUnits(maxSupplyAmount, decimals),
                     );
 
@@ -519,7 +519,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
         const addedUSD = amountAsToken * selectedPrice;
         let assetLT = parseFiniteNumber(
             selectedToken.reserveLiquidationThreshold ||
-                selectedToken.baseLTVasCollateral,
+            selectedToken.baseLTVasCollateral,
         );
 
         if (assetLT > 1) {
@@ -607,8 +607,8 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                         supplyAmount > 0n
                             ? supplyAmount
                             : balance > 1n
-                              ? 1n
-                              : balance;
+                                ? 1n
+                                : balance;
 
                     if (estimateValue === 0n) {
                         setNativeGasReserve(0n);
@@ -648,11 +648,11 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                             String(token.symbol || '').toUpperCase() ===
                             nativeInfo.wrapped.toUpperCase(),
                     )?.priceInUSD ??
-                        marketAssets.find(
-                            (token) =>
-                                String(token.symbol || '').toUpperCase() ===
-                                'WETH',
-                        )?.priceInUSD,
+                    marketAssets.find(
+                        (token) =>
+                            String(token.symbol || '').toUpperCase() ===
+                            'WETH',
+                    )?.priceInUSD,
                 );
 
                 if (!cancelled) {
@@ -677,8 +677,8 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                             if (!cancelled) {
                                 setNativeGasReserve(
                                     FALLBACK_NATIVE_SUPPLY_GAS *
-                                        fallbackGasPrice *
-                                        GAS_TOKEN_RESERVE_MULTIPLIER,
+                                    fallbackGasPrice *
+                                    GAS_TOKEN_RESERVE_MULTIPLIER,
                                 );
                             }
                         } catch {
@@ -903,6 +903,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                     chainId,
                     description: `Approve ${lockedToken.symbol} for Aave Pool`,
                     marketKey: marketKey || selectedNetwork.key,
+                    suppressPositionRefresh: true,
                 });
 
                 if (publicClient) {
@@ -979,8 +980,8 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                 ) : (
                     <>
                         {walletBalanceTokens.length === 0 &&
-                        hasLoadedWalletBalances &&
-                        !isLoadingWalletBalances ? (
+                            hasLoadedWalletBalances &&
+                            !isLoadingWalletBalances ? (
                             <div className="space-y-3">
                                 <div className="rounded-xl border border-slate-200/70 bg-slate-50 p-4 text-sm font-medium text-slate-500 dark:border-slate-800/70 dark:bg-slate-900/30 dark:text-slate-400">
                                     No supported wallet balance found for this
@@ -1080,8 +1081,8 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                                             <span className="font-medium">
                                                 {estimatedGasCostUSD != null
                                                     ? formatUSD(
-                                                          estimatedGasCostUSD,
-                                                      )
+                                                        estimatedGasCostUSD,
+                                                    )
                                                     : '--'}
                                             </span>
                                             {showTransactionOverview ? (
@@ -1105,10 +1106,10 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                                                 <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
                                                     <span>
                                                         {estimatedGasCostUSD !=
-                                                        null
+                                                            null
                                                             ? formatUSD(
-                                                                  estimatedGasCostUSD,
-                                                              )
+                                                                estimatedGasCostUSD,
+                                                            )
                                                             : '--'}
                                                     </span>
                                                 </div>
@@ -1235,7 +1236,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                                                             <span
                                                                 className={
                                                                     simulation.simulatedCollateralPower >
-                                                                    simulation.currentCollateralPower
+                                                                        simulation.currentCollateralPower
                                                                         ? 'font-bold text-emerald-500'
                                                                         : 'text-slate-900 dark:text-slate-100'
                                                                 }
@@ -1264,7 +1265,7 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                                                             <span>
                                                                 {Math.round(
                                                                     simulation.currentLiquidationThreshold *
-                                                                        100,
+                                                                    100,
                                                                 )}
                                                                 %
                                                             </span>
@@ -1274,14 +1275,14 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                                                             <span
                                                                 className={
                                                                     simulation.simulatedLiquidationThreshold >
-                                                                    simulation.currentLiquidationThreshold
+                                                                        simulation.currentLiquidationThreshold
                                                                         ? 'font-bold text-emerald-500'
                                                                         : 'text-slate-900 dark:text-slate-100'
                                                                 }
                                                             >
                                                                 {Math.round(
                                                                     simulation.simulatedLiquidationThreshold *
-                                                                        100,
+                                                                    100,
                                                                 )}
                                                                 %
                                                             </span>
