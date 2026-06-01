@@ -56,7 +56,7 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
         en: 'Insufficient liquidity. Try a smaller amount.'
     },
     'INSUFFICIENT_ATOKEN_BALANCE': {
-        en: 'The executable max changed. Click Max and try again.'
+        en: 'Amount is above the executable limit for the current balance.'
     },
     'COLLATERAL_CANNOT_COVER_NEW_BORROW': {
         en: 'Aave borrow power is too low for this debt switch. Repay a small amount or add collateral before switching debt.'

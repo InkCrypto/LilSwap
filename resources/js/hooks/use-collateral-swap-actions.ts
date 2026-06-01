@@ -1,14 +1,10 @@
 import {
     getAddress,
-    formatUnits,
     parseAbi,
     parseSignature,
     zeroAddress,
-    encodeAbiParameters,
-    decodeEventLog,
     Hex,
     zeroHash,
-    parseUnits
 } from 'viem';
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { usePublicClient, useWalletClient } from 'wagmi';
@@ -27,7 +23,7 @@ interface UseCollateralSwapActionsProps {
     allowance: bigint;
     swapAmount: bigint;
     supplyBalance: bigint | null;
-    flashLoanPremiumBps?: bigint | null;
+    isMaxSwap?: boolean;
     swapQuote: any;
     slippage: number;
     addLog?: (message: string, type?: string) => void;
@@ -64,8 +60,6 @@ const EMPTY_COLLATERAL_PERMIT_PARAMS: CollateralPermitParams = {
     r: zeroHash as Hex,
     s: zeroHash as Hex,
 };
-
-const DEFAULT_FLASHLOAN_PREMIUM_BPS = 9n;
 
 const isBytes32Hex = (value: unknown): value is Hex =>
     typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value);
@@ -161,7 +155,7 @@ export const useCollateralSwapActions = ({
     allowance,
     swapAmount,
     supplyBalance,
-    flashLoanPremiumBps: providedFlashLoanPremiumBps = null,
+    isMaxSwap = false,
     swapQuote,
     slippage,
     addLog,
@@ -187,19 +181,13 @@ export const useCollateralSwapActions = ({
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isSigning, setIsSigning] = useState(false);
 
-    // Collateral swaps repay Aave's flashloan premium from the user's aToken balance.
-    const amountRequiredForAllowance = useMemo(() => {
-        if (!swapAmount) {
+    const approvalAmount = useMemo(() => {
+        try {
+            return swapQuote?.approval?.amount ? BigInt(swapQuote.approval.amount) : 0n;
+        } catch {
             return 0n;
         }
-
-        const premiumBps = swapQuote?.flashLoanPremiumBps !== undefined
-            ? BigInt(swapQuote.flashLoanPremiumBps)
-            : providedFlashLoanPremiumBps ?? DEFAULT_FLASHLOAN_PREMIUM_BPS;
-        const premium = (swapAmount * premiumBps) / 10000n;
-
-        return swapAmount + premium;
-    }, [swapAmount, swapQuote?.flashLoanPremiumBps, providedFlashLoanPremiumBps]);
+    }, [swapQuote?.approval?.amount]);
 
     const [forceRequirePermit, setForceRequirePermit] = useState(() => {
         try {
@@ -329,7 +317,7 @@ export const useCollateralSwapActions = ({
             }
 
             const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-            const value = exactAmount || (amountRequiredForAllowance + (amountRequiredForAllowance * 100n / 10000n) + 1n);
+            const value = exactAmount || approvalAmount;
 
             const domain = { name, version: '1', chainId, verifyingContract: getAddress(aTokenAddr) };
             const types = {
@@ -387,7 +375,7 @@ export const useCollateralSwapActions = ({
             }
             throw err;
         }
-    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, onSignatureCached]);
+    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, onSignatureCached, approvalAmount]);
 
     const handleApprove = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint, skipNetworkCheck?: boolean, aTokenAddressOverride?: string) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
@@ -404,18 +392,11 @@ export const useCollateralSwapActions = ({
             let aTokenAddress = aTokenAddressOverride || providedATokenAddress || fromToken?.aTokenAddress;
             
             if (!isValidATokenAddress(aTokenAddress)) {
-                addLog?.('Resolving aToken address...', 'info');
-                const tokenAddresses = await publicClient?.readContract({
-                    address: getAddress(networkAddresses.DATA_PROVIDER),
-                    abi: parseAbi(ABIS.DATA_PROVIDER),
-                    functionName: 'getReserveTokensAddresses',
-                    args: [getAddress(fromToken.address || fromToken.underlyingAsset)],
-                }) as any;
-                aTokenAddress = tokenAddresses[0] || tokenAddresses.aTokenAddress;
+                throw new Error('Unable to prepare approval token for collateral swap');
             }
 
             if (preferPermitFinal) {
-                const permitAmount = exactAmount ?? (amountRequiredForAllowance > 0n ? (amountRequiredForAllowance + (amountRequiredForAllowance * 100n / 10000n) + 1n) : 0n);
+                const permitAmount = exactAmount ?? approvalAmount;
                 const permit = await generateAndCachePermit(aTokenAddress, permitAmount);
                 return { type: 'permit', permit };
             }
@@ -474,16 +455,16 @@ export const useCollateralSwapActions = ({
             setIsSigning(false);
             setIsActionLoading(false);
         }
-    }, [walletClient, publicClient, account, fromToken, providedAdapterAddress, providedATokenAddress, networkAddresses, addLog, fetchPositionData, preferPermit, generateAndCachePermit]);
+    }, [walletClient, publicClient, account, fromToken, adapterAddress, providedATokenAddress, networkAddresses, addLog, fetchPositionData, preferPermit, generateAndCachePermit, approvalAmount]);
 
     const handleSwap = useCallback(async () => {
         setTxError(null);
         clearQuoteError?.();
         setUserRejected(false);
 
-        if (supplyBalance !== null && amountRequiredForAllowance > supplyBalance) {
-            setTxError('Amount is above the executable max. Use Max or enter a smaller amount.');
-            addLog?.('Amount is above the executable max. Use Max or enter a smaller amount.', 'error');
+        if (!isMaxSwap && supplyBalance !== null && swapAmount > supplyBalance) {
+            setTxError('Amount is above the executable limit for the current balance.');
+            addLog?.('Amount is above the executable limit for the current balance.', 'error');
             return;
         }
 
@@ -507,20 +488,12 @@ export const useCollateralSwapActions = ({
             if (!hasCorrectNetwork) return;
 
             const { priceRoute, srcAmount, fromToken: quoteFrom, toToken: quoteTo } = activeQuote;
-            const srcAmountBigInt = BigInt(srcAmount);
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
 
-            let aTokenAddr = providedATokenAddress || fromToken?.aTokenAddress || quoteFrom?.aTokenAddress;
+            let aTokenAddr = activeQuote?.approval?.token || providedATokenAddress || fromToken?.aTokenAddress || quoteFrom?.aTokenAddress;
             
             if (!isValidATokenAddress(aTokenAddr)) {
-                addLog?.('Resolving aToken address...', 'info');
-                const tokenAddresses = await publicClient?.readContract({
-                    address: getAddress(networkAddresses.DATA_PROVIDER),
-                    abi: parseAbi(ABIS.DATA_PROVIDER),
-                    functionName: 'getReserveTokensAddresses',
-                    args: [getAddress(quoteFrom.address || quoteFrom.underlyingAsset)],
-                }) as any;
-                aTokenAddr = tokenAddresses[0] || tokenAddresses.aTokenAddress;
+                throw new Error('Unable to prepare approval token for collateral swap');
             }
 
             // Trust the UI allowance provided via props to avoid redundant on-chain call
@@ -528,16 +501,16 @@ export const useCollateralSwapActions = ({
 
             const effectivePreferPermit = forceRequirePermit || preferPermit;
 
-            // Calculate required allowance incorporating Aave V3 flashloan premium.
-            const activePremiumBps = activeQuote?.flashLoanPremiumBps !== undefined
-                ? BigInt(activeQuote.flashLoanPremiumBps)
-                : providedFlashLoanPremiumBps ?? DEFAULT_FLASHLOAN_PREMIUM_BPS;
-            const activePremium = (srcAmountBigInt * activePremiumBps) / 10000n;
-            const requiredAllowance = srcAmountBigInt + activePremium;
+            const requiredAllowance = activeQuote?.approval?.amount
+                ? BigInt(activeQuote.approval.amount)
+                : approvalAmount;
+            if (requiredAllowance <= 0n) {
+                throw new Error('Unable to prepare approval amount for collateral swap');
+            }
 
-            if (supplyBalance !== null && requiredAllowance > supplyBalance) {
-                setTxError('Amount is above the executable max. Use Max or enter a smaller amount.');
-                addLog?.('Amount is above the executable max. Use Max or enter a smaller amount.', 'error');
+            if (!isMaxSwap && supplyBalance !== null && swapAmount > supplyBalance) {
+                setTxError('Amount is above the executable limit for the current balance.');
+                addLog?.('Amount is above the executable limit for the current balance.', 'error');
                 return;
             }
 
@@ -634,7 +607,7 @@ export const useCollateralSwapActions = ({
                         permitParams = await requestPermitOrApprove();
                     }
                 } else {
-                    await handleApprove(false, undefined, true, aTokenAddr);
+                    await handleApprove(false, requiredAllowance, true, aTokenAddr);
                     setIsActionLoading(true);
                     await new Promise(r => setTimeout(r, 1500));
                     fetchPositionData();
@@ -658,50 +631,9 @@ export const useCollateralSwapActions = ({
                 }
             }
 
-            addLog?.('Building secure transaction calldata...', 'warning');
-            const baseBuildParams = {
-                fromToken: { ...quoteFrom, address: getAddress(quoteFrom.address || quoteFrom.underlyingAsset) },
-                toToken: { ...quoteTo, address: getAddress(quoteTo.address || quoteTo.underlyingAsset) },
-                priceRoute,
-                adapterAddress,
-                srcAmount: srcAmount.toString(),
-                isMaxSwap: supplyBalance !== null && swapAmount >= supplyBalance,
-                slippageBps: slippage,
-                marketKey: marketKey || targetNetwork.key,
-                chainId,
-                walletAddress: account,
-            };
-
-            let txResult;
-            try {
-                txResult = await buildCollateralSwapTx(baseBuildParams);
-            } catch (buildError: any) {
-                if (String(buildError?.message || '').includes('MAX_SWAP_OFFSET_NOT_FOUND') && baseBuildParams.isMaxSwap) {
-                    addLog?.('Retrying build without max offset path...', 'info');
-                    txResult = await buildCollateralSwapTx({
-                        ...baseBuildParams,
-                        isMaxSwap: false,
-                    });
-                } else {
-                    throw buildError;
-                }
-            }
-
-            localTxId = txResult.transactionId;
-            updateCurrentTransactionId(localTxId);
-            swapDebugMeta = txResult?.debugFlags || null;
-            const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
-            logger.debug('[useCollateralSwapActions] Swap debug decision', {
-                chainId,
-                marketKey: marketKey || targetNetwork?.key,
-                account,
-                transactionId: localTxId,
-                swapDebug: swapDebugMeta,
-            });
-
             const finalPermitValidation = getPermitValidation(permitParams);
             if (!finalPermitValidation.valid || !finalPermitValidation.params) {
-                logger.warn('[useCollateralSwapActions] Blocking invalid collateral permit before encoding', {
+                logger.warn('[useCollateralSwapActions] Blocking invalid collateral permit before build', {
                     chainId,
                     token: aTokenAddr,
                     spender: adapterAddress,
@@ -713,77 +645,64 @@ export const useCollateralSwapActions = ({
                 permitParams = finalPermitValidation.params;
             }
 
-            logger.debug('[useCollateralSwapActions] Permit params encoding metadata', {
+            addLog?.('Building secure transaction calldata...', 'warning');
+            const baseBuildParams = {
+                fromToken: { ...quoteFrom, address: getAddress(quoteFrom.address || quoteFrom.underlyingAsset) },
+                toToken: { ...quoteTo, address: getAddress(quoteTo.address || quoteTo.underlyingAsset) },
+                priceRoute,
+                adapterAddress,
+                srcAmount: srcAmount.toString(),
+                isMaxSwap,
+                slippageBps: slippage,
+                marketKey: marketKey || targetNetwork.key,
                 chainId,
-                token: aTokenAddr,
-                spender: adapterAddress,
-                ...getPermitValidation(permitParams).meta,
+                walletAddress: account,
+                permitParams: {
+                    amount: permitParams.amount.toString(),
+                    deadline: permitParams.deadline.toString(),
+                    v: permitParams.v,
+                    r: permitParams.r,
+                    s: permitParams.s,
+                },
+            };
+
+            let txResult;
+            txResult = await buildCollateralSwapTx(baseBuildParams);
+
+            localTxId = txResult.transactionId;
+            updateCurrentTransactionId(localTxId);
+            swapDebugMeta = txResult?.debugFlags || null;
+            const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
+            const transactionRequest = txResult?.transactionRequest;
+            if (!transactionRequest?.to || !transactionRequest?.data) {
+                throw new Error('Backend did not return a transaction request for collateral swap');
+            }
+            logger.debug('[useCollateralSwapActions] Swap debug decision', {
+                chainId,
+                marketKey: marketKey || targetNetwork?.key,
+                account,
+                transactionId: localTxId,
+                swapDebug: swapDebugMeta,
             });
-
-            // Use explicit params definition to avoid abitype inference errors
-            const encodedParams = encodeAbiParameters(
-                [
-                    { name: 'assetToReceive', type: 'address' },
-                    { name: 'minAmountToReceive', type: 'uint256' },
-                    { name: 'swapAllBalanceOffset', type: 'uint256' },
-                    { name: 'swapCallData', type: 'bytes' },
-                    { name: 'augustus', type: 'address' },
-                    {
-                        name: 'permitParams',
-                        type: 'tuple',
-                        components: [
-                            { name: 'amount', type: 'uint256' },
-                            { name: 'deadline', type: 'uint256' },
-                            { name: 'v', type: 'uint8' },
-                            { name: 'r', type: 'bytes32' },
-                            { name: 's', type: 'bytes32' }
-                        ]
-                    }
-                ],
-                [
-                    getAddress(quoteTo.address || quoteTo.underlyingAsset),
-                    BigInt(txResult.minAmountToReceive || 0),
-                    BigInt(txResult.swapAllBalanceOffset || 0),
-                    (txResult.swapCallData || '0x') as Hex,
-                    getAddress(txResult.augustus || zeroAddress),
-                    {
-                        amount: permitParams.amount,
-                        deadline: BigInt(permitParams.deadline),
-                        v: permitParams.v,
-                        r: permitParams.r,
-                        s: permitParams.s
-                    }
-                ]
-            );
-
-            const flashLoanArgs = [
-                getAddress(adapterAddress),
-                getAddress(quoteFrom.address || quoteFrom.underlyingAsset),
-                srcAmountBigInt,
-                encodedParams,
-                0
-            ] as const;
 
             if (shouldSimulateBeforeSwap) {
                 addLog?.('Running debug simulation before sending transaction...', 'info');
                 simulationInProgress = true;
-                await publicClient?.simulateContract({
+                await publicClient?.call({
                     account: getAddress(account),
-                    address: getAddress(networkAddresses.POOL),
-                    abi: parseAbi(ABIS.POOL),
-                    functionName: 'flashLoanSimple',
-                    args: flashLoanArgs,
+                    to: getAddress(transactionRequest.to),
+                    data: transactionRequest.data as Hex,
+                    value: BigInt(transactionRequest.value || 0),
                 });
                 simulationInProgress = false;
             }
 
             addLog?.('Confirm in your wallet...', 'warning');
-            const hash = await walletClient.writeContract({
+            const hash = await walletClient.sendTransaction({
                 account: getAddress(account),
-                address: getAddress(networkAddresses.POOL),
-                abi: parseAbi(ABIS.POOL),
-                functionName: 'flashLoanSimple',
-                args: flashLoanArgs,
+                to: getAddress(transactionRequest.to),
+                data: transactionRequest.data as Hex,
+                value: BigInt(transactionRequest.value || 0),
             });
 
             addLog?.(`Transaction broadcasted: ${hash}`, 'success');
@@ -844,7 +763,19 @@ export const useCollateralSwapActions = ({
                     },
                 };
 
-                logger.error('[useCollateralSwapActions] Swap failure diagnostic', {
+                const technicalErrorMessage = Array.from(new Set([
+                    error?.shortMessage,
+                    error?.message,
+                    error?.details,
+                    error?.cause?.shortMessage,
+                    error?.cause?.message,
+                    error?.cause?.details,
+                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+                const isExpectedValidation = technicalErrorMessage.includes('INSUFFICIENT_ATOKEN_BALANCE')
+                    || technicalErrorMessage.includes('Amount is above the executable limit');
+                const logFn = isExpectedValidation ? logger.warn : logger.error;
+
+                logFn('[useCollateralSwapActions] Swap failure diagnostic', {
                     chainId,
                     marketKey: marketKey || targetNetwork?.key,
                     account,
@@ -857,14 +788,6 @@ export const useCollateralSwapActions = ({
                     rawError: error,
                 });
 
-                const technicalErrorMessage = Array.from(new Set([
-                    error?.shortMessage,
-                    error?.message,
-                    error?.details,
-                    error?.cause?.shortMessage,
-                    error?.cause?.message,
-                    error?.cause?.details,
-                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
                 const friendlyMessage = mapErrorToUserFriendly(technicalErrorMessage)
                     || (simulationInProgress
                         ? 'Simulation failed. Try increasing slippage or reducing amount.'
@@ -878,7 +801,7 @@ export const useCollateralSwapActions = ({
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
-    }, [account, walletClient, publicClient, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedATokenAddress, networkAddresses, chainId, ensureWalletNetwork, targetNetwork?.key || '', preferPermit, forceRequirePermit, handleApprove, onTxSent, clearQuote, fetchPositionData, resetRefreshCountdown, cachedPermit, marketKey, clearQuoteError, amountRequiredForAllowance, providedFlashLoanPremiumBps]);
+    }, [account, walletClient, publicClient, allowance, swapAmount, supplyBalance, isMaxSwap, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedATokenAddress, chainId, ensureWalletNetwork, targetNetwork?.key || '', preferPermit, forceRequirePermit, handleApprove, onTxSent, clearQuote, fetchPositionData, resetRefreshCountdown, cachedPermit, marketKey, clearQuoteError, approvalAmount]);
 
     return {
         isActionLoading, isSigning, signedPermit: cachedPermit, forceRequirePermit, txError, userRejected,

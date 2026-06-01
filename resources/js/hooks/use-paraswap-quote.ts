@@ -75,6 +75,7 @@ interface UseParaswapQuoteProps {
     debtAmount?: bigint;
     sellAmount?: bigint;
     isCollateral?: boolean;
+    isMaxSwap?: boolean;
     fromToken: any;
     toToken: any;
     addLog?: (message: string, type?: string) => void;
@@ -92,6 +93,7 @@ export const useParaswapQuote = ({
     debtAmount,
     sellAmount,
     isCollateral = false,
+    isMaxSwap = false,
     fromToken,
     toToken,
     addLog,
@@ -233,23 +235,25 @@ export const useParaswapQuote = ({
                 const srcAmount = debouncedAmount.toString();
 
                 const routeResult = await getCollateralQuote({
-                    fromToken: { address: fromTokenAddress, decimals: fromToken.decimals, symbol: fromToken.symbol },
+                    fromToken: { address: fromTokenAddress, decimals: fromToken.decimals, symbol: fromToken.symbol, supplyAPY: fromToken.supplyAPY },
                     toToken: { address: toTokenAddress, decimals: toToken.decimals, symbol: toToken.symbol },
                     srcAmount,
                     adapterAddress: adapterAddress || account,
                     walletAddress: account,
                     marketKey: marketKey || selectedNetwork?.key,
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
+                    isMaxSwap,
                 }, signal);
 
-                const { priceRoute, destAmount, version, augustus, bufferBps, flashLoanPremiumBps } = routeResult;
+                const { priceRoute, srcAmount: quotedSrcAmount, destAmount, version, augustus, bufferBps, approval, execution } = routeResult;
                 const feeBps = resolveFeeBps(routeResult);
                 const discountPercent = resolveDiscountPercent(routeResult);
+                const srcAmountBn = BigInt(quotedSrcAmount ?? priceRoute?.srcAmount ?? srcAmount);
                 const destAmountBn = BigInt(destAmount);
 
                 const quotePayload = {
                     priceRoute,
-                    srcAmount: BigInt(srcAmount),
+                    srcAmount: srcAmountBn,
                     destAmount: destAmountBn,
                     fromToken,
                     toToken,
@@ -261,7 +265,8 @@ export const useParaswapQuote = ({
                     discountPercent,
                     volumeUsd: resolveVolumeUsd(priceRoute),
                     apyPercent: null,
-                    flashLoanPremiumBps: typeof flashLoanPremiumBps === 'number' ? flashLoanPremiumBps : 5,
+                    approval,
+                    execution,
                 };
 
                 if (quoteRequestIdRef.current !== currentRequestId) {
@@ -359,7 +364,7 @@ export const useParaswapQuote = ({
         } finally {
             setIsQuoteLoading(false);
         }
-    }, [debouncedAmount, isCollateral, fromToken, toToken, addLog, onQuoteLoaded, resetRefreshCountdown, selectedNetwork?.chainId, account, adapterAddress, clearQuoteError, setQuoteErrorWithTimer, marketKey, selectedNetwork?.key, marketAssets]);
+    }, [debouncedAmount, isCollateral, isMaxSwap, fromToken, toToken, addLog, onQuoteLoaded, resetRefreshCountdown, selectedNetwork?.chainId, account, adapterAddress, clearQuoteError, setQuoteErrorWithTimer, marketKey, selectedNetwork?.key, marketAssets]);
 
     useEffect(() => {
         return () => {
