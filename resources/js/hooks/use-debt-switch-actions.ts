@@ -161,9 +161,13 @@ export const useDebtSwitchActions = ({
         return true;
     }, [walletClient, chainId, addLog]);
 
-    const generateAndCachePermit = useCallback(async (debtTokenAddr: string, exactAmount?: bigint) => {
+    const generateAndCachePermit = useCallback(async (debtTokenAddr: string, exactAmount: bigint) => {
         if (!walletClient || !account) return null;
         try {
+            if (exactAmount <= 0n) {
+                throw new Error('Invalid delegation amount');
+            }
+
             let nonce: bigint;
             let name: string;
 
@@ -206,7 +210,7 @@ export const useDebtSwitchActions = ({
             }
 
             const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
-            const value = exactAmount || BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+            const value = exactAmount;
 
             const domain = { name, version: '1', chainId, verifyingContract: getAddress(debtTokenAddr) };
             const types = {
@@ -272,6 +276,10 @@ export const useDebtSwitchActions = ({
                 debtTokenAddress = toReserveData.variableDebtTokenAddress || toReserveData[11];
             }
 
+            if (!exactAmount || exactAmount <= 0n) {
+                throw new Error('Invalid approval amount');
+            }
+
             if (preferPermitFinal) {
                 const permit = await generateAndCachePermit(debtTokenAddress, exactAmount);
                 return { type: 'permit', permit };
@@ -283,7 +291,7 @@ export const useDebtSwitchActions = ({
                 address: getAddress(debtTokenAddress),
                 abi: parseAbi(ABIS.DEBT_TOKEN),
                 functionName: 'approveDelegation',
-                args: [getAddress(adapterAddress), BigInt("0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")],
+                args: [getAddress(adapterAddress), exactAmount],
             });
 
             await publicClient?.waitForTransactionReceipt({ hash });
@@ -353,49 +361,6 @@ export const useDebtSwitchActions = ({
 
             logger.debug(`[useDebtSwitchActions] Evaluation | Allowance: ${allowance.toString()} | Required: ${maxNewDebt.toString()} | ForcePermit: ${forceRequirePermit} | PreferPermit: ${preferPermit} | HasLocalSignature: ${!!cachedPermit}`);
 
-            if (allowance < maxNewDebt || forceRequirePermit) {
-                if (forceRequirePermit || preferPermit) {
-                    const effectiveSignedPermit = cachedPermit;
-
-                    if (effectiveSignedPermit) {
-                        const tokenMatch = getAddress(effectiveSignedPermit.token) === getAddress(newDebtTokenAddr);
-                        const deadlineValid = effectiveSignedPermit.deadline > Math.floor(Date.now() / 1000);
-                        const valueValid = effectiveSignedPermit.value >= maxNewDebt;
-
-                        logger.debug(`[useDebtSwitchActions] Permit Check | Match: ${tokenMatch} | Deadline: ${deadlineValid} | Value: ${valueValid} | P-Val: ${effectiveSignedPermit.value} | Req: ${maxNewDebt}`);
-
-                        if (tokenMatch && deadlineValid && valueValid && !forceRequirePermit) {
-                            logger.debug('[useDebtSwitchActions] REUSING successful cached permit');
-                            permitParams = effectiveSignedPermit.params;
-                        } else {
-                            logger.debug('[useDebtSwitchActions] Cached permit INVALID or EXPIRED, re-requesting...');
-                            const res = await handleApproveDelegation(forceRequirePermit || preferPermit, maxNewDebt, true, newDebtTokenAddr);
-                            setIsActionLoading(true);
-                            if (res?.permit) {
-                                permitParams = res.permit;
-                            } else {
-                                throw new Error('Signature failed');
-                            }
-                        }
-                    } else {
-                        logger.debug('[useDebtSwitchActions] No local permit found, re-requesting...');
-                        const res = await handleApproveDelegation(forceRequirePermit || preferPermit, maxNewDebt, true, newDebtTokenAddr);
-                        setIsActionLoading(true);
-                        if (res?.permit) {
-                            permitParams = res.permit;
-                        } else {
-                            throw new Error('Signature failed');
-                        }
-                    }
-                } else {
-                    logger.debug('[useDebtSwitchActions] PreferPermit is false, using on-chain approve...');
-                    await handleApproveDelegation(false, undefined, true, newDebtTokenAddr);
-                    setIsActionLoading(true);
-                    await new Promise(r => setTimeout(r, 1500));
-                    fetchDebtData();
-                }
-            }
-
             addLog?.('Building secure transaction calldata...', 'info');
             const txResult = await buildDebtSwapTx({
                 fromToken: { address: getAddress(qFrom.address || qFrom.underlyingAsset), decimals: qFrom.decimals, symbol: qFrom.symbol },
@@ -431,6 +396,69 @@ export const useDebtSwitchActions = ({
                 executionMaxNewDebt: executionMaxNewDebt.toString(),
             });
 
+            if (executionMaxNewDebt > maxNewDebt) {
+                logger.warn('[useDebtSwitchActions] Build route requires more debt delegation than the initial quote requirement', {
+                    quoteRequired: maxNewDebt.toString(),
+                    executionRequired: executionMaxNewDebt.toString(),
+                    currentPermitAmount: permitParams.amount.toString(),
+                    allowance: allowance.toString(),
+                });
+            }
+
+            if (allowance < executionMaxNewDebt || forceRequirePermit) {
+                logger.debug('[useDebtSwitchActions] Final delegation evaluation after build', {
+                    allowance: allowance.toString(),
+                    executionRequired: executionMaxNewDebt.toString(),
+                    preferPermit,
+                    forceRequirePermit,
+                    hasLocalSignature: !!cachedPermit,
+                });
+
+                if (forceRequirePermit || preferPermit) {
+                    const effectiveSignedPermit = cachedPermit;
+                    const now = Math.floor(Date.now() / 1000);
+                    const tokenMatch = effectiveSignedPermit
+                        ? getAddress(effectiveSignedPermit.token) === getAddress(newDebtTokenAddr)
+                        : false;
+                    const deadlineValid = effectiveSignedPermit
+                        ? effectiveSignedPermit.deadline > now
+                        : false;
+                    const valueValid = effectiveSignedPermit
+                        ? effectiveSignedPermit.value >= executionMaxNewDebt
+                        : false;
+
+                    logger.debug('[useDebtSwitchActions] Permit check against final build requirement', {
+                        tokenMatch,
+                        deadlineValid,
+                        valueValid,
+                        permitValue: effectiveSignedPermit?.value?.toString?.() || null,
+                        required: executionMaxNewDebt.toString(),
+                    });
+
+                    if (effectiveSignedPermit && tokenMatch && deadlineValid && valueValid && !forceRequirePermit) {
+                        logger.debug('[useDebtSwitchActions] Reusing cached permit for final build requirement');
+                        permitParams = effectiveSignedPermit.params;
+                    } else {
+                        addLog?.('Requesting delegation signature...', 'warning');
+                        const res = await handleApproveDelegation(true, executionMaxNewDebt, true, newDebtTokenAddr);
+
+                        setIsActionLoading(true);
+
+                        if (res?.permit) {
+                            permitParams = res.permit;
+                        } else {
+                            throw new Error('Signature failed');
+                        }
+                    }
+                } else {
+                    logger.debug('[useDebtSwitchActions] PreferPermit is false, using exact on-chain approve after build');
+                    await handleApproveDelegation(false, executionMaxNewDebt, true, newDebtTokenAddr);
+                    setIsActionLoading(true);
+                    await new Promise(r => setTimeout(r, 1500));
+                    fetchDebtData();
+                }
+            }
+
             const encodedParaswapData = encodeAbiParameters(
                 [{ type: 'bytes' }, { type: 'address' }],
                 [txResult.swapCallData as Hex, getAddress(txResult.augustus)]
@@ -460,7 +488,7 @@ export const useDebtSwitchActions = ({
             const collateralPermit = { aToken: zeroAddress, value: 0n, deadline: 0n, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
 
             if (creditPermit.debtToken !== zeroAddress && creditPermit.value < executionMaxNewDebt) {
-                throw new Error(`Signed delegation is below refreshed route requirement. Signed: ${creditPermit.value.toString()} Required: ${executionMaxNewDebt.toString()}`);
+                throw new Error(`Unable to refresh delegation for updated route requirement. Signed: ${creditPermit.value.toString()} Required: ${executionMaxNewDebt.toString()}`);
             }
 
             if (shouldSimulateBeforeSwap) {
