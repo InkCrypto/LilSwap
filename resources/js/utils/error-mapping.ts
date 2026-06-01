@@ -20,6 +20,9 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
     '0x38cfb688': {
         en: 'Insufficient flash loan balance. Try a smaller amount.'
     },
+    '0x911ceb81': {
+        en: 'Aave borrow power is too low for this debt switch. Repay a small amount or add collateral before switching debt.'
+    },
     '0x81ceff30': {
         en: 'Swap execution failed. Try increasing slippage in Settings.'
     },
@@ -51,6 +54,12 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
     },
     'INSUFFICIENT_LIQUIDITY': {
         en: 'Insufficient liquidity. Try a smaller amount.'
+    },
+    'INSUFFICIENT_ATOKEN_BALANCE': {
+        en: 'The executable max changed. Click Max and try again.'
+    },
+    'COLLATERAL_CANNOT_COVER_NEW_BORROW': {
+        en: 'Aave borrow power is too low for this debt switch. Repay a small amount or add collateral before switching debt.'
     },
     'liquidity': {
         en: 'Insufficient liquidity for this swap. Try a different amount or token pair.'

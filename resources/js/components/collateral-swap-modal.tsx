@@ -42,6 +42,27 @@ import { TokenSelector } from './token-selector';
 import { Button } from './ui/button';
 import { formatUSD, formatCompactToken, getDisplaySymbol, formatAPY, formatHF, formatCompactNumber } from '../utils/formatters';
 
+const DEFAULT_FLASHLOAN_PREMIUM_BPS = 9n;
+
+const amountWithFlashLoanPremium = (amount: bigint, premiumBps: bigint) => amount + ((amount * premiumBps) / 10000n);
+
+const getMaxSwappableAmount = (balance: bigint, premiumBps: bigint) => {
+    let low = 0n;
+    let high = balance;
+
+    while (low < high) {
+        const mid = (low + high + 1n) / 2n;
+
+        if (amountWithFlashLoanPremium(mid, premiumBps) <= balance) {
+            low = mid;
+        } else {
+            high = mid - 1n;
+        }
+    }
+
+    return low;
+};
+
 
 
 interface CollateralSwapModalProps {
@@ -110,6 +131,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     const [showMethodMenu, setShowMethodMenu] = useState(false);
     const [isPairValidationRunning, setIsPairValidationRunning] = useState(false);
     const [isUSDMode, setIsUSDMode] = useState(false);
+    const [onChainFlashLoanPremiumBps, setOnChainFlashLoanPremiumBps] = useState<bigint | null>(null);
 
     const slippageMenuRef = useRef<HTMLDivElement>(null);
     const methodMenuRef = useRef<HTMLDivElement>(null);
@@ -155,6 +177,49 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     });
     const [aTokenAddress, setATokenAddress] = useState<string | null>(null);
     const publicClient = usePublicClient();
+
+    useEffect(() => {
+        let isMounted = true;
+
+        async function fetchFlashLoanPremium() {
+            if (!isOpen || !selectedNetwork || !publicClient) {
+                setOnChainFlashLoanPremiumBps(null);
+                return;
+            }
+
+            try {
+                const clientChainId = await publicClient.getChainId();
+                if (clientChainId !== effectiveChainId) {
+                    return;
+                }
+
+                const market = MARKETS[effectiveMarketKey as keyof typeof MARKETS] || DEFAULT_MARKET;
+                const poolAddress = market.addresses.POOL;
+
+                if (!poolAddress) {
+                    return;
+                }
+
+                const premium = await publicClient.readContract({
+                    address: getAddress(poolAddress),
+                    abi: parseAbi(ABIS.POOL),
+                    functionName: 'FLASHLOAN_PREMIUM_TOTAL',
+                }) as bigint;
+
+                if (isMounted) {
+                    setOnChainFlashLoanPremiumBps(BigInt(premium));
+                }
+            } catch {
+                if (isMounted) {
+                    setOnChainFlashLoanPremiumBps(null);
+                }
+            }
+        }
+
+        fetchFlashLoanPremium();
+
+        return () => { isMounted = false; };
+    }, [isOpen, selectedNetwork, publicClient, effectiveChainId, effectiveMarketKey]);
 
     // Resolve aTokenAddress for the fromToken
     useEffect(() => {
@@ -226,15 +291,30 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
         return (pos as any)?.formattedAmount || (pos as any)?.formattedBalance || '0';
     }, [fromToken, activeSupplies]);
-    const isInsufficientBalance = swapAmount > (availableBalance || 0n);
+    const flashLoanPremiumBps = swapQuote?.flashLoanPremiumBps !== undefined
+        ? BigInt(swapQuote.flashLoanPremiumBps)
+        : onChainFlashLoanPremiumBps !== null
+            ? onChainFlashLoanPremiumBps
+        : DEFAULT_FLASHLOAN_PREMIUM_BPS;
 
-    // Calculate required allowance incorporating Aave V3 flashloan premium (default to 5 bps)
+    // Collateral swaps must keep enough aToken balance to repay the flashloan premium.
     const amountRequiredForAllowance = useMemo(() => {
-        if (!swapAmount) return 0n;
-        const premiumBps = swapQuote?.flashLoanPremiumBps !== undefined ? BigInt(swapQuote.flashLoanPremiumBps) : 5n;
-        const premium = (swapAmount * premiumBps) / 10000n;
-        return swapAmount + premium;
-    }, [swapAmount, swapQuote?.flashLoanPremiumBps]);
+        if (!swapAmount) {
+            return 0n;
+        }
+
+        return amountWithFlashLoanPremium(swapAmount, flashLoanPremiumBps);
+    }, [swapAmount, flashLoanPremiumBps]);
+
+    const maxSwappableAmount = useMemo(() => {
+        if (!availableBalance) {
+            return 0n;
+        }
+
+        return getMaxSwappableAmount(availableBalance, flashLoanPremiumBps);
+    }, [availableBalance, flashLoanPremiumBps]);
+
+    const isInsufficientBalance = amountRequiredForAllowance > (availableBalance || 0n);
 
     // Use Approval Hook for Collateral (aToken)
     const {
@@ -271,6 +351,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         allowance: onChainAllowance,
         swapAmount,
         supplyBalance: localBalance,
+        flashLoanPremiumBps,
         swapQuote,
         slippage,
         addLog: modalLog,
@@ -987,20 +1068,28 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                         }
                     }}
                     onApplyMax={() => {
-                        if (!availableBalance || availableBalance === BigInt(0)) return;
-                        const maxTokenAmount = formatUnits(availableBalance, fromToken.decimals || 18);
+                        if (!maxSwappableAmount || maxSwappableAmount === BigInt(0)) {
+                            return;
+                        }
+
+                        const maxTokenAmount = formatUnits(maxSwappableAmount, fromToken.decimals || 18);
+
                         if (isUSDMode) {
                             const price = parseFloat(fromToken.priceInUSD || '0');
                             setInputValue((parseFloat(maxTokenAmount) * price).toFixed(2));
                         } else {
                             setInputValue(maxTokenAmount);
                         }
-                        setSwapAmount(availableBalance);
+                        setSwapAmount(maxSwappableAmount);
                     }}
                     onApplyPct={(pct) => {
-                        if (!availableBalance || availableBalance === BigInt(0)) return;
-                        const amountBI = (availableBalance * BigInt(pct)) / BigInt(100);
+                        if (!maxSwappableAmount || maxSwappableAmount === BigInt(0)) {
+                            return;
+                        }
+
+                        const amountBI = (maxSwappableAmount * BigInt(pct)) / BigInt(100);
                         const tokenAmount = formatUnits(amountBI, fromToken.decimals || 18);
+
                         if (isUSDMode) {
                             const price = parseFloat(fromToken.priceInUSD || '0');
                             setInputValue((parseFloat(tokenAmount) * price).toFixed(2));
@@ -1009,7 +1098,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                         }
                         setSwapAmount(amountBI);
                     }}
-                    maxAmount={availableBalance}
+                    maxAmount={maxSwappableAmount}
                     decimals={isUSDMode ? 2 : (fromToken?.decimals || 18)}
                     formattedBalance={formattedBalance}
                     onTokenSelect={() => {
@@ -1765,7 +1854,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                             {isSigning ? 'Confirm in Wallet...' : 'Swapping...'}
                         </>
                     ) : isInsufficientBalance ? (
-                        'Insufficient Balance'
+                        'Above Max'
                     ) : (simulatedHf !== -1 && simulatedHf < 1.05 && currentTotalBorrowsUSD > 0) ? (
                         'Unsafe Health Factor'
                     ) : (

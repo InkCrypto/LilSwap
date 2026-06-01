@@ -1746,6 +1746,55 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         }
     }, [getTokenUsdPrice]);
 
+    const debtSwapBorrowPower = useMemo(() => {
+        if (!summary || !swapQuote || !fromToken || !toToken) {
+            return null;
+        }
+
+        const suppliesToUse = providedSupplies && providedSupplies.length > 0 ? providedSupplies : (supplies || []);
+        const marketsToUse = localMarketAssets || [];
+        const currentBorrowsUsd = parseFloat(summary.totalBorrowsUSD || '0');
+
+        if (!Number.isFinite(currentBorrowsUsd) || suppliesToUse.length === 0 || marketsToUse.length === 0) {
+            return null;
+        }
+
+        const borrowLimitUsd = suppliesToUse.reduce((total, supply) => {
+            if (supply.usageAsCollateralEnabledOnUser !== true) {
+                return total;
+            }
+
+            const supplyAddress = (supply.underlyingAsset || supply.address || '').toLowerCase();
+            const marketAsset = marketsToUse.find(m => (m.underlyingAsset || m.address || '').toLowerCase() === supplyAddress);
+            const amount = parseFloat(supply.formattedAmount || '0');
+            const price = getTokenUsdPrice(supply.priceInUSD ? supply : marketAsset);
+            const ltv = parseFloat(marketAsset?.baseLTVasCollateral || '0');
+
+            if (!Number.isFinite(amount) || !Number.isFinite(price) || !Number.isFinite(ltv) || amount <= 0 || price <= 0 || ltv <= 0) {
+                return total;
+            }
+
+            return total + (amount * price * ltv);
+        }, 0);
+
+        const repaidDebtUsd = parseFloat(swapQuote.destUSD || '')
+            || getRawAmountUsd(swapQuote.destAmount, fromToken)
+            || 0;
+        const newDebtUsd = parseFloat(swapQuote.srcUSD || '')
+            || getRawAmountUsd(swapQuote.srcAmount, toToken)
+            || 0;
+        const finalBorrowsUsd = Math.max(0, currentBorrowsUsd - repaidDebtUsd + newDebtUsd);
+        const toleranceUsd = Math.max(1, finalBorrowsUsd * 0.0005);
+        const deficitUsd = finalBorrowsUsd - borrowLimitUsd;
+
+        return {
+            borrowLimitUsd,
+            finalBorrowsUsd,
+            deficitUsd,
+            isBlocked: borrowLimitUsd > 0 && deficitUsd > toleranceUsd,
+        };
+    }, [summary, swapQuote, fromToken, toToken, providedSupplies, supplies, localMarketAssets, getTokenUsdPrice, getRawAmountUsd]);
+
     const buildBorrowImpactRows = useCallback(({
         repaidRawAmount,
         newDebtRawAmount,
@@ -3396,6 +3445,14 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                 });
                             }
 
+                            if (debtSwapBorrowPower?.isBlocked) {
+                                alerts.push({
+                                    label: 'Borrow limit:',
+                                    message: `This position is above Aave's borrow power limit. Repay about ${formatUSD(Math.max(0, debtSwapBorrowPower.deficitUsd))} or add collateral before switching debt.`,
+                                    isDanger: true,
+                                });
+                            }
+
                             if (priceImpact > 0.05) {
                                 alerts.push({
                                     label: 'High Impact:',
@@ -3558,12 +3615,13 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             const toAddr = (toToken?.address || toToken?.underlyingAsset || '').toLowerCase();
                             const toMarketToken = (localMarketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === toAddr);
                             const isEmodeConflict = userEmodeCategoryId > 0 && toMarketToken && toMarketToken.isBorrowableInCurrentEMode === false;
+                            const isBorrowPowerBlocked = debtSwapBorrowPower?.isBlocked === true;
 
                             return (
                                 <Button
-                                    disabled={isBusy || !fromToken || !toToken || !swapAmount || !!quoteError || isBlockedByZeroLtv || isInsufficientBalance || isEmodeConflict}
+                                    disabled={isBusy || !fromToken || !toToken || !swapAmount || !!quoteError || isBlockedByZeroLtv || isInsufficientBalance || isEmodeConflict || isBorrowPowerBlocked}
                                     onClick={handleSwap}
-                                    className={`w-full py-3 h-auto font-bold rounded-xl mt-2 ${isInsufficientBalance ? 'bg-rose-500 hover:bg-rose-600 border-rose-600 text-white' : ''}`}
+                                    className={`w-full py-3 h-auto font-bold rounded-xl mt-2 ${isInsufficientBalance || isBorrowPowerBlocked ? 'bg-rose-500 hover:bg-rose-600 border-rose-600 text-white' : ''}`}
                                 >
                                     {isActionLoading ? (
                                         <>
@@ -3572,6 +3630,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                         </>
                                     ) : isInsufficientBalance ? (
                                         'Insufficient Balance'
+                                    ) : isBorrowPowerBlocked ? (
+                                        'Borrow Limit Exceeded'
                                     ) : isEmodeConflict ? (
                                         'E-Mode Conflict'
                                     ) : (

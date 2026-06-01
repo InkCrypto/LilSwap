@@ -7,7 +7,8 @@ export const ABIS = {
         "function withdraw(address asset, uint256 amount, address to) external returns (uint256)",
         "function borrow(address asset, uint256 amount, uint256 interestRateMode, uint16 referralCode, address onBehalfOf) external",
         "function repay(address asset, uint256 amount, uint256 interestRateMode, address onBehalfOf) external returns (uint256)",
-        "function repayWithATokens(address asset, uint256 amount, uint256 interestRateMode) external returns (uint256)"
+        "function repayWithATokens(address asset, uint256 amount, uint256 interestRateMode) external returns (uint256)",
+        "function FLASHLOAN_PREMIUM_TOTAL() external view returns (uint128)"
     ],
     POOL_GETTER: [
         "function getReserveData(address asset) external view returns ((uint256 configuration, uint128 liquidityIndex, uint128 currentLiquidityRate, uint128 variableBorrowIndex, uint128 currentVariableBorrowRate, uint128 currentStableBorrowRate, uint40 lastUpdateTimestamp, uint16 id, uint40 liquidationGracePeriodUntil, address aTokenAddress, address stableDebtTokenAddress, address variableDebtTokenAddress, address interestRateStrategyAddress, uint128 accruedToTreasury, uint128 unbacked, uint128 isolationModeTotalDebt))"

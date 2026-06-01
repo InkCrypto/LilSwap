@@ -27,6 +27,7 @@ interface UseCollateralSwapActionsProps {
     allowance: bigint;
     swapAmount: bigint;
     supplyBalance: bigint | null;
+    flashLoanPremiumBps?: bigint | null;
     swapQuote: any;
     slippage: number;
     addLog?: (message: string, type?: string) => void;
@@ -63,6 +64,8 @@ const EMPTY_COLLATERAL_PERMIT_PARAMS: CollateralPermitParams = {
     r: zeroHash as Hex,
     s: zeroHash as Hex,
 };
+
+const DEFAULT_FLASHLOAN_PREMIUM_BPS = 9n;
 
 const isBytes32Hex = (value: unknown): value is Hex =>
     typeof value === 'string' && /^0x[0-9a-fA-F]{64}$/.test(value);
@@ -158,6 +161,7 @@ export const useCollateralSwapActions = ({
     allowance,
     swapAmount,
     supplyBalance,
+    flashLoanPremiumBps: providedFlashLoanPremiumBps = null,
     swapQuote,
     slippage,
     addLog,
@@ -183,13 +187,19 @@ export const useCollateralSwapActions = ({
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isSigning, setIsSigning] = useState(false);
 
-    // Calculate required allowance incorporating Aave V3 flashloan premium (default to 5 bps)
+    // Collateral swaps repay Aave's flashloan premium from the user's aToken balance.
     const amountRequiredForAllowance = useMemo(() => {
-        if (!swapAmount) return 0n;
-        const premiumBps = swapQuote?.flashLoanPremiumBps !== undefined ? BigInt(swapQuote.flashLoanPremiumBps) : 5n;
+        if (!swapAmount) {
+            return 0n;
+        }
+
+        const premiumBps = swapQuote?.flashLoanPremiumBps !== undefined
+            ? BigInt(swapQuote.flashLoanPremiumBps)
+            : providedFlashLoanPremiumBps ?? DEFAULT_FLASHLOAN_PREMIUM_BPS;
         const premium = (swapAmount * premiumBps) / 10000n;
+
         return swapAmount + premium;
-    }, [swapAmount, swapQuote?.flashLoanPremiumBps]);
+    }, [swapAmount, swapQuote?.flashLoanPremiumBps, providedFlashLoanPremiumBps]);
 
     const [forceRequirePermit, setForceRequirePermit] = useState(() => {
         try {
@@ -471,9 +481,9 @@ export const useCollateralSwapActions = ({
         clearQuoteError?.();
         setUserRejected(false);
 
-        if (supplyBalance !== null && swapAmount > supplyBalance) {
-            setTxError('Insufficient balance');
-            addLog?.('Insufficient balance for swap.', 'error');
+        if (supplyBalance !== null && amountRequiredForAllowance > supplyBalance) {
+            setTxError('Amount is above the executable max. Use Max or enter a smaller amount.');
+            addLog?.('Amount is above the executable max. Use Max or enter a smaller amount.', 'error');
             return;
         }
 
@@ -518,10 +528,18 @@ export const useCollateralSwapActions = ({
 
             const effectivePreferPermit = forceRequirePermit || preferPermit;
 
-            // Calculate required allowance incorporating Aave V3 flashloan premium (default to 5 bps)
-            const activePremiumBps = activeQuote?.flashLoanPremiumBps !== undefined ? BigInt(activeQuote.flashLoanPremiumBps) : 5n;
+            // Calculate required allowance incorporating Aave V3 flashloan premium.
+            const activePremiumBps = activeQuote?.flashLoanPremiumBps !== undefined
+                ? BigInt(activeQuote.flashLoanPremiumBps)
+                : providedFlashLoanPremiumBps ?? DEFAULT_FLASHLOAN_PREMIUM_BPS;
             const activePremium = (srcAmountBigInt * activePremiumBps) / 10000n;
             const requiredAllowance = srcAmountBigInt + activePremium;
+
+            if (supplyBalance !== null && requiredAllowance > supplyBalance) {
+                setTxError('Amount is above the executable max. Use Max or enter a smaller amount.');
+                addLog?.('Amount is above the executable max. Use Max or enter a smaller amount.', 'error');
+                return;
+            }
 
             const approveWithBoundedFallback = async (reason: string) => {
                 logger.warn('[useCollateralSwapActions] Falling back to on-chain approve for collateral permit', {
@@ -860,7 +878,7 @@ export const useCollateralSwapActions = ({
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
-    }, [account, walletClient, publicClient, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedATokenAddress, networkAddresses, chainId, ensureWalletNetwork, targetNetwork?.key || '', preferPermit, forceRequirePermit, handleApprove, onTxSent, clearQuote, fetchPositionData, resetRefreshCountdown, cachedPermit, marketKey, clearQuoteError]);
+    }, [account, walletClient, publicClient, allowance, swapAmount, supplyBalance, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedATokenAddress, networkAddresses, chainId, ensureWalletNetwork, targetNetwork?.key || '', preferPermit, forceRequirePermit, handleApprove, onTxSent, clearQuote, fetchPositionData, resetRefreshCountdown, cachedPermit, marketKey, clearQuoteError, amountRequiredForAllowance, providedFlashLoanPremiumBps]);
 
     return {
         isActionLoading, isSigning, signedPermit: cachedPermit, forceRequirePermit, txError, userRejected,
