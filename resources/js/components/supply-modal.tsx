@@ -44,6 +44,9 @@ interface SupplyModalProps {
 const MAX_UINT256 = 2n ** 256n - 1n;
 const GAS_TOKEN_RESERVE_MULTIPLIER = 2n;
 const FALLBACK_NATIVE_SUPPLY_GAS = 150_000n;
+const APPROVAL_GAS_LIMIT = 150_000n;
+const SUPPLY_GAS_LIMIT = 250_000n;
+const NATIVE_SUPPLY_GAS_LIMIT = 250_000n;
 
 const parseFiniteNumber = (value: any, fallback = 0) => {
     const parsed =
@@ -585,17 +588,10 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
             }
 
             try {
-                const account = getAddress(walletAddress);
                 let gas = 0n;
 
                 if (isApproveRequired) {
-                    gas += await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(tokenAddress),
-                        abi: parseAbi(ABIS.ERC20),
-                        functionName: 'approve',
-                        args: [getAddress(poolAddress), MAX_UINT256],
-                    });
+                    gas += APPROVAL_GAS_LIMIT;
                 }
 
                 if (isNativeSupply) {
@@ -617,27 +613,9 @@ export const SupplyModal: React.FC<SupplyModalProps> = ({
                         return;
                     }
 
-                    gas += await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(gatewayAddress),
-                        abi: parseAbi(ABIS.WETH_GATEWAY),
-                        functionName: 'depositETH',
-                        args: [getAddress(poolAddress), account, 0],
-                        value: estimateValue,
-                    });
+                    gas += NATIVE_SUPPLY_GAS_LIMIT;
                 } else {
-                    gas += await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(poolAddress),
-                        abi: parseAbi(ABIS.POOL),
-                        functionName: 'supply',
-                        args: [
-                            getAddress(tokenAddress),
-                            supplyAmount,
-                            account,
-                            0,
-                        ],
-                    });
+                    gas += SUPPLY_GAS_LIMIT;
                 }
 
                 const gasPrice = await publicClient.getGasPrice();

@@ -19,6 +19,48 @@ import { isUserRejectedError } from '../utils/logger';
 import { calcApprovalAmount } from '../utils/swap-math';
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
+const DELEGATION_GAS_LIMIT = 180_000n;
+const SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
+const SWAP_GAS_LIMIT_MAX = 8_000_000n;
+
+const parseGasLimit = (value: unknown): bigint | null => {
+    if (value == null || value === '') {
+        return null;
+    }
+
+    try {
+        return BigInt(value as string | number | bigint);
+    } catch {
+        return null;
+    }
+};
+
+const resolveSwapGasLimit = (txResult: any, priceRoute: any): bigint => {
+    const explicitGas = parseGasLimit(txResult?.gas);
+
+    if (explicitGas && explicitGas > 0n) {
+        return explicitGas;
+    }
+
+    const routeGas = parseGasLimit(priceRoute?.gasCost);
+
+    if (!routeGas || routeGas <= 0n) {
+        return SWAP_GAS_LIMIT_FALLBACK;
+    }
+
+    const buffered = routeGas * 4n + 500_000n;
+
+    if (buffered < SWAP_GAS_LIMIT_FALLBACK) {
+        return SWAP_GAS_LIMIT_FALLBACK;
+    }
+
+    if (buffered > SWAP_GAS_LIMIT_MAX) {
+        return SWAP_GAS_LIMIT_MAX;
+    }
+
+    return buffered;
+};
+
 interface UseDebtSwitchActionsProps {
     account: string | null;
     fromToken: any;
@@ -292,6 +334,7 @@ export const useDebtSwitchActions = ({
                 abi: parseAbi(ABIS.DEBT_TOKEN),
                 functionName: 'approveDelegation',
                 args: [getAddress(adapterAddress), exactAmount],
+                gas: DELEGATION_GAS_LIMIT,
             });
 
             await publicClient?.waitForTransactionReceipt({ hash });
@@ -505,6 +548,7 @@ export const useDebtSwitchActions = ({
             }
 
             addLog?.('Confirm in your wallet...', 'warning');
+            const gas = resolveSwapGasLimit(txResult, priceRoute);
 
             const hash = await walletClient.writeContract({
                 account: getAddress(account),
@@ -512,6 +556,7 @@ export const useDebtSwitchActions = ({
                 abi: ABIS.ADAPTER,
                 functionName: 'swapDebt',
                 args: [swapParams, creditPermit, collateralPermit],
+                gas,
             });
 
             addLog?.(`Transaction broadcasted: ${hash}`, 'success');

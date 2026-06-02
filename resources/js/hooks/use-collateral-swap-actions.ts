@@ -16,6 +16,48 @@ import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } f
 import logger, { isUserRejectedError } from '../utils/logger';
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
+const APPROVAL_GAS_LIMIT = 150_000n;
+const SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
+const SWAP_GAS_LIMIT_MAX = 8_000_000n;
+
+const parseGasLimit = (value: unknown): bigint | null => {
+    if (value == null || value === '') {
+        return null;
+    }
+
+    try {
+        return BigInt(value as string | number | bigint);
+    } catch {
+        return null;
+    }
+};
+
+const resolveSwapGasLimit = (txResult: any, priceRoute: any): bigint => {
+    const explicitGas = parseGasLimit(txResult?.transactionRequest?.gas ?? txResult?.gas);
+
+    if (explicitGas && explicitGas > 0n) {
+        return explicitGas;
+    }
+
+    const routeGas = parseGasLimit(priceRoute?.gasCost);
+
+    if (!routeGas || routeGas <= 0n) {
+        return SWAP_GAS_LIMIT_FALLBACK;
+    }
+
+    const buffered = routeGas * 4n + 500_000n;
+
+    if (buffered < SWAP_GAS_LIMIT_FALLBACK) {
+        return SWAP_GAS_LIMIT_FALLBACK;
+    }
+
+    if (buffered > SWAP_GAS_LIMIT_MAX) {
+        return SWAP_GAS_LIMIT_MAX;
+    }
+
+    return buffered;
+};
+
 interface UseCollateralSwapActionsProps {
     account: string | null;
     fromToken: any;
@@ -422,6 +464,7 @@ export const useCollateralSwapActions = ({
                 abi: parseAbi(ABIS.ERC20),
                 functionName: 'approve',
                 args: [getAddress(adapterAddress), approveAmount],
+                gas: APPROVAL_GAS_LIMIT,
             });
 
             addLog?.(`Transaction sent: ${hash}. Waiting for confirmation...`, 'warning');
@@ -666,8 +709,7 @@ export const useCollateralSwapActions = ({
                 },
             };
 
-            let txResult;
-            txResult = await buildCollateralSwapTx(baseBuildParams);
+            const txResult = await buildCollateralSwapTx(baseBuildParams);
 
             localTxId = txResult.transactionId;
             updateCurrentTransactionId(localTxId);
@@ -698,11 +740,13 @@ export const useCollateralSwapActions = ({
             }
 
             addLog?.('Confirm in your wallet...', 'warning');
+            const gas = resolveSwapGasLimit(txResult, priceRoute);
             const hash = await walletClient.sendTransaction({
                 account: getAddress(account),
                 to: getAddress(transactionRequest.to),
                 data: transactionRequest.data as Hex,
                 value: BigInt(transactionRequest.value || 0),
+                gas,
             });
 
             addLog?.(`Transaction broadcasted: ${hash}`, 'success');

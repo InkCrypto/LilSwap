@@ -44,8 +44,50 @@ const CUSTOM_TARGET_TOKENS_STORAGE_PREFIX = 'lilswap:withdraw-swap-custom-target
 const NATIVE_TOKEN_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const TARGET_BALANCE_MULTICALL_CHUNK_SIZE = 80;
 const MAX_UINT256 = 2n ** 256n - 1n;
+const APPROVAL_GAS_LIMIT = 150_000n;
+const WITHDRAW_GAS_LIMIT = 500_000n;
+const WITHDRAW_SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
+const WITHDRAW_SWAP_GAS_LIMIT_MAX = 8_000_000n;
 
 const getAssetAddress = (asset: any) => (asset?.underlyingAsset || asset?.address || '').toLowerCase();
+
+const parseGasLimit = (value: unknown): bigint | null => {
+    if (value == null || value === '') {
+        return null;
+    }
+
+    try {
+        return BigInt(value as string | number | bigint);
+    } catch {
+        return null;
+    }
+};
+
+const resolveWithdrawSwapGasLimit = (txData: any, priceRoute: any): bigint => {
+    const explicitGas = parseGasLimit(txData?.gas);
+
+    if (explicitGas && explicitGas > 0n) {
+        return explicitGas;
+    }
+
+    const routeGas = parseGasLimit(priceRoute?.gasCost);
+
+    if (!routeGas || routeGas <= 0n) {
+        return WITHDRAW_SWAP_GAS_LIMIT_FALLBACK;
+    }
+
+    const buffered = routeGas * 4n + 500_000n;
+
+    if (buffered < WITHDRAW_SWAP_GAS_LIMIT_FALLBACK) {
+        return WITHDRAW_SWAP_GAS_LIMIT_FALLBACK;
+    }
+
+    if (buffered > WITHDRAW_SWAP_GAS_LIMIT_MAX) {
+        return WITHDRAW_SWAP_GAS_LIMIT_MAX;
+    }
+
+    return buffered;
+};
 
 const getCustomTargetTokenStorageKey = (chainId: number) => `${CUSTOM_TARGET_TOKENS_STORAGE_PREFIX}:${chainId}`;
 
@@ -981,6 +1023,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 abi: parseAbi(ABIS.ERC20),
                 functionName: 'approve',
                 args: [getAddress(spender), MAX_UINT256],
+                gas: APPROVAL_GAS_LIMIT,
             });
 
             addTransaction({
@@ -1049,6 +1092,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         abi: parseAbi(ABIS.WETH_GATEWAY),
                         functionName: 'withdrawETH',
                         args: [getAddress(poolAddress), contractWithdrawAmount, getAddress(walletAddress)],
+                        gas: WITHDRAW_GAS_LIMIT,
                     });
                 } else {
                     txHash = await walletClient.writeContract({
@@ -1057,6 +1101,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         abi: parseAbi(ABIS.POOL),
                         functionName: 'withdraw',
                         args: [getAddress(initialAsset.underlyingAsset || initialAsset.address), contractWithdrawAmount, getAddress(walletAddress)],
+                        gas: WITHDRAW_GAS_LIMIT,
                     });
                 }
 
@@ -1125,6 +1170,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         getAddress(txData.augustus),
                         permitParams,
                     ],
+                    gas: resolveWithdrawSwapGasLimit(txData, latestQuote.priceRoute),
                 });
 
                 addTransaction({
@@ -1171,91 +1217,8 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         : (isWrappedNative && isNativeSelected && allowance < requiredAllowanceAmount);
 
     useEffect(() => {
-        let cancelled = false;
-
-        const estimateNetworkCost = async () => {
-            if (!publicClient || !walletAddress || !initialAsset || withdrawAmount === 0n || activeTab === 'swap') {
-                setEstimatedGasCostUSD(null);
-                return;
-            }
-
-            try {
-                const account = getAddress(walletAddress);
-                let gas: bigint;
-
-                if (isApproveRequired) {
-                    const spender = activeTab === 'withdraw' ? gatewayAddress : withdrawSwapAdapterAddress;
-                    if (!spender || !aTokenAddress) throw new Error('Approval parameters missing');
-
-                    gas = await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(aTokenAddress),
-                        abi: parseAbi(ABIS.ERC20),
-                        functionName: 'approve',
-                        args: [getAddress(spender), 2n ** 256n - 1n],
-                    });
-                } else if (isWrappedNative && isNativeSelected) {
-                    if (!gatewayAddress || !poolAddress) throw new Error('Gateway parameters missing');
-
-                    gas = await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(gatewayAddress),
-                        abi: parseAbi(ABIS.WETH_GATEWAY),
-                        functionName: 'withdrawETH',
-                        args: [getAddress(poolAddress), isFullBalanceMaxSelected ? MAX_UINT256 : withdrawAmount, account],
-                    });
-                } else {
-                    if (!poolAddress) throw new Error('Pool address missing');
-
-                    gas = await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(poolAddress),
-                        abi: parseAbi(ABIS.POOL),
-                        functionName: 'withdraw',
-                        args: [getAddress(initialAsset.underlyingAsset || initialAsset.address), isFullBalanceMaxSelected ? MAX_UINT256 : withdrawAmount, account],
-                    });
-                }
-
-                const gasPrice = await publicClient.getGasPrice();
-                const nativeGasAmount = Number(gas * gasPrice) / 1e18;
-                const nativePrice = parseFiniteNumber(
-                    (isWrappedNative ? initialAsset.priceInUSD : null)
-                    ?? (marketAssets || []).find((token) => token.symbol?.toUpperCase() === nativeInfo.wrapped.toUpperCase())?.priceInUSD
-                    ?? (marketAssets || []).find((token) => token.symbol?.toUpperCase() === 'WETH')?.priceInUSD
-                );
-
-                if (!cancelled) {
-                    setEstimatedGasCostUSD(nativePrice > 0 ? nativeGasAmount * nativePrice : 0);
-                }
-            } catch {
-                if (!cancelled) {
-                    setEstimatedGasCostUSD(null);
-                }
-            }
-        };
-
-        void estimateNetworkCost();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        aTokenAddress,
-        activeTab,
-        gatewayAddress,
-        initialAsset,
-        isApproveRequired,
-        isFullBalanceMaxSelected,
-        isNativeSelected,
-        isWrappedNative,
-        marketAssets,
-        nativeInfo.wrapped,
-        poolAddress,
-        publicClient,
-        walletAddress,
-        withdrawAmount,
-        withdrawSwapAdapterAddress,
-    ]);
+        setEstimatedGasCostUSD(null);
+    }, [activeTab, initialAsset, withdrawAmount]);
 
     const withdrawToken = useMemo(() => {
         if (!initialAsset) return null;

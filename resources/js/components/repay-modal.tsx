@@ -45,6 +45,10 @@ interface RepayModalProps {
 const MAX_UINT256 = 2n ** 256n - 1n;
 const GAS_TOKEN_RESERVE_MULTIPLIER = 2n;
 const FALLBACK_NATIVE_REPAY_GAS = 180_000n;
+const APPROVAL_GAS_LIMIT = 150_000n;
+const REPAY_GAS_LIMIT = 300_000n;
+const REPAY_WITH_ATOKENS_GAS_LIMIT = 250_000n;
+const NATIVE_REPAY_GAS_LIMIT = 300_000n;
 const RISK_HEALTH_FACTOR_THRESHOLD = 1.5;
 type RepaySourceType = 'wallet' | 'atoken';
 const aTokenMetadataCache = new Map<string, { symbol: string; name: string }>();
@@ -795,19 +799,12 @@ export const RepayModal: React.FC<RepayModalProps> = ({
             }
 
             try {
-                const account = getAddress(walletAddress);
                 const estimateAmount =
                     repayAmount > 0n
                         ? repayAmount
                         : debtBalance > 1n
                             ? 1n
                             : debtBalance;
-                const contractEstimateAmount =
-                    activeTab === 'atoken' &&
-                        repayAmount > 0n &&
-                        repayAmount >= debtBalance
-                        ? MAX_UINT256
-                        : estimateAmount;
 
                 if (estimateAmount === 0n) {
                     setEstimatedGasCostUSD(null);
@@ -819,58 +816,19 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 let gas = 0n;
 
                 if (isApproveRequired) {
-                    gas += await readClient.estimateContractGas({
-                        account,
-                        address: getAddress(debtAddress),
-                        abi: parseAbi(ABIS.ERC20),
-                        functionName: 'approve',
-                        args: [getAddress(poolAddress), MAX_UINT256],
-                    });
+                    gas += APPROVAL_GAS_LIMIT;
                 }
 
                 if (activeTab === 'atoken') {
-                    gas += await readClient.estimateContractGas({
-                        account,
-                        address: getAddress(poolAddress),
-                        abi: parseAbi(ABIS.POOL),
-                        functionName: 'repayWithATokens',
-                        args: [
-                            getAddress(debtAddress),
-                            contractEstimateAmount,
-                            2n,
-                        ],
-                    });
+                    gas += REPAY_WITH_ATOKENS_GAS_LIMIT;
                 } else if (isNativeRepay) {
                     if (!gatewayAddress) {
                         throw new Error('WETH Gateway address missing');
                     }
 
-                    gas += await readClient.estimateContractGas({
-                        account,
-                        address: getAddress(gatewayAddress),
-                        abi: parseAbi(ABIS.WETH_GATEWAY),
-                        functionName: 'repayETH',
-                        args: [
-                            getAddress(poolAddress),
-                            estimateAmount,
-                            2n,
-                            account,
-                        ],
-                        value: estimateAmount,
-                    });
+                    gas += NATIVE_REPAY_GAS_LIMIT;
                 } else {
-                    gas += await readClient.estimateContractGas({
-                        account,
-                        address: getAddress(poolAddress),
-                        abi: parseAbi(ABIS.POOL),
-                        functionName: 'repay',
-                        args: [
-                            getAddress(debtAddress),
-                            estimateAmount,
-                            2n,
-                            account,
-                        ],
-                    });
+                    gas += REPAY_GAS_LIMIT;
                 }
 
                 const gasPrice = await readClient.getGasPrice();

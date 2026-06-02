@@ -181,8 +181,6 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
     const availableBorrowUSD = parseFiniteNumber(
         summary?.availableBorrowsUSD,
     );
-    const nativePrice = parseFiniteNumber(nativeWrappedReserve?.priceInUSD);
-
     const getMaxBorrowAmount = useCallback(
         (token: any) => {
             const price = parseFiniteNumber(token?.priceInUSD);
@@ -599,112 +597,8 @@ export const BorrowModal: React.FC<BorrowModalProps> = ({
         100;
 
     useEffect(() => {
-        let cancelled = false;
-
-        const estimateNetworkCost = async () => {
-            if (
-                !publicClient ||
-                !walletAddress ||
-                !selectedToken ||
-                !poolAddress ||
-                borrowAmount === 0n
-            ) {
-                setEstimatedGasCostUSD(null);
-
-                return;
-            }
-
-            const tokenAddress = getTokenAddress(selectedToken);
-
-            if (!tokenAddress) {
-                setEstimatedGasCostUSD(null);
-
-                return;
-            }
-
-            try {
-                const account = getAddress(walletAddress);
-                let gas = 0n;
-
-                if (isApproveRequired) {
-                    const debtTokenAddress = selectedToken.variableDebtTokenAddress;
-
-                    if (!debtTokenAddress || !gatewayAddress) {
-                        throw new Error('Debt token address missing');
-                    }
-
-                    gas += await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(debtTokenAddress),
-                        abi: parseAbi(ABIS.DEBT_TOKEN),
-                        functionName: 'approveDelegation',
-                        args: [getAddress(gatewayAddress), MAX_UINT256],
-                    });
-                }
-
-                if (isNativeBorrow) {
-                    if (!gatewayAddress) {
-                        throw new Error('WETH Gateway address missing');
-                    }
-
-                    gas += await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(gatewayAddress),
-                        abi: parseAbi(ABIS.WETH_GATEWAY),
-                        functionName: 'borrowETH',
-                        args: [
-                            getAddress(poolAddress),
-                            borrowAmount,
-                            0,
-                        ],
-                    });
-                } else {
-                    gas += await publicClient.estimateContractGas({
-                        account,
-                        address: getAddress(poolAddress),
-                        abi: parseAbi(ABIS.POOL),
-                        functionName: 'borrow',
-                        args: [
-                            getAddress(tokenAddress),
-                            borrowAmount,
-                            2n,
-                            0,
-                            account,
-                        ],
-                    });
-                }
-
-                const gasPrice = await publicClient.getGasPrice();
-                const nativeGasAmount = Number(gas * gasPrice) / 1e18;
-
-                if (!cancelled) {
-                    setEstimatedGasCostUSD(
-                        nativePrice > 0 ? nativeGasAmount * nativePrice : null,
-                    );
-                }
-            } catch {
-                if (!cancelled) {
-                    setEstimatedGasCostUSD(null);
-                }
-            }
-        };
-
-        void estimateNetworkCost();
-
-        return () => {
-            cancelled = true;
-        };
-    }, [
-        borrowAmount,
-        gatewayAddress,
-        isApproveRequired,
-        isNativeBorrow,
-        nativePrice,
-        poolAddress,
-        publicClient,
-        selectedToken,
-        walletAddress,
-    ]);
+        setEstimatedGasCostUSD(null);
+    }, [borrowAmount, selectedToken]);
 
     const renderSelectorStatus = useCallback(
         (token: any) => {
