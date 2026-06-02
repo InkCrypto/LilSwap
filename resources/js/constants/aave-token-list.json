@@ -1,0 +1,160 @@
+[
+    {
+        "chainId": 1,
+        "address": "0x111111111117dC0aa78b770fA6A738034120C302",
+        "underlyingAsset": "0x111111111117dC0aa78b770fA6A738034120C302",
+        "name": "1inch",
+        "symbol": "1INCH",
+        "decimals": 18,
+        "logoURI": "https://assets.coingecko.com/coins/images/13469/thumb/1inch-token.png?1608803028",
+        "extensions": {
+            "bridgeInfo": {
+                "10": {
+                    "tokenAddress": "0xAd42D013ac31486B73b6b059e748172994736426"
+                },
+                "56": {
+                    "tokenAddress": "0x111111111117dC0aa78b770fA6A738034120C302"
+                },
+                "137": {
+                    "tokenAddress": "0x9c2C5fd7b07E95EE044DDeba0E97a665F142394f"
+                },
+                "8453": {
+                    "tokenAddress": "0xc5fecC3a29Fb57B5024eEc8a2239d4621e111CBE"
+                },
+                "42161": {
+                    "tokenAddress": "0x6314C31A7a1652cE482cffe247E9CB7c3f4BB9aF"
+                },
+                "43114": {
+                    "tokenAddress": "0xd501281565bf7789224523144Fe5D98e8B28f267"
+                }
+            }
+        },
+        "priceInUSD": "0",
+        "isActive": true,
+        "isAaveTokenList": true
+    },
+    {
+        "chainId": 1,
+        "address": "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9",
+        "underlyingAsset": "0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9",
+        "name": "Aave",
+        "symbol": "AAVE",
+        "decimals": 18,
+        "logoURI": "https://assets.coingecko.com/coins/images/12645/standard/aave-token-round.png?1720472354",
+        "extensions": {
+            "bridgeInfo": {
+                "10": {
+                    "tokenAddress": "0x76FB31fb4af56892A25e32cFC43De717950c9278"
+                },
+                "56": {
+                    "tokenAddress": "0xfb6115445Bff7b52FeB98650C87f44907E58f802"
+                },
+                "137": {
+                    "tokenAddress": "0xD6DF932A45C0f255f85145f286eA0b292B21C90B"
+                },
+                "42161": {
+                    "tokenAddress": "0xba5DdD1f9d7F570dc94a51479a000E3BCE967196"
+                },
+                "43114": {
+                    "tokenAddress": "0x63a72806098Bd3D9520cC43356dD78afe5D386D9"
+                }
+            }
+        },
+        "priceInUSD": "0",
+        "isActive": true,
+        "isAaveTokenList": true
+    },
+    {
+        "chainId": 1,
+        "address": "0xB98d4C97425d9908E66E53A6fDf673ACcA0BE986",
+        "underlyingAsset": "0xB98d4C97425d9908E66E53A6fDf673ACcA0BE986",
+        "name": "Arcblock",
+        "symbol": "ABT",
+        "decimals": 18,
+        "logoURI": "https://assets.coingecko.com/coins/images/2341/thumb/arcblock.png?1547036543",
+        "priceInUSD": "0",
+        "isActive": true,
+        "isAaveTokenList": true
+    },
+    {
+        "chainId": 1,
+        "address": "0xEd04915c23f00A313a544955524EB7DBD823143d",
+        "underlyingAsset": "0xEd04915c23f00A313a544955524EB7DBD823143d",
+        "name": "Alchemy Pay",
+        "symbol": "ACH",
+        "decimals": 8,
+        "logoURI": "https://assets.coingecko.com/coins/images/12390/thumb/ACH_%281%29.png?1599691266",
+        "extensions": {
+            "bridgeInfo": {
+                "56": {
+                    "tokenAddress": "0xBc7d6B50616989655AfD682fb42743507003056D"
+                }
+            }
+        },
+        "priceInUSD": "0",
+        "isActive": true,
+        "isAaveTokenList": true
+    },
+    {
+        "chainId": 1,
+        "address": "0xADE00C28244d5CE17D72E40330B1c318cD12B7c3",
+        "underlyingAsset": "0xADE00C28244d5CE17D72E40330B1c318cD12B7c3",
+        "name": "Ambire AdEx",
+        "symbol": "ADX",
+        "decimals": 18,
+        "logoURI": "https://assets.coingecko.com/coins/images/847/thumb/Ambire_AdEx_Symbol_color.png?1655432540",
+        "extensions": {
+            "bridgeInfo": {
+                "56": {
+                    "tokenAddress": "0x6bfF4Fb161347ad7de4A625AE5aa3A1CA7077819"
+                },
+                "137": {
+                    "tokenAddress": "0xdDa7b23D2D72746663E7939743f929a3d85FC975"
+                }
+            }
+        },
+        "priceInUSD": "0",
+        "isActive": true,
+        "isAaveTokenList": true
+    },
+    {
+        "chainId": 1,
+        "address": "0x91Af0fBB28ABA7E31403Cb457106Ce79397FD4E6",
+        "underlyingAsset": "0x91Af0fBB28ABA7E31403Cb457106Ce79397FD4E6",
+        "name": "Aergo",
+        "symbol": "AERGO",
+        "decimals": 18,
+        "logoURI": "https://assets.coingecko.com/coins/images/4490/thumb/aergo.png?1647696770",
+        "priceInUSD": "0",
+        "isActive": true,
+        "isAaveTokenList": true
+    },
+    {
+        "chainId": 1,
+        "address": "0x1a7e4e63778B4f12a199C062f3eFdD288afCBce8",
+        "underlyingAsset": "0x1a7e4e63778B4f12a199C062f3eFdD288afCBce8",
+        "name": "agEur",
+        "symbol": "agEUR",
+        "decimals": 18,
+        "logoURI": "https://assets.coingecko.com/coins/images/19479/standard/agEUR.png?1696518915",
+        "extensions": {
+            "bridgeInfo": {
+                "56": {
+                    "tokenAddress": "0x12f31B73D812C6Bb0d735a218c086d44D5fe5f89"
+                },
+                "137": {
+                    "tokenAddress": "0xE0B52e49357Fd4DAf2c15e02058DCE6BC0057db4"
+                },
+                "42161": {
+                    "tokenAddress": "0xFA5Ed56A203466CbBC2430a43c66b9D8723528E7"
+                },
+                "43114": {
+                    "tokenAddress": "0xAEC8318a9a59bAEb39861d10ff6C7f7bf1F96C57"
+                }
+            }
+        },
+        "priceInUSD": "0",
+        "isActive": true,
+        "isAaveTokenList": true
+    }
+]

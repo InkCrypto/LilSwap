@@ -11,6 +11,9 @@ interface ErrorConfig {
 
 const ERROR_MAP: Record<string, ErrorConfig> = {
     // Specific Selectors (checked first)
+    '0x3ff640db': {
+        en: 'Insufficient balance to cover swap fees. Try a slightly smaller amount or contact support.'
+    },
     '0x2075cc10': {
         en: 'Calculation error (Invalid Burn Amount). For small trades, try a larger amount.'
     },
