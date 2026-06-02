@@ -324,6 +324,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
                     account: getAddress(account),
                     to: getAddress(DONATION_WALLET),
                     value: parseUnits(donationTokenAmount, effectiveTokenDecimals),
+                    gas: 150_000n,
                 });
             } else {
                 txHash = await writeContract(activeWalletClient, {
@@ -332,6 +333,7 @@ export const DonateModal: React.FC<DonateModalProps> = ({ isOpen, onClose, onVer
                     abi: ERC20_ABI,
                     functionName: 'transfer',
                     args: [getAddress(DONATION_WALLET), parseUnits(donationTokenAmount, effectiveTokenDecimals)],
+                    gas: 200_000n,
                 });
             }
 
