@@ -353,7 +353,13 @@ export const useDebtSwitchActions = ({
     }, [walletClient, publicClient, account, toToken, adapterAddress, networkAddresses, preferPermit, generateAndCachePermit, fetchDebtData, addLog]);
 
     const handleSwap = useCallback(async () => {
-        if (!adapterAddress || !account || !walletClient) return;
+        if (!account || !walletClient) return;
+        
+        if (!adapterAddress) {
+            addLog?.('Critical error: Adapter address not configured for this network', 'error');
+            setTxError('System configuration error: Swap adapter missing.');
+            return;
+        }
 
         setTxError(null);
         clearQuoteError?.();
