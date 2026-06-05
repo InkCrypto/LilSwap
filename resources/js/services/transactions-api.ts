@@ -79,6 +79,11 @@ export async function recordTransactionHash(
     txHash: string,
     options: { walletAddress?: string | null } = {}
 ): Promise<boolean> {
+    if (!txHash || typeof txHash !== 'string' || !/^0x[a-fA-F0-9]{64}$/.test(txHash)) {
+        logger.error(`[Transactions] Ignoring invalid txHash received from wallet: ${txHash}`);
+        return false;
+    }
+
     let lastError: any = null;
 
     for (let attempt = 0; attempt < HASH_SYNC_MAX_ATTEMPTS; attempt++) {

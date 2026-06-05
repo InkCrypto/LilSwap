@@ -61,6 +61,15 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
     'INSUFFICIENT_ATOKEN_BALANCE': {
         en: 'Amount is above the executable limit for the current balance.'
     },
+    'MAX_SWAP_OFFSET_NOT_FOUND': {
+        en: 'This MAX swap route cannot be prepared without leaving dust. Try entering a slightly smaller amount instead of using MAX, or choose another token route.'
+    },
+    'unable to find a unique source amount offset': {
+        en: 'This MAX swap route cannot be prepared without leaving dust. Try entering a slightly smaller amount instead of using MAX, or choose another token route.'
+    },
+    'cannot be prepared dust-free': {
+        en: 'This MAX swap route cannot be prepared without leaving dust. Try entering a slightly smaller amount instead of using MAX, or choose another token route.'
+    },
     'COLLATERAL_CANNOT_COVER_NEW_BORROW': {
         en: 'Aave borrow power is too low for this debt switch. Repay a small amount or add collateral before switching debt.'
     },
