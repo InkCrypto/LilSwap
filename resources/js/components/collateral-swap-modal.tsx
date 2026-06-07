@@ -53,6 +53,11 @@ interface CollateralSwapModalProps {
 
 const MAX_PREVALIDATIONS_PER_OPEN = 8;
 
+const getTokenUsdPrice = (token: any): number => {
+    const rawPrice = parseFloat(token?.priceInUSD || '0');
+    return rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
+};
+
 export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     isOpen,
     onClose,
@@ -261,21 +266,26 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             setIsUSDMode(!isUSDMode);
             return;
         }
-        const price = parseFloat(fromToken.priceInUSD || '0');
+        const price = getTokenUsdPrice(fromToken);
         if (price <= 0 || !inputValue) {
             setIsUSDMode(!isUSDMode);
             return;
         }
-        if (isUSDMode) {
-            const usdAmount = parseFloat(inputValue);
-            const tokenAmount = usdAmount / price;
-            setInputValue(tokenAmount.toFixed(tokenAmount < 0.0001 ? 8 : 6).replace(/\.?0+$/, ''));
-        } else {
-            const tokenAmount = parseFloat(inputValue);
-            setInputValue((tokenAmount * price).toFixed(2));
+
+        try {
+            const tokenAmount = formatUnits(swapAmount, fromToken.decimals || 18);
+
+            if (isUSDMode) {
+                setInputValue(tokenAmount);
+            } else {
+                setInputValue((parseFloat(tokenAmount) * price).toFixed(2));
+            }
+        } catch {
+            setInputValue('');
         }
+
         setIsUSDMode(!isUSDMode);
-    }, [isUSDMode, inputValue, fromToken]);
+    }, [isUSDMode, inputValue, fromToken, swapAmount]);
 
     const fromSecondaryValue = useMemo(() => {
         if (!fromToken) return null;
@@ -286,18 +296,16 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 return formatCompactToken(tokenAmount, fromToken.symbol);
             } catch { return null; }
         } else {
-            if (swapQuote?.priceRoute?.srcUSD) return formatUSD(parseFloat(swapQuote.priceRoute.srcUSD));
-            const rawPrice = parseFloat(fromToken.priceInUSD || '0');
-            const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
-            return formatUSD(parseFloat(inputValue || '0') * price);
+            const price = getTokenUsdPrice(fromToken);
+            const tokenAmount = parseFloat(formatUnits(swapAmount, fromToken.decimals || 18));
+            return formatUSD(tokenAmount * price);
         }
-    }, [isUSDMode, fromToken, swapAmount, swapQuote, inputValue]);
+    }, [isUSDMode, fromToken, swapAmount]);
 
     const toSecondaryValue = useMemo(() => {
         if (!toToken) return null;
 
-        const rawPrice = parseFloat(toToken.priceInUSD || '0');
-        const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
+        const price = getTokenUsdPrice(toToken);
 
         if (isUSDMode) {
             // In USD mode, show Token units
@@ -310,7 +318,6 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             return `0 ${toToken.symbol}`;
         } else {
             // In Token mode, show USD value
-            if (swapQuote?.priceRoute?.destUSD) return formatUSD(parseFloat(swapQuote.priceRoute.destUSD));
             if (swapQuote?.destAmount) {
                 try {
                     const tokenAmount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
@@ -701,8 +708,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             const fromLiqThreshold = isFromAssetEmode ? emodeLT : (parseFloat(fromMarketToken?.reserveLiquidationThreshold || '0') || 0);
             const toLiqThreshold = isToAssetEmode ? emodeLT : (parseFloat(toMarketToken?.reserveLiquidationThreshold || '0') || 0);
 
-            const srcUSD = parseFloat(swapQuote.srcUSD || '0');
-            const netReceivedUsd = parseFloat(swapQuote.destUSD || '0');
+            const srcUSD = parseFloat(swapQuote.priceRoute?.srcUSD || '0');
+            const netReceivedUsd = parseFloat(swapQuote.priceRoute?.destUSD || '0');
 
             if (srcUSD > 0 && netReceivedUsd > 0) {
                 const lostCollateralPower = srcUSD * fromLiqThreshold;
@@ -921,7 +928,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                             let amountBI: bigint;
 
                             if (isUSDMode) {
-                                const price = parseFloat(fromToken?.priceInUSD || '0');
+                                const price = getTokenUsdPrice(fromToken);
                                 if (price > 0) {
                                     const tokenAmountNum = parseFloat(normalized) / price;
                                     amountBI = parseUnits(tokenAmountNum.toFixed(fromToken?.decimals || 18), fromToken?.decimals || 18);
@@ -946,7 +953,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                         const displayMaxTokenAmount = formatUnits(availableBalance, fromToken.decimals || 18);
 
                         if (isUSDMode) {
-                            const price = parseFloat(fromToken.priceInUSD || '0');
+                            const price = getTokenUsdPrice(fromToken);
                             setInputValue((parseFloat(displayMaxTokenAmount) * price).toFixed(2));
                         } else {
                             setInputValue(displayMaxTokenAmount);
@@ -964,7 +971,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                         const tokenAmount = formatUnits(amountBI, fromToken.decimals || 18);
 
                         if (isUSDMode) {
-                            const price = parseFloat(fromToken.priceInUSD || '0');
+                            const price = getTokenUsdPrice(fromToken);
                             setInputValue((parseFloat(tokenAmount) * price).toFixed(2));
                         } else {
                             setInputValue(tokenAmount);
@@ -1025,7 +1032,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                 <div className="flex items-center overflow-hidden">
                                     {isUSDMode && (
                                         <span className={`text-2xl font-mono font-bold mr-0.5 select-none transition-colors ${(() => {
-                                            const usdVal = parseFloat(swapQuote?.priceRoute?.destUSD || '0');
+                                            const tokenAmount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+                                            const usdVal = tokenAmount * getTokenUsdPrice(toToken);
                                             return usdVal > 0 ? 'text-slate-900 dark:text-white' : 'text-muted-foreground';
                                         })()}`}>$</span>
                                     )}
@@ -1034,7 +1042,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                         readOnly
                                         value={(() => {
                                             if (isUSDMode) {
-                                                const usdVal = parseFloat(swapQuote.priceRoute.destUSD || '0');
+                                                const tokenAmount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+                                                const usdVal = tokenAmount * getTokenUsdPrice(toToken);
                                                 return usdVal.toFixed(2);
                                             }
                                             return formatUnits(swapQuote.destAmount, toToken.decimals || 18);
@@ -1425,8 +1434,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                         const toPrice = rawToPrice > 1_000_000_000 ? rawToPrice / 1e8 : rawToPrice;
 
                                                         if (fromPrice > 0 && toPrice > 0) {
-                                                            const withdrawnUsd = parseFloat(swapQuote.srcUSD || '0') || (withdrawnAmountF * fromPrice);
-                                                            const netReceivedUsd = parseFloat(swapQuote.destUSD || '0') || (newAmountF * (1 - ((swapQuote.feeBps || 0) / 10000)) * (1 - (slippage / 10000)) * toPrice);
+                                                            const withdrawnUsd = parseFloat(swapQuote.priceRoute?.srcUSD || '0') || (withdrawnAmountF * fromPrice);
+                                                            const netReceivedUsd = parseFloat(swapQuote.priceRoute?.destUSD || '0') || (newAmountF * (1 - ((swapQuote.feeBps || 0) / 10000)) * (1 - (slippage / 10000)) * toPrice);
                                                             simulatedTotalCollateralUSD = Math.max(0, currentTotalCollateralUSD - withdrawnUsd + netReceivedUsd);
                                                         }
                                                     } catch {
