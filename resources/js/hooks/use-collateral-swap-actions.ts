@@ -12,7 +12,7 @@ import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
 import { buildCollateralSwapTx } from '../services/api';
-import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } from '../services/transactions-api';
+import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction, failTransaction } from '../services/transactions-api';
 import logger, { isUserRejectedError } from '../utils/logger';
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
@@ -730,11 +730,19 @@ export const useCollateralSwapActions = ({
             if (shouldSimulateBeforeSwap) {
                 addLog?.('Running debug simulation before sending transaction...', 'info');
                 simulationInProgress = true;
-                await publicClient?.call({
+                if (!publicClient) {
+                    throw new Error('Simulation client is unavailable for this network.');
+                }
+
+                await publicClient.call({
                     account: getAddress(account),
                     to: getAddress(transactionRequest.to),
                     data: transactionRequest.data as Hex,
                     value: BigInt(transactionRequest.value || 0),
+                });
+                logger.debug('[useCollateralSwapActions] Final transaction preflight passed', {
+                    chainId,
+                    transactionId: localTxId,
                 });
                 simulationInProgress = false;
             }
@@ -839,6 +847,9 @@ export const useCollateralSwapActions = ({
 
                 setTxError(friendlyMessage);
                 addLog?.(`Swap Failed: ${friendlyMessage}`, 'error');
+                if (localTxId && simulationInProgress) {
+                    failTransaction(localTxId, 'preflight_simulation_failed').catch(() => { });
+                }
             }
             resetRefreshCountdown();
         } finally {
