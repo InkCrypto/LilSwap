@@ -23,6 +23,7 @@ import { CompactAmountInput } from './compact-amount-input';
 import { formatHF, formatCompactNumber, formatCompactToken, formatUSD, formatAPY } from '../utils/formatters';
 import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
 import { getTokenLogo } from '../utils/get-token-logo';
+import logger from '../utils/logger';
 import { getWithdrawSwapQuote, buildWithdrawSwapTx } from '../services/api';
 
 interface WithdrawModalProps {
@@ -48,6 +49,7 @@ const APPROVAL_GAS_LIMIT = 150_000n;
 const WITHDRAW_GAS_LIMIT = 500_000n;
 const WITHDRAW_SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
 const WITHDRAW_SWAP_GAS_LIMIT_MAX = 8_000_000n;
+const EXECUTION_GAS_BUFFER_BPS = 2_000n;
 
 const getAssetAddress = (asset: any) => (asset?.underlyingAsset || asset?.address || '').toLowerCase();
 
@@ -87,6 +89,12 @@ const resolveWithdrawSwapGasLimit = (txData: any, priceRoute: any): bigint => {
     }
 
     return buffered;
+};
+
+const applyWithdrawSwapGasBuffer = (estimatedGas: bigint): bigint => {
+    const buffered = estimatedGas + (estimatedGas * EXECUTION_GAS_BUFFER_BPS / 10_000n);
+
+    return buffered > WITHDRAW_SWAP_GAS_LIMIT_MAX ? WITHDRAW_SWAP_GAS_LIMIT_MAX : buffered;
 };
 
 const getCustomTargetTokenStorageKey = (chainId: number) => `${CUSTOM_TARGET_TOKENS_STORAGE_PREFIX}:${chainId}`;
@@ -1155,7 +1163,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                     s: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
                 };
 
-                txHash = await walletClient.writeContract({
+                const transactionParameters = {
                     account: getAddress(walletAddress),
                     address: getAddress(withdrawSwapAdapterAddress),
                     abi: ABIS.WITHDRAW_SWAP_ADAPTER,
@@ -1170,7 +1178,29 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                         getAddress(txData.augustus),
                         permitParams,
                     ],
-                    gas: resolveWithdrawSwapGasLimit(txData, latestQuote.priceRoute),
+                } as const;
+                let gas = resolveWithdrawSwapGasLimit(txData, latestQuote.priceRoute);
+
+                if (txData?.debugFlags?.simulateBeforeSwap === true) {
+                    if (!publicClient) {
+                        throw new Error('Simulation client is unavailable for this network.');
+                    }
+
+                    const estimatedGas = await publicClient.estimateContractGas(transactionParameters);
+                    const estimatedGasWithBuffer = applyWithdrawSwapGasBuffer(estimatedGas);
+                    if (estimatedGasWithBuffer > gas) {
+                        gas = estimatedGasWithBuffer;
+                    }
+
+                    await publicClient.simulateContract({
+                        ...transactionParameters,
+                        gas,
+                    });
+                }
+
+                txHash = await walletClient.writeContract({
+                    ...transactionParameters,
+                    gas,
                 });
 
                 addTransaction({
@@ -1192,6 +1222,19 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 clearLockedSwapQuote();
             }, 2000);
         } catch (err: any) {
+            if (activeTab === 'swap') {
+                logger.error('[WithdrawSwap] Execution failed before transaction broadcast', {
+                    chainId,
+                    walletAddress,
+                    marketKey,
+                    message: err?.message || null,
+                    shortMessage: err?.shortMessage || null,
+                    details: err?.details || null,
+                    code: err?.code || null,
+                    data: err?.data || null,
+                    error: err,
+                });
+            }
             clearLockedSwapQuote();
             setErrorText(err.shortMessage || err.message || 'Withdrawal failed');
         } finally {

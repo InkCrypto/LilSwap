@@ -6,7 +6,7 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { encodeAbiParameters, formatUnits, getAddress, parseAbi, parseUnits } from 'viem';
+import { encodeAbiParameters, formatUnits, getAddress, parseAbi, parseUnits, parseSignature, Hex } from 'viem';
 import { usePublicClient } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { getMarketByKey } from '../constants/networks';
@@ -20,6 +20,7 @@ import {
     formatUSD,
 } from '../utils/formatters';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
+import logger from '../utils/logger';
 import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
 import { CompactAmountInput } from './compact-amount-input';
 import { InfoTooltip } from './info-tooltip';
@@ -1288,7 +1289,6 @@ export const RepayModal: React.FC<RepayModalProps> = ({
             effectiveATokenBalance > 0n &&
             aTokenMetadata?.symbol
         ) {
-            // TODO: add collateral sources through a repay-with-collateral swap adapter.
             sources.push({
                 ...selectedDebt,
                 symbol: aTokenMetadata.symbol,
@@ -1381,6 +1381,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
 
     const REPAY_SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
     const REPAY_SWAP_GAS_LIMIT_MAX = 8_000_000n;
+    const EXECUTION_GAS_BUFFER_BPS = 2_000n;
 
     const resolveRepaySwapGasLimit = (txData: any, priceRoute: any): bigint => {
         const explicitGas = parseGasLimit(txData?.gas);
@@ -1406,6 +1407,12 @@ export const RepayModal: React.FC<RepayModalProps> = ({
         }
 
         return buffered;
+    };
+
+    const applyRepaySwapGasBuffer = (estimatedGas: bigint): bigint => {
+        const buffered = estimatedGas + (estimatedGas * EXECUTION_GAS_BUFFER_BPS / 10_000n);
+
+        return buffered > REPAY_SWAP_GAS_LIMIT_MAX ? REPAY_SWAP_GAS_LIMIT_MAX : buffered;
     };
 
     const executeRepay = useCallback(
@@ -1620,13 +1627,129 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 marketKey,
             });
 
-            const permitSignature = {
+            const maxCollateralAmount = BigInt(
+                txData.maxCollateralAmount ||
+                txData.approval?.amount ||
+                quoteForExecution.maxCollateralAmount ||
+                quoteForExecution.approval?.amount ||
+                quoteForExecution.srcAmount,
+            );
+
+            let permitSignature = {
                 amount: 0n,
                 deadline: 0n,
                 v: 0,
                 r: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
                 s: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
             };
+
+            const collateralATokenAddress = suppliedCollateralAsset?.aTokenAddress
+                ? getAddress(suppliedCollateralAsset.aTokenAddress)
+                : null;
+
+            if (collateralATokenAddress && collateralAllowance < maxCollateralAmount) {
+                try {
+                    let nonce = 0n;
+                    let name = '';
+
+                    const [nonceResult, nameResult] = await Promise.all([
+                        readClient?.readContract({
+                            address: collateralATokenAddress,
+                            abi: parseAbi(ABIS.ERC20),
+                            functionName: 'nonces',
+                            args: [getAddress(walletAddress)],
+                        }).catch(() => 0n),
+                        readClient?.readContract({
+                            address: collateralATokenAddress,
+                            abi: parseAbi(ABIS.ERC20),
+                            functionName: 'name',
+                        }).catch(() => ''),
+                    ]);
+
+                    nonce = BigInt(nonceResult as any);
+                    name = String(nameResult || '');
+
+                    if (!name) {
+                        name = `Aave V3 ${selectedCollateral.symbol}`;
+                    }
+
+                    const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+                    const value = maxCollateralAmount;
+
+                    const domain = {
+                        name,
+                        version: '1',
+                        chainId,
+                        verifyingContract: collateralATokenAddress,
+                    };
+                    const types = {
+                        Permit: [
+                            { name: 'owner', type: 'address' },
+                            { name: 'spender', type: 'address' },
+                            { name: 'value', type: 'uint256' },
+                            { name: 'nonce', type: 'uint256' },
+                            { name: 'deadline', type: 'uint256' },
+                        ],
+                    };
+                    const message = {
+                        owner: getAddress(walletAddress),
+                        spender: getAddress(repayWithCollateralAdapterAddress),
+                        value,
+                        nonce,
+                        deadline,
+                    };
+
+                    const signature = await walletClient.signTypedData({
+                        account: getAddress(walletAddress),
+                        domain,
+                        types,
+                        primaryType: 'Permit',
+                        message,
+                    });
+
+                    const parsedSig = parseSignature(signature);
+                    const r = parsedSig.r as Hex;
+                    const s = parsedSig.s as Hex;
+                    let v = Number(parsedSig.v ?? (parsedSig.yParity === 0 ? 27n : 28n));
+                    if (v < 27) v += 27;
+
+                    permitSignature = {
+                        amount: value,
+                        deadline,
+                        v,
+                        r,
+                        s,
+                    };
+                } catch (permitErr: any) {
+                    if (permitErr?.code === 4001 || permitErr?.message?.includes('User rejected')) {
+                        throw permitErr;
+                    }
+                    logger.warn('[RepaySwap] Permit failed or unsupported, falling back to standard approve', permitErr);
+
+                    const approveHash = await walletClient.writeContract({
+                        account: getAddress(walletAddress),
+                        address: collateralATokenAddress,
+                        abi: parseAbi(ABIS.ERC20),
+                        functionName: 'approve',
+                        args: [getAddress(repayWithCollateralAdapterAddress), MAX_UINT256],
+                        gas: APPROVAL_GAS_LIMIT,
+                    });
+
+                    addTransaction({
+                        hash: approveHash,
+                        chainId,
+                        description: `Approve ${selectedCollateral.symbol} for Repay Adapter`,
+                        marketKey: marketKey || selectedNetwork.key,
+                        suppressPositionRefresh: true,
+                    });
+
+                    if (readClient) {
+                        await readClient.waitForTransactionReceipt({ hash: approveHash });
+                    }
+                    setCollateralAllowance(MAX_UINT256);
+                }
+            }
+
             const augustusAddress = txData.augustus ? getAddress(txData.augustus) : null;
 
             if (!augustusAddress) {
@@ -1636,13 +1759,6 @@ export const RepayModal: React.FC<RepayModalProps> = ({
             const encodedParaswapData = encodeAbiParameters(
                 [{ type: 'bytes' }, { type: 'address' }],
                 [txData.swapCallData as `0x${string}`, augustusAddress],
-            );
-            const maxCollateralAmount = BigInt(
-                txData.maxCollateralAmount ||
-                txData.approval?.amount ||
-                quoteForExecution.maxCollateralAmount ||
-                quoteForExecution.approval?.amount ||
-                quoteForExecution.srcAmount,
             );
             const isFullDebtRepay = debtBalance > 0n && repayAmount >= debtBalance;
             const buyAllBalanceOffset = isFullDebtRepay ? BigInt(txData.buyAllBalanceOffset || 0) : 0n;
@@ -1655,7 +1771,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 ? addFullRepayDebtBuffer(repayAmount)
                 : repayAmount;
 
-            const txHash = await walletClient.writeContract({
+            const transactionParameters = {
                 account: getAddress(walletAddress),
                 address: getAddress(repayWithCollateralAdapterAddress),
                 abi: ABIS.REPAY_WITH_COLLATERAL_ADAPTER,
@@ -1670,7 +1786,29 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                     encodedParaswapData,
                     permitSignature,
                 ],
-                gas: resolveRepaySwapGasLimit(txData, quoteForExecution.priceRoute),
+            } as const;
+            let gas = resolveRepaySwapGasLimit(txData, quoteForExecution.priceRoute);
+
+            if (txData?.debugFlags?.simulateBeforeSwap === true) {
+                if (!readClient) {
+                    throw new Error('Simulation client is unavailable for this network.');
+                }
+
+                const estimatedGas = await readClient.estimateContractGas(transactionParameters);
+                const estimatedGasWithBuffer = applyRepaySwapGasBuffer(estimatedGas);
+                if (estimatedGasWithBuffer > gas) {
+                    gas = estimatedGasWithBuffer;
+                }
+
+                await readClient.simulateContract({
+                    ...transactionParameters,
+                    gas,
+                });
+            }
+
+            const txHash = await walletClient.writeContract({
+                ...transactionParameters,
+                gas,
             });
 
             addTransaction({
@@ -1690,6 +1828,17 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 clearLockedSwapQuote();
             }, 2000);
         } catch (err: any) {
+            logger.error('[RepaySwap] Execution failed before transaction broadcast', {
+                chainId,
+                walletAddress,
+                marketKey,
+                message: err?.message || null,
+                shortMessage: err?.shortMessage || null,
+                details: err?.details || null,
+                code: err?.code || null,
+                data: err?.data || null,
+                error: err,
+            });
             clearLockedSwapQuote();
             setErrorText(err.shortMessage || err.message || 'Repay swap failed');
         } finally {
@@ -1708,11 +1857,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
         }
 
         if (activeTab === 'swap') {
-            if (isApproveRequired) {
-                await handleApprove();
-            } else {
-                await handleConfirm();
-            }
+            await handleConfirm();
 
             return;
         }

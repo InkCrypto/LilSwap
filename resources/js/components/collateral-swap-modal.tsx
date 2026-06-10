@@ -207,6 +207,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         enabled: isOpen,
     });
     const isApproved = approvalAmount > 0n && onChainAllowance >= approvalAmount;
+    const executionSlippage = isAutoSlippage ? recommendedSlippage : slippage;
 
     const {
         isActionLoading,
@@ -227,7 +228,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         supplyBalance: localBalance,
         isMaxSwap: isMaxSelected,
         swapQuote,
-        slippage,
+        slippage: executionSlippage,
         addLog: modalLog,
         fetchPositionData: refreshPositions,
         fetchQuote,

@@ -762,8 +762,16 @@ export const buildCollateralSwapTx = async (params: any) => {
         return response.data;
     } catch (error: any) {
         const errorMessage = getPublicApiErrorMessage(error, 'Error building collateral transaction');
+        const buildError = new Error(errorMessage) as Error & {
+            code?: string;
+            details?: any;
+            responseData?: any;
+        };
+        buildError.code = error?.response?.data?.code || error?.code;
+        buildError.details = error?.response?.data?.details;
+        buildError.responseData = error?.response?.data;
 
-        throw new Error(errorMessage);
+        throw buildError;
     }
 };
 

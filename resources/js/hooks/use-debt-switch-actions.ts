@@ -23,6 +23,7 @@ import { mapErrorToUserFriendly } from '../utils/error-mapping';
 const DELEGATION_GAS_LIMIT = 180_000n;
 const SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
 const SWAP_GAS_LIMIT_MAX = 8_000_000n;
+const EXECUTION_GAS_BUFFER_BPS = 2_000n;
 
 const parseGasLimit = (value: unknown): bigint | null => {
     if (value == null || value === '') {
@@ -60,6 +61,12 @@ const resolveSwapGasLimit = (txResult: any, priceRoute: any): bigint => {
     }
 
     return buffered;
+};
+
+const applyExecutionGasBuffer = (estimatedGas: bigint): bigint => {
+    const buffered = estimatedGas + (estimatedGas * EXECUTION_GAS_BUFFER_BPS / 10_000n);
+
+    return buffered > SWAP_GAS_LIMIT_MAX ? SWAP_GAS_LIMIT_MAX : buffered;
 };
 
 const collectErrorDetails = (error: any) => {
@@ -399,6 +406,10 @@ export const useDebtSwitchActions = ({
         let activeQuote = swapQuote;
         let simulationInProgress = false;
         let swapDebugMeta: any = null;
+        let localTxId: string | null = null;
+        let preflightPassed = false;
+        let walletPromptOpened = false;
+        let finalGasLimit: bigint | null = null;
         if (!activeQuote) {
             addLog?.('Fetching quote...', 'info');
             activeQuote = await fetchQuote();
@@ -453,7 +464,8 @@ export const useDebtSwitchActions = ({
             const executionBufferBps = txResult?.bufferBps ?? bufferBps;
             const executionMaxNewDebt = calcApprovalAmount(executionSrcAmount, executionBufferBps);
             const executionDebtRepayAmount = txResult?.destAmount ? BigInt(txResult.destAmount) : BigInt(exactDebtRepayAmount);
-            updateCurrentTransactionId(txResult.transactionId?.toString?.() || null);
+            localTxId = txResult.transactionId?.toString?.() || null;
+            updateCurrentTransactionId(localTxId);
             swapDebugMeta = txResult?.debugFlags || null;
             const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
             logger.debug('[useDebtSwitchActions] Swap debug decision', {
@@ -565,29 +577,19 @@ export const useDebtSwitchActions = ({
                 throw new Error(`Unable to refresh delegation for updated route requirement. Signed: ${creditPermit.value.toString()} Required: ${executionMaxNewDebt.toString()}`);
             }
 
-            if (shouldSimulateBeforeSwap) {
-                addLog?.('Running debug simulation before sending transaction...', 'info');
-                simulationInProgress = true;
-                await publicClient?.simulateContract({
-                    account: getAddress(account),
-                    address: getAddress(adapterAddress),
-                    abi: ABIS.ADAPTER,
-                    functionName: 'swapDebt',
-                    args: [swapParams, creditPermit, collateralPermit],
-                });
-                simulationInProgress = false;
-            }
+            finalGasLimit = resolveSwapGasLimit(txResult, priceRoute);
+
+            // Preflight simulation removed to minimize delay
 
             addLog?.('Confirm in your wallet...', 'warning');
-            const gas = resolveSwapGasLimit(txResult, priceRoute);
-
+            walletPromptOpened = true;
             const hash = await walletClient.writeContract({
                 account: getAddress(account),
                 address: getAddress(adapterAddress),
                 abi: ABIS.ADAPTER,
                 functionName: 'swapDebt',
                 args: [swapParams, creditPermit, collateralPermit],
-                gas,
+                gas: finalGasLimit,
             });
             onSignatureCached?.(null);
 
@@ -620,7 +622,31 @@ export const useDebtSwitchActions = ({
             if (isUserRejectedError(error)) {
                 setUserRejected(true);
                 addLog?.('Cancelled by user.', 'warning');
-                if (currentTransactionId) rejectTransaction(currentTransactionId, 'wallet_rejected').catch(() => { });
+                const rejectionReason = preflightPassed
+                    ? 'wallet_rejected_after_preflight_passed'
+                    : 'wallet_rejected';
+
+                logger.error('[useDebtSwitchActions] Wallet request rejected after build', {
+                    chainId,
+                    marketKey: marketKey || targetNetwork?.key,
+                    account,
+                    transactionId: localTxId,
+                    walletPromptOpened,
+                    preflightPassed,
+                    gas: finalGasLimit?.toString() || null,
+                    adapterAddress,
+                    swapDebug: swapDebugMeta,
+                    error: {
+                        name: error?.name || null,
+                        shortMessage: error?.shortMessage || null,
+                        message: error?.message || null,
+                        details: error?.details || null,
+                        code: error?.code || null,
+                        data: error?.data || null,
+                    },
+                });
+
+                if (localTxId) rejectTransaction(localTxId, rejectionReason).catch(() => { });
             } else {
                 const diagnostic = collectErrorDetails(error);
                 const revertSelector = getRevertSelector(error);
@@ -649,6 +675,10 @@ export const useDebtSwitchActions = ({
                     toToken: toToken?.symbol,
                     swapAmount: swapAmount?.toString?.() || '0',
                     swapDebug: swapDebugMeta,
+                    walletPromptOpened,
+                    preflightPassed,
+                    gas: finalGasLimit?.toString() || null,
+                    adapterAddress,
                     diagnostic,
                     revertSelector,
                     error: errorSnapshot,

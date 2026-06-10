@@ -5,6 +5,7 @@ import {
     zeroAddress,
     Hex,
     zeroHash,
+    toHex,
 } from 'viem';
 import { useCallback, useEffect, useState, useMemo } from 'react';
 import { usePublicClient, useWalletClient } from 'wagmi';
@@ -12,51 +13,11 @@ import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
 import { buildCollateralSwapTx } from '../services/api';
-import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction, failTransaction } from '../services/transactions-api';
+import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } from '../services/transactions-api';
 import logger, { isUserRejectedError } from '../utils/logger';
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
 const APPROVAL_GAS_LIMIT = 150_000n;
-const SWAP_GAS_LIMIT_FALLBACK = 4_500_000n;
-const SWAP_GAS_LIMIT_MAX = 8_000_000n;
-
-const parseGasLimit = (value: unknown): bigint | null => {
-    if (value == null || value === '') {
-        return null;
-    }
-
-    try {
-        return BigInt(value as string | number | bigint);
-    } catch {
-        return null;
-    }
-};
-
-const resolveSwapGasLimit = (txResult: any, priceRoute: any): bigint => {
-    const explicitGas = parseGasLimit(txResult?.transactionRequest?.gas ?? txResult?.gas);
-
-    if (explicitGas && explicitGas > 0n) {
-        return explicitGas;
-    }
-
-    const routeGas = parseGasLimit(priceRoute?.gasCost);
-
-    if (!routeGas || routeGas <= 0n) {
-        return SWAP_GAS_LIMIT_FALLBACK;
-    }
-
-    const buffered = routeGas * 4n + 500_000n;
-
-    if (buffered < SWAP_GAS_LIMIT_FALLBACK) {
-        return SWAP_GAS_LIMIT_FALLBACK;
-    }
-
-    if (buffered > SWAP_GAS_LIMIT_MAX) {
-        return SWAP_GAS_LIMIT_MAX;
-    }
-
-    return buffered;
-};
 
 interface UseCollateralSwapActionsProps {
     account: string | null;
@@ -217,8 +178,23 @@ const collectErrorDetails = (error: any) => {
 };
 
 const getRevertSelector = (error: any): string | null => {
+    const explicitSelector = error?.details?.revertSelector
+        || error?.responseData?.details?.revertSelector;
+    if (typeof explicitSelector === 'string') {
+        return explicitSelector.toLowerCase();
+    }
+
     const details = collectErrorDetails(error);
     return details.match(/0x[a-fA-F0-9]{8}/)?.[0] || null;
+};
+
+const isInsufficientReturnAmountError = (error: any) => {
+    const revertSelector = getRevertSelector(error);
+    const details = collectErrorDetails(error).toLowerCase();
+
+    return revertSelector === '0xcea9e31d'
+        || details.includes('insufficientreturnamount')
+        || details.includes('cannot satisfy the current minimum received amount');
 };
 
 export const useCollateralSwapActions = ({
@@ -542,8 +518,11 @@ export const useCollateralSwapActions = ({
         if (!adapterAddress || !account || !walletClient) return;
 
         let localTxId: string | null = null;
-        let simulationInProgress = false;
         let swapDebugMeta: any = null;
+        let preflightPassed = false;
+        let walletPromptOpened = false;
+        let diagnosticGasEstimate: string | null = null;
+        let transactionRequest: any = null;
         let activeQuote = swapQuote;
 
         if (!activeQuote) {
@@ -558,6 +537,12 @@ export const useCollateralSwapActions = ({
             const hasCorrectNetwork = await ensureWalletNetwork();
             if (!hasCorrectNetwork) return;
 
+            const walletAccounts = await (walletClient as any).request({ method: 'eth_accounts' }) as string[];
+            const activeWalletAccount = Array.isArray(walletAccounts) ? walletAccounts[0] : null;
+            if (!activeWalletAccount || getAddress(activeWalletAccount) !== getAddress(account)) {
+                throw new Error('Connected wallet account changed. Reopen the swap and try again.');
+            }
+
             const { priceRoute, srcAmount, fromToken: quoteFrom, toToken: quoteTo } = activeQuote;
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
 
@@ -567,8 +552,17 @@ export const useCollateralSwapActions = ({
                 throw new Error('Unable to prepare approval token for collateral swap');
             }
 
-            // Trust the UI allowance provided via props to avoid redundant on-chain call
-            const effectiveAllowance = allowance;
+            // The displayed allowance can be stale by the time MAX is rebuilt. Read the
+            // executable allowance immediately before deciding whether approval is needed.
+            let effectiveAllowance = allowance;
+            if (publicClient) {
+                effectiveAllowance = await publicClient.readContract({
+                    address: getAddress(aTokenAddr),
+                    abi: parseAbi(ABIS.ERC20),
+                    functionName: 'allowance',
+                    args: [getAddress(account), getAddress(adapterAddress)],
+                }) as bigint;
+            }
 
             const effectivePreferPermit = forceRequirePermit || preferPermit;
 
@@ -634,7 +628,7 @@ export const useCollateralSwapActions = ({
                 }
             };
 
-            logger.debug(`[useCollateralSwapActions] Evaluation | Allowance: ${allowance.toString()} | Required (with Premium): ${requiredAllowance.toString()} | ForcePermit: ${forceRequirePermit} | PreferPermit: ${preferPermit} | HasLocalSignature: ${!!cachedPermit}`);
+            logger.debug(`[useCollateralSwapActions] Evaluation | Allowance: ${effectiveAllowance.toString()} | Required (with Premium): ${requiredAllowance.toString()} | ForcePermit: ${forceRequirePermit} | PreferPermit: ${preferPermit} | HasLocalSignature: ${!!cachedPermit}`);
 
             if (effectiveAllowance < requiredAllowance || forceRequirePermit) {
                 if (effectivePreferPermit) {
@@ -666,8 +660,13 @@ export const useCollateralSwapActions = ({
                             ...cachedPermitValidation.meta,
                         });
 
-                        logger.debug('[useCollateralSwapActions] Cached permit reuse disabled, re-requesting...');
-                        permitParams = await requestPermitOrApprove();
+                        if (tokenMatch && deadlineValid && valueValid && cachedPermitValidation.valid && !cachedPermitValidation.isEmpty && cachedPermitValidation.params && !forceRequirePermit) {
+                            logger.debug('[useCollateralSwapActions] REUSING successful cached permit');
+                            permitParams = cachedPermitValidation.params;
+                        } else {
+                            logger.debug('[useCollateralSwapActions] Cached permit INVALID or EXPIRED, re-requesting...');
+                            permitParams = await requestPermitOrApprove();
+                        }
                     } else {
                         logger.debug('[useCollateralSwapActions] No local permit found, re-requesting...');
                         permitParams = await requestPermitOrApprove();
@@ -738,7 +737,7 @@ export const useCollateralSwapActions = ({
             updateCurrentTransactionId(localTxId);
             swapDebugMeta = txResult?.debugFlags || null;
             const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
-            const transactionRequest = txResult?.transactionRequest;
+            transactionRequest = txResult?.transactionRequest;
             if (!transactionRequest?.to || !transactionRequest?.data) {
                 throw new Error('Backend did not return a transaction request for collateral swap');
             }
@@ -747,42 +746,21 @@ export const useCollateralSwapActions = ({
                 marketKey: marketKey || targetNetwork?.key,
                 account,
                 transactionId: localTxId,
+                gasEstimate: txResult?.gasEstimate || null,
                 swapDebug: swapDebugMeta,
             });
 
-            if (shouldSimulateBeforeSwap) {
-                addLog?.('Running debug simulation before sending transaction...', 'info');
-                simulationInProgress = true;
-                if (!publicClient) {
-                    throw new Error('Simulation client is unavailable for this network.');
-                }
+            diagnosticGasEstimate = txResult?.gasEstimate?.gas?.toString?.() || null;
 
-                const callResult = await publicClient.call({
-                    account: getAddress(account),
-                    to: getAddress(transactionRequest.to),
-                    data: transactionRequest.data as Hex,
-                    value: BigInt(transactionRequest.value || 0),
-                });
-
-                if (callResult.data && callResult.data !== '0x') {
-                    throw new Error(`Transaction simulation reverted: ${callResult.data}`);
-                }
-
-                logger.debug('[useCollateralSwapActions] Final transaction preflight passed', {
-                    chainId,
-                    transactionId: localTxId,
-                });
-                simulationInProgress = false;
-            }
+            // Preflight simulation removed to minimize delay
 
             addLog?.('Confirm in your wallet...', 'warning');
-            const gas = resolveSwapGasLimit(txResult, priceRoute);
+            walletPromptOpened = true;
             const hash = await walletClient.sendTransaction({
                 account: getAddress(account),
                 to: getAddress(transactionRequest.to),
                 data: transactionRequest.data as Hex,
                 value: BigInt(transactionRequest.value || 0),
-                gas,
             });
             onSignatureCached?.(null);
 
@@ -817,10 +795,37 @@ export const useCollateralSwapActions = ({
             if (isUserRejectedError(error)) {
                 setUserRejected(true);
                 addLog?.('User rejected swap.', 'warning');
-                if (localTxId) rejectTransaction(localTxId, 'wallet_rejected').catch(() => { });
+                const rejectionReason = preflightPassed
+                    ? 'wallet_rejected_after_preflight_passed'
+                    : 'wallet_rejected';
+
+                logger.error('[useCollateralSwapActions] Wallet request rejected after build', {
+                    chainId,
+                    marketKey: marketKey || targetNetwork?.key,
+                    account,
+                    transactionId: localTxId,
+                    walletPromptOpened,
+                    preflightPassed,
+                    diagnosticGasEstimate,
+                    target: transactionRequest?.to || null,
+                    calldataSelector: transactionRequest?.data?.slice?.(0, 10) || null,
+                    calldataLength: transactionRequest?.data?.length || null,
+                    swapDebug: swapDebugMeta,
+                    error: {
+                        name: error?.name || null,
+                        shortMessage: error?.shortMessage || null,
+                        message: error?.message || null,
+                        details: error?.details || null,
+                        code: error?.code || null,
+                        data: error?.data || null,
+                    },
+                });
+
+                if (localTxId) rejectTransaction(localTxId, rejectionReason).catch(() => { });
             } else {
                 const diagnostic = collectErrorDetails(error);
                 const revertSelector = getRevertSelector(error);
+                const quoteMovedBeforeExecution = isInsufficientReturnAmountError(error);
 
                 const errorSnapshot = {
                     name: error?.name || null,
@@ -853,22 +858,35 @@ export const useCollateralSwapActions = ({
                     toToken: toToken?.symbol,
                     swapAmount: swapAmount?.toString?.() || '0',
                     swapDebug: swapDebugMeta,
+                    walletPromptOpened,
+                    preflightPassed,
+                    diagnosticGasEstimate,
+                    target: transactionRequest?.to || null,
+                    calldataSelector: transactionRequest?.data?.slice?.(0, 10) || null,
+                    calldataLength: transactionRequest?.data?.length || null,
                     diagnostic,
                     revertSelector,
                     error: errorSnapshot,
                     rawError: error,
                 });
 
+                if (quoteMovedBeforeExecution) {
+                    const refreshedQuote = await fetchQuote();
+                    const friendlyMessage = refreshedQuote
+                        ? 'Price moved before execution. Quote updated; review it and confirm again.'
+                        : 'Price moved before execution. Refresh the quote and try again.';
+
+                    setTxError(friendlyMessage);
+                    addLog?.(friendlyMessage, 'warning');
+                    resetRefreshCountdown();
+                    return;
+                }
+
                 const friendlyMessage = mapErrorToUserFriendly(technicalErrorMessage)
-                    || (simulationInProgress
-                        ? 'Simulation failed. Try increasing slippage or reducing amount.'
-                        : 'Swap failed. Please try again.');
+                    || 'Swap failed. Please try again.';
 
                 setTxError(friendlyMessage);
                 addLog?.(`Swap Failed: ${friendlyMessage}`, 'error');
-                if (localTxId && simulationInProgress) {
-                    failTransaction(localTxId, revertSelector ? `preflight_simulation_failed:${revertSelector}` : 'preflight_simulation_failed').catch(() => { });
-                }
             }
             resetRefreshCountdown();
         } finally {

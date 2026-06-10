@@ -84,17 +84,6 @@ export const useCollateralPositions = ({
                 return;
             }
 
-            if (fromToken.amount) {
-                const backendBalance = BigInt(fromToken.amount);
-                setSupplyBalance(backendBalance);
-                const formatted = formatUnitsFixed(backendBalance, fromToken.decimals);
-                setFormattedSupply(formatted);
-                addLog?.(`[Collateral] ${fromToken.symbol} balance: ${formatted} (from server)`, 'success');
-
-                setIsPositionLoading(false);
-                return;
-            }
-
             // Verify chainId via publicClient if needed, but Wagmi usually handles this
             const providerChainId = await readClient.getChainId();
             const expectedChainId = selectedNetwork?.chainId || DEFAULT_NETWORK.chainId;
