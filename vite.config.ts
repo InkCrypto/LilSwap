@@ -36,9 +36,12 @@ export default defineConfig({
     build: {
         chunkSizeWarningLimit: 3000,
         rollupOptions: {
+            checks: {
+                pluginTimings: false,
+            },
             onwarn(warning, warn) {
                 // Suppress pure comment warnings from ox library
-                if (warning.message?.includes('contains an annotation that Rollup cannot interpret')) {
+                if (warning.message?.includes('cannot interpret')) {
                     return;
                 }
                 warn(warning);
