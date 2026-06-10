@@ -191,7 +191,7 @@ const PositionSwapButton = ({
 }: {
     enabled?: boolean;
     compactIcon?: boolean;
-    onClick: () => void;
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
 }) => {
     const iconClass = compactIcon ? 'w-3 h-3' : 'w-3.5 h-3.5';
     const button = (
@@ -199,10 +199,13 @@ const PositionSwapButton = ({
             size="sm"
             variant={enabled ? 'default' : 'secondary'}
             tabIndex={enabled ? undefined : -1}
-            onClick={enabled ? onClick : undefined}
+            onClick={enabled ? (e) => {
+                e.stopPropagation();
+                onClick(e);
+            } : undefined}
             className={enabled
-                ? 'gap-1.5 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-xs h-8 px-2.5 text-xs cursor-pointer'
-                : 'gap-1.5 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none h-8 px-2.5 text-xs'}
+                ? 'gap-1.5 rounded-lg shrink-0 transition-all duration-200 bg-primary hover:bg-primary/90 text-white shadow-xs h-7 sm:h-8 px-2 sm:px-2.5 text-[11px] sm:text-xs cursor-pointer border border-transparent'
+                : 'gap-1.5 rounded-lg shrink-0 transition-all duration-200 cursor-not-allowed bg-slate-100/80 dark:bg-slate-800/50 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 shadow-none pointer-events-none h-7 sm:h-8 px-2 sm:px-2.5 text-[11px] sm:text-xs'}
         >
             <ArrowLeftRight className={iconClass} /> Swap
         </Button>
@@ -220,6 +223,42 @@ const PositionSwapButton = ({
         </InfoTooltip>
     );
 };
+
+const PositionWithdrawButton = ({
+    onClick,
+}: {
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) => (
+    <Button
+        size="sm"
+        variant="secondary"
+        onClick={(e) => {
+            e.stopPropagation();
+            onClick(e);
+        }}
+        className="rounded-lg shrink-0 transition-all duration-200 cursor-pointer h-7 sm:h-8 px-2 sm:px-2.5 text-[11px] sm:text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60"
+    >
+        Withdraw
+    </Button>
+);
+
+const PositionRepayButton = ({
+    onClick,
+}: {
+    onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+}) => (
+    <Button
+        size="sm"
+        variant="secondary"
+        onClick={(e) => {
+            e.stopPropagation();
+            onClick(e);
+        }}
+        className="rounded-lg shrink-0 transition-all duration-200 cursor-pointer h-7 sm:h-8 px-2 sm:px-2.5 text-[11px] sm:text-xs bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700/80 text-slate-700 dark:text-slate-200 border border-slate-200/60 dark:border-slate-700/60"
+    >
+        Repay
+    </Button>
+);
 
 const PositionAssetRow = ({
     asset,
@@ -851,48 +890,26 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                             <div className="w-full">
                                 {(() => {
                                     const supplyActions = (
-                                        <>
-                                            <PositionActionButton
-                                                tone="supply"
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
-                                                }}
-                                            >
-                                                + Supply
-                                            </PositionActionButton>
-                                            <PositionActionButton
-                                                tone="withdraw"
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    handleOpenWithdraw(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies);
-                                                }}
-                                            >
-                                                - Withdraw
-                                            </PositionActionButton>
-                                        </>
+                                        <PositionActionButton
+                                            tone="supply"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                handleOpenSupply(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
+                                            }}
+                                        >
+                                            + Supply
+                                        </PositionActionButton>
                                     );
                                     const borrowActions = (
-                                        <>
-                                            <PositionActionButton
-                                                tone="borrow"
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
-                                                }}
-                                            >
-                                                + Borrow
-                                            </PositionActionButton>
-                                            <PositionActionButton
-                                                tone="repay"
-                                                onClick={(event) => {
-                                                    event.stopPropagation();
-                                                    handleOpenRepay(chain.marketKey, chain.chainId, null, chain.summary, chain.marketAssets, chain.supplies, chain.borrows);
-                                                }}
-                                            >
-                                                - Repay
-                                            </PositionActionButton>
-                                        </>
+                                        <PositionActionButton
+                                            tone="borrow"
+                                            onClick={(event) => {
+                                                event.stopPropagation();
+                                                handleOpenBorrow(chain.marketKey, chain.chainId, chain.marketAssets, chain.summary);
+                                            }}
+                                        >
+                                            + Borrow
+                                        </PositionActionButton>
                                     );
                                     const supplyToggleSummary = () => ({
                                         healthFactor: chain.healthFactor?.toString(),
@@ -926,12 +943,13 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                 asset={supply}
                                                                 className="bg-white px-3 py-2.5 transition-colors duration-200 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-800"
                                                                 actions={(
-                                                                    <div className="flex items-center gap-4 shrink-0 px-2">
+                                                                    <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 px-1">
                                                                         <CollateralControl
                                                                             checked={supply.usageAsCollateralEnabledOnUser}
                                                                             onChange={() => handleOpenToggleCollateral(chain.marketKey, supply, supplyToggleSummary(), chain.supplies, chain.marketAssets)}
                                                                         />
                                                                         <PositionSwapButton onClick={() => handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true)} />
+                                                                        <PositionWithdrawButton onClick={() => handleOpenWithdraw(chain.marketKey, chain.chainId, supply, chain.summary, chain.marketAssets, chain.supplies)} />
                                                                     </div>
                                                                 )}
                                                             />
@@ -955,10 +973,13 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                     asset={borrow}
                                                                     className="bg-white px-3 py-2.5 transition-colors duration-200 hover:bg-slate-50 dark:bg-slate-800/60 dark:hover:bg-slate-800"
                                                                     actions={(
-                                                                        <PositionSwapButton
-                                                                            enabled={borrowHasAlternatives(borrow)}
-                                                                            onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
-                                                                        />
+                                                                        <div className="flex items-center gap-1.5 sm:gap-2 shrink-0 px-1">
+                                                                            <PositionSwapButton
+                                                                                enabled={borrowHasAlternatives(borrow)}
+                                                                                onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
+                                                                            />
+                                                                            <PositionRepayButton onClick={() => handleOpenRepay(chain.marketKey, chain.chainId, borrow, chain.summary, chain.marketAssets, chain.supplies, chain.borrows)} />
+                                                                        </div>
                                                                     )}
                                                                 />
                                                             ))}
@@ -999,12 +1020,13 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                             asset={supply}
                                                                             className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}
                                                                             actions={(
-                                                                                <div className="flex items-center gap-5 shrink-0">
+                                                                                <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                                                                                     <CollateralControl
                                                                                         checked={supply.usageAsCollateralEnabledOnUser}
                                                                                         onChange={() => handleOpenToggleCollateral(chain.marketKey, supply, supplyToggleSummary(), chain.supplies, chain.marketAssets)}
                                                                                     />
                                                                                     <PositionSwapButton compactIcon onClick={() => handleOpenSwap(chain.marketKey, supply, chain.marketAssets, [], chain.supplies, true)} />
+                                                                                    <PositionWithdrawButton onClick={() => handleOpenWithdraw(chain.marketKey, chain.chainId, supply, chain.summary, chain.marketAssets, chain.supplies)} />
                                                                                 </div>
                                                                             )}
                                                                         />
@@ -1031,11 +1053,12 @@ export const PositionsAccordion: React.FC<PositionsAccordionProps> = ({
                                                                                 asset={borrow}
                                                                                 className={`px-4 py-2.5 transition-colors duration-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 ${!isAtBottom ? 'border-b border-slate-200 dark:border-slate-700/80' : ''}`}
                                                                                 actions={(
-                                                                                    <div className="flex items-center gap-2">
+                                                                                    <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                                                                                         <PositionSwapButton
                                                                                             enabled={borrowHasAlternatives(borrow)}
                                                                                             onClick={() => handleOpenSwap(chain.marketKey, borrow, chain.marketAssets, chain.borrows, [], false)}
                                                                                         />
+                                                                                        <PositionRepayButton onClick={() => handleOpenRepay(chain.marketKey, chain.chainId, borrow, chain.summary, chain.marketAssets, chain.supplies, chain.borrows)} />
                                                                                     </div>
                                                                                 )}
                                                                             />

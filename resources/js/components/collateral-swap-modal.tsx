@@ -197,7 +197,6 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         tokenName: preFetchedTokenName,
         saveSignature,
         cachedSignature,
-        isApproved,
     } = useApprovalState({
         account,
         tokenAddress: isOpen ? approvalTokenAddress : null,
@@ -207,6 +206,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         chainId: effectiveChainId,
         enabled: isOpen,
     });
+    const isApproved = approvalAmount > 0n && onChainAllowance >= approvalAmount;
 
     const {
         isActionLoading,

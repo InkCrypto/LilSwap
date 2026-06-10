@@ -46,11 +46,23 @@ export const useApprovalState = ({
     const cachedSignature = useMemo(() => {
         if (!cacheKey) return null;
         const sig = signatureCache.get(cacheKey) || null;
+        if (sig?.nonce !== undefined && nonce !== undefined) {
+            try {
+                if (BigInt(sig.nonce) !== nonce) {
+                    logger.debug(`[useApprovalState] Signature CACHE STALE for ${tokenAddress} | Key: ${cacheKey} | Cached nonce: ${sig.nonce} | Current nonce: ${nonce.toString()}`);
+                    signatureCache.delete(cacheKey);
+                    return null;
+                }
+            } catch {
+                signatureCache.delete(cacheKey);
+                return null;
+            }
+        }
         if (sig) {
             logger.debug(`[useApprovalState] Signature CACHE HIT for ${tokenAddress} | Key: ${cacheKey}`);
         }
         return sig;
-    }, [cacheKey]);
+    }, [cacheKey, nonce, tokenAddress]);
 
     const fetchAllowance = useCallback(async () => {
         if (!enabled) return;
@@ -146,7 +158,7 @@ export const useApprovalState = ({
     const isApproved = useMemo(() => {
         // Use cacheVersion to force re-memoization when a signature is saved
         const dummy = cacheVersion;
-        
+
         // 1. Signature Check First (as it's often more current than on-chain fetch during bursts)
         if (
             cachedSignature &&
@@ -164,10 +176,20 @@ export const useApprovalState = ({
 
     const saveSignature = useCallback((signatureData: any) => {
         if (!cacheKey) return;
+        if (!signatureData) {
+            logger.debug(`[useApprovalState] CLEARING signature cache for ${tokenAddress} | Key: ${cacheKey}`);
+            signatureCache.delete(cacheKey);
+            setCacheVersion(v => v + 1);
+            return;
+        }
         logger.debug(`[useApprovalState] SAVING signature to cache for ${tokenAddress} | Key: ${cacheKey}`);
         signatureCache.set(cacheKey, signatureData);
         setCacheVersion(v => v + 1); // Trigger re-render across any hook instance
     }, [cacheKey, tokenAddress]);
+
+    const clearSignature = useCallback(() => {
+        saveSignature(null);
+    }, [saveSignature]);
 
     return {
         onChainAllowance,
@@ -177,6 +199,7 @@ export const useApprovalState = ({
         isFetching,
         cachedSignature,
         refreshAllowance: fetchAllowance,
-        saveSignature
+        saveSignature,
+        clearSignature,
     };
 };

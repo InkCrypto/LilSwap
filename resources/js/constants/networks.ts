@@ -1,24 +1,24 @@
-import { 
-    AaveV3Ethereum, 
-    AaveV3EthereumLido, 
-    AaveV3Base, 
-    AaveV3Polygon, 
-    AaveV3BNB, 
-    AaveV3Arbitrum, 
+import {
+    AaveV3Ethereum,
+    AaveV3EthereumLido,
+    AaveV3Base,
+    AaveV3Polygon,
+    AaveV3BNB,
+    AaveV3Arbitrum,
     AaveV3Avalanche,
     AaveV3Optimism,
     AaveV3Gnosis,
     AaveV3Sonic
 } from '@bgd-labs/aave-address-book';
 import { getAddress } from 'viem';
-import { 
-    mainnet, 
-    bsc, 
-    polygon, 
-    base, 
-    arbitrum, 
-    avalanche, 
-    optimism, 
+import {
+    mainnet,
+    bsc,
+    polygon,
+    base,
+    arbitrum,
+    avalanche,
+    optimism,
     gnosis,
     sonic
 } from 'viem/chains';
@@ -28,13 +28,13 @@ import logger from '../utils/logger';
  * Single Source of Truth for Wagmi/Viem chains
  */
 export const SUPPORTED_CHAINS = [
-    mainnet, 
-    bsc, 
-    polygon, 
-    base, 
-    arbitrum, 
-    avalanche, 
-    optimism, 
+    mainnet,
+    bsc,
+    polygon,
+    base,
+    arbitrum,
+    avalanche,
+    optimism,
     gnosis,
     sonic
 ] as const;
@@ -98,6 +98,7 @@ export interface MarketConfig {
         DATA_PROVIDER: string | null;
         WETH_GATEWAY: string | null;
         WITHDRAW_SWAP_ADAPTER: string | null;
+        REPAY_WITH_COLLATERAL_ADAPTER: string | null;
         AUGUSTUS: {
             V5: string;
             V6_2: string;
@@ -138,6 +139,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -171,6 +173,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -205,6 +208,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -238,6 +242,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -271,6 +276,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -304,6 +310,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -337,6 +344,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -370,6 +378,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5_BASE,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -403,6 +412,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -436,6 +446,7 @@ export const MARKETS: Record<string, MarketConfig> = {
                 DATA_PROVIDER: normalizeAddress(book?.AAVE_PROTOCOL_DATA_PROVIDER || book?.ProtocolDataProvider),
                 WETH_GATEWAY: normalizeAddress(book?.WETH_GATEWAY),
                 WITHDRAW_SWAP_ADAPTER: normalizeAddress(book?.WITHDRAW_SWAP_ADAPTER),
+                REPAY_WITH_COLLATERAL_ADAPTER: normalizeAddress(book?.REPAY_WITH_COLLATERAL_ADAPTER || book?.RepayWithCollateralAdapter),
                 AUGUSTUS: {
                     V5: AUGUSTUS_ADDRESSES.V5,
                     V6_2: AUGUSTUS_ADDRESSES.V6_2,
@@ -465,10 +476,14 @@ export const getNetworkByChainId = (chainId: number | string | undefined): Marke
 
     // Return the "Core" market for this chain (the one whose key ends with just the chain name, or specify priority)
     const marketsOnChain = Object.values(MARKETS).filter((m) => m.chainId === numericId);
-    if (marketsOnChain.length === 0) return DEFAULT_MARKET;
-    
+
+    if (marketsOnChain.length === 0) {
+        return DEFAULT_MARKET;
+    }
+
     // Priority: Core market (AaveV3Ethereum, AaveV3Base, etc)
     const coreMarket = marketsOnChain.find(m => m.key === `AaveV3${m.shortLabel}`);
+
     return coreMarket || marketsOnChain[0];
 };
 

@@ -617,9 +617,11 @@ export const prepareCancelLimitOrder = async (
 ): Promise<CancelLimitOrderPrepareResult> => {
     try {
         const response = await apiClient.post('/aave/v3/build/debt/limit/cancel', params);
+
         return response.data as CancelLimitOrderPrepareResult;
     } catch (error: any) {
         const errorMessage = getPublicApiErrorMessage(error, 'Error preparing order cancellation');
+
         throw new Error(errorMessage);
     }
 };
@@ -629,9 +631,11 @@ export const postCancelLimitOrder = async (
 ): Promise<CancelLimitOrderPostResult> => {
     try {
         const response = await apiClient.post('/aave/v3/build/debt/limit/cancel/post', params);
+
         return response.data as CancelLimitOrderPostResult;
     } catch (error: any) {
         const errorMessage = getPublicApiErrorMessage(error, 'Error cancelling order');
+
         throw new Error(errorMessage);
     }
 };
@@ -791,6 +795,34 @@ export const buildWithdrawSwapTx = async (params: any) => {
     }
 };
 
+export const getRepaySwapQuote = async (params: any, signal?: AbortSignal) => {
+    try {
+        const response = await apiClient.post('/aave/v3/quote/repay-swap', params, { signal });
+
+        return response.data;
+    } catch (error: any) {
+        if (axios.isCancel(error)) {
+            throw error;
+        }
+
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching repay swap quote');
+
+        throw new Error(errorMessage);
+    }
+};
+
+export const buildRepaySwapTx = async (params: any) => {
+    try {
+        const response = await apiClient.post('/aave/v3/build/repay-swap/paraswap', params);
+
+        return response.data;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error building repay swap transaction');
+
+        throw new Error(errorMessage);
+    }
+};
+
 export const getDonationConfig = async () => {
     const response = await apiClient.get('/donations/config');
 
@@ -835,6 +867,8 @@ export default {
     buildCollateralSwapTx,
     getWithdrawSwapQuote,
     buildWithdrawSwapTx,
+    getRepaySwapQuote,
+    buildRepaySwapTx,
     getUserPosition,
     getDonationConfig,
     getDonationPreflight,

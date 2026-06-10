@@ -17,7 +17,7 @@ import logger, { isUserRejectedError } from '../utils/logger';
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
 const APPROVAL_GAS_LIMIT = 150_000n;
-const SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
+const SWAP_GAS_LIMIT_FALLBACK = 4_500_000n;
 const SWAP_GAS_LIMIT_MAX = 8_000_000n;
 
 const parseGasLimit = (value: unknown): bigint | null => {
@@ -190,6 +190,37 @@ const isMalformedPermitSignatureError = (error: any) => {
         || message.includes('malformed signature');
 };
 
+const collectErrorDetails = (error: any) => {
+    const details: string[] = [];
+    const visited = new Set<any>();
+
+    const visit = (value: any) => {
+        if (!value || visited.has(value)) {
+            return;
+        }
+        visited.add(value);
+
+        for (const key of ['shortMessage', 'message', 'details', 'code', 'data']) {
+            const entry = value?.[key];
+            if (entry !== undefined && entry !== null && entry !== '') {
+                details.push(String(entry));
+            }
+        }
+
+        visit(value?.cause);
+        visit(value?.error);
+    };
+
+    visit(error);
+
+    return Array.from(new Set(details)).join(' | ');
+};
+
+const getRevertSelector = (error: any): string | null => {
+    const details = collectErrorDetails(error);
+    return details.match(/0x[a-fA-F0-9]{8}/)?.[0] || null;
+};
+
 export const useCollateralSwapActions = ({
     account,
     fromToken,
@@ -212,7 +243,6 @@ export const useCollateralSwapActions = ({
     onTxSent,
     adapterAddress: providedAdapterAddress,
     aTokenAddress: providedATokenAddress,
-    preFetchedNonce,
     preFetchedTokenName,
     onSignatureCached,
     cachedPermit,
@@ -316,52 +346,50 @@ export const useCollateralSwapActions = ({
             let nonce: bigint;
             let name: string;
 
-            if (preFetchedNonce !== null && preFetchedNonce !== undefined && preFetchedTokenName) {
-                nonce = preFetchedNonce;
-                name = preFetchedTokenName;
-            } else {
-                try {
-                    const calls = [
-                        {
-                            address: getAddress(aTokenAddr),
-                            abi: parseAbi(ABIS.ERC20),
-                            functionName: 'nonces',
-                            args: [getAddress(account)],
-                        },
-                        {
-                            address: getAddress(aTokenAddr),
-                            abi: parseAbi(ABIS.ERC20),
-                            functionName: 'name',
-                        }
-                    ];
-
-                    const results = await publicClient?.multicall({
-                        contracts: calls as any,
-                        allowFailure: true,
-                    });
-
-                    nonce = (results?.[0]?.status === 'success' ? (results[0].result as bigint) : 0n);
-                    name = (results?.[1]?.status === 'success' ? (results[1].result as string) : '');
-
-                    if (!name) {
-                        name = await publicClient?.readContract({
-                            address: getAddress(aTokenAddr),
-                            abi: parseAbi(ABIS.ERC20),
-                            functionName: 'name',
-                        }) as string;
+            try {
+                const calls = [
+                    {
+                        address: getAddress(aTokenAddr),
+                        abi: parseAbi(ABIS.ERC20),
+                        functionName: 'nonces',
+                        args: [getAddress(account)],
+                    },
+                    {
+                        address: getAddress(aTokenAddr),
+                        abi: parseAbi(ABIS.ERC20),
+                        functionName: 'name',
                     }
-                } catch (readErr: any) {
-                    const noPermitErr: any = new Error('Token does not support EIP-2612 permit; use on-chain approve');
-                    noPermitErr.code = 'NO_PERMIT';
-                    noPermitErr.cause = readErr;
-                    throw noPermitErr;
+                ];
+
+                const results = await publicClient?.multicall({
+                    contracts: calls as any,
+                    allowFailure: true,
+                });
+
+                nonce = (results?.[0]?.status === 'success' ? (results[0].result as bigint) : 0n);
+                name = (results?.[1]?.status === 'success' ? (results[1].result as string) : preFetchedTokenName || '');
+
+                if (!name) {
+                    name = await publicClient?.readContract({
+                        address: getAddress(aTokenAddr),
+                        abi: parseAbi(ABIS.ERC20),
+                        functionName: 'name',
+                    }) as string;
                 }
+            } catch (readErr: any) {
+                const noPermitErr: any = new Error('Token does not support EIP-2612 permit; use on-chain approve');
+                noPermitErr.code = 'NO_PERMIT';
+                noPermitErr.cause = readErr;
+                throw noPermitErr;
             }
+
+            // Aave V3 Base cbBTC aToken version() reverts. Fallback to '1' since it's the standard for Aave V3.
+            const version = '1';
 
             const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
             const value = exactAmount || approvalAmount;
 
-            const domain = { name, version: '1', chainId, verifyingContract: getAddress(aTokenAddr) };
+            const domain = { name, version, chainId, verifyingContract: getAddress(aTokenAddr) };
             const types = {
                 Permit: [
                     { name: 'owner', type: 'address' },
@@ -374,7 +402,7 @@ export const useCollateralSwapActions = ({
             const message = { owner: getAddress(account), spender: getAddress(adapterAddress!), value, nonce, deadline };
 
             addLog?.('Requesting signature for aToken (Permit)...', 'warning');
-            
+
             const signature = await walletClient.signTypedData({
                 account: getAddress(account),
                 domain,
@@ -398,7 +426,7 @@ export const useCollateralSwapActions = ({
             });
 
             const permitParams = { amount: value, deadline: Number(deadline), v, r, s };
-            const sigData = { params: permitParams, token: aTokenAddr, deadline: Number(deadline), value };
+            const sigData = { params: permitParams, token: aTokenAddr, deadline: Number(deadline), value, nonce };
 
             onSignatureCached?.(sigData);
             setForceRequirePermit(false);
@@ -417,7 +445,7 @@ export const useCollateralSwapActions = ({
             }
             throw err;
         }
-    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, onSignatureCached, approvalAmount]);
+    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, onSignatureCached, approvalAmount, preFetchedTokenName]);
 
     const handleApprove = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint, skipNetworkCheck?: boolean, aTokenAddressOverride?: string) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
@@ -432,7 +460,7 @@ export const useCollateralSwapActions = ({
             }
 
             let aTokenAddress = aTokenAddressOverride || providedATokenAddress || fromToken?.aTokenAddress;
-            
+
             if (!isValidATokenAddress(aTokenAddress)) {
                 throw new Error('Unable to prepare approval token for collateral swap');
             }
@@ -534,7 +562,7 @@ export const useCollateralSwapActions = ({
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
 
             let aTokenAddr = activeQuote?.approval?.token || providedATokenAddress || fromToken?.aTokenAddress || quoteFrom?.aTokenAddress;
-            
+
             if (!isValidATokenAddress(aTokenAddr)) {
                 throw new Error('Unable to prepare approval token for collateral swap');
             }
@@ -638,13 +666,8 @@ export const useCollateralSwapActions = ({
                             ...cachedPermitValidation.meta,
                         });
 
-                        if (tokenMatch && deadlineValid && valueValid && cachedPermitValidation.valid && !cachedPermitValidation.isEmpty && cachedPermitValidation.params && !forceRequirePermit) {
-                            logger.debug('[useCollateralSwapActions] REUSING successful cached permit');
-                            permitParams = cachedPermitValidation.params;
-                        } else {
-                            logger.debug('[useCollateralSwapActions] Cached permit INVALID or EXPIRED, re-requesting...');
-                            permitParams = await requestPermitOrApprove();
-                        }
+                        logger.debug('[useCollateralSwapActions] Cached permit reuse disabled, re-requesting...');
+                        permitParams = await requestPermitOrApprove();
                     } else {
                         logger.debug('[useCollateralSwapActions] No local permit found, re-requesting...');
                         permitParams = await requestPermitOrApprove();
@@ -734,12 +757,17 @@ export const useCollateralSwapActions = ({
                     throw new Error('Simulation client is unavailable for this network.');
                 }
 
-                await publicClient.call({
+                const callResult = await publicClient.call({
                     account: getAddress(account),
                     to: getAddress(transactionRequest.to),
                     data: transactionRequest.data as Hex,
                     value: BigInt(transactionRequest.value || 0),
                 });
+
+                if (callResult.data && callResult.data !== '0x') {
+                    throw new Error(`Transaction simulation reverted: ${callResult.data}`);
+                }
+
                 logger.debug('[useCollateralSwapActions] Final transaction preflight passed', {
                     chainId,
                     transactionId: localTxId,
@@ -756,6 +784,7 @@ export const useCollateralSwapActions = ({
                 value: BigInt(transactionRequest.value || 0),
                 gas,
             });
+            onSignatureCached?.(null);
 
             addLog?.(`Transaction broadcasted: ${hash}`, 'success');
             if (localTxId) {
@@ -780,6 +809,7 @@ export const useCollateralSwapActions = ({
             }
 
             clearQuote();
+            onSignatureCached?.(null);
             updateCurrentTransactionId(null);
             fetchPositionData();
 
@@ -789,14 +819,8 @@ export const useCollateralSwapActions = ({
                 addLog?.('User rejected swap.', 'warning');
                 if (localTxId) rejectTransaction(localTxId, 'wallet_rejected').catch(() => { });
             } else {
-                const diagnostic = Array.from(new Set([
-                    error?.shortMessage,
-                    error?.details,
-                    error?.code,
-                    error?.cause?.shortMessage,
-                    error?.cause?.details,
-                    error?.cause?.code,
-                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+                const diagnostic = collectErrorDetails(error);
+                const revertSelector = getRevertSelector(error);
 
                 const errorSnapshot = {
                     name: error?.name || null,
@@ -813,16 +837,10 @@ export const useCollateralSwapActions = ({
                         code: error?.cause?.code || null,
                         data: error?.cause?.data || null,
                     },
+                    revertSelector,
                 };
 
-                const technicalErrorMessage = Array.from(new Set([
-                    error?.shortMessage,
-                    error?.message,
-                    error?.details,
-                    error?.cause?.shortMessage,
-                    error?.cause?.message,
-                    error?.cause?.details,
-                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+                const technicalErrorMessage = diagnostic;
                 const isExpectedValidation = technicalErrorMessage.includes('INSUFFICIENT_ATOKEN_BALANCE')
                     || technicalErrorMessage.includes('Amount is above the executable limit');
                 const logFn = isExpectedValidation ? logger.warn : logger.error;
@@ -836,6 +854,7 @@ export const useCollateralSwapActions = ({
                     swapAmount: swapAmount?.toString?.() || '0',
                     swapDebug: swapDebugMeta,
                     diagnostic,
+                    revertSelector,
                     error: errorSnapshot,
                     rawError: error,
                 });
@@ -848,7 +867,7 @@ export const useCollateralSwapActions = ({
                 setTxError(friendlyMessage);
                 addLog?.(`Swap Failed: ${friendlyMessage}`, 'error');
                 if (localTxId && simulationInProgress) {
-                    failTransaction(localTxId, 'preflight_simulation_failed').catch(() => { });
+                    failTransaction(localTxId, revertSelector ? `preflight_simulation_failed:${revertSelector}` : 'preflight_simulation_failed').catch(() => { });
                 }
             }
             resetRefreshCountdown();

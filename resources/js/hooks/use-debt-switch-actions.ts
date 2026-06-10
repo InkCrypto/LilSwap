@@ -2,6 +2,7 @@ import {
     getAddress,
     formatUnits,
     parseAbi,
+    parseSignature,
     zeroAddress,
     encodeAbiParameters,
     Hex,
@@ -61,6 +62,37 @@ const resolveSwapGasLimit = (txResult: any, priceRoute: any): bigint => {
     return buffered;
 };
 
+const collectErrorDetails = (error: any) => {
+    const details: string[] = [];
+    const visited = new Set<any>();
+
+    const visit = (value: any) => {
+        if (!value || visited.has(value)) {
+            return;
+        }
+        visited.add(value);
+
+        for (const key of ['shortMessage', 'message', 'details', 'code', 'data']) {
+            const entry = value?.[key];
+            if (entry !== undefined && entry !== null && entry !== '') {
+                details.push(String(entry));
+            }
+        }
+
+        visit(value?.cause);
+        visit(value?.error);
+    };
+
+    visit(error);
+
+    return Array.from(new Set(details)).join(' | ');
+};
+
+const getRevertSelector = (error: any): string | null => {
+    const details = collectErrorDetails(error);
+    return details.match(/0x[a-fA-F0-9]{8}/)?.[0] || null;
+};
+
 interface UseDebtSwitchActionsProps {
     account: string | null;
     fromToken: any;
@@ -112,7 +144,6 @@ export const useDebtSwitchActions = ({
     cachedPermit,
     adapterAddress: providedAdapterAddress,
     debtTokenAddress: providedDebtTokenAddress,
-    preFetchedNonce,
     preFetchedTokenName,
 }: UseDebtSwitchActionsProps) => {
     const publicClient = usePublicClient();
@@ -213,42 +244,34 @@ export const useDebtSwitchActions = ({
             let nonce: bigint;
             let name: string;
 
-            if (preFetchedNonce !== null && preFetchedNonce !== undefined && preFetchedTokenName) {
-                // Use pre-fetched data directly
-                nonce = preFetchedNonce;
-                name = preFetchedTokenName;
-            } else {
-                // Fallback to optimized multicall instead of separate readContract calls
-                const calls = [
-                    {
-                        address: getAddress(debtTokenAddr),
-                        abi: parseAbi(ABIS.DEBT_TOKEN),
-                        functionName: 'nonces',
-                        args: [getAddress(account)],
-                    },
-                    {
-                        address: getAddress(debtTokenAddr),
-                        abi: parseAbi(ABIS.DEBT_TOKEN),
-                        functionName: 'name',
-                    }
-                ];
-
-                const results = await publicClient?.multicall({
-                    contracts: calls as any,
-                    allowFailure: true,
-                });
-
-                nonce = (results?.[0]?.status === 'success' ? (results[0].result as bigint) : 0n);
-                name = (results?.[1]?.status === 'success' ? (results[1].result as string) : '');
-
-                if (!name) {
-                    // Critical fallback if everything else failed
-                    name = await publicClient?.readContract({
-                        address: getAddress(debtTokenAddr),
-                        abi: parseAbi(ABIS.DEBT_TOKEN),
-                        functionName: 'name',
-                    }) as string;
+            const calls = [
+                {
+                    address: getAddress(debtTokenAddr),
+                    abi: parseAbi(ABIS.DEBT_TOKEN),
+                    functionName: 'nonces',
+                    args: [getAddress(account)],
+                },
+                {
+                    address: getAddress(debtTokenAddr),
+                    abi: parseAbi(ABIS.DEBT_TOKEN),
+                    functionName: 'name',
                 }
+            ];
+
+            const results = await publicClient?.multicall({
+                contracts: calls as any,
+                allowFailure: true,
+            });
+
+            nonce = (results?.[0]?.status === 'success' ? (results[0].result as bigint) : 0n);
+            name = (results?.[1]?.status === 'success' ? (results[1].result as string) : preFetchedTokenName || '');
+
+            if (!name) {
+                name = await publicClient?.readContract({
+                    address: getAddress(debtTokenAddr),
+                    abi: parseAbi(ABIS.DEBT_TOKEN),
+                    functionName: 'name',
+                }) as string;
             }
 
             const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
@@ -274,12 +297,14 @@ export const useDebtSwitchActions = ({
                 message,
             });
 
-            const r = `0x${signature.substring(2, 66)}` as Hex;
-            const s = `0x${signature.substring(66, 130)}` as Hex;
-            const v = parseInt(signature.substring(130, 132), 16);
+            const parsedSig = parseSignature(signature);
+            const r = parsedSig.r as Hex;
+            const s = parsedSig.s as Hex;
+            let v = Number(parsedSig.v ?? (parsedSig.yParity === 0 ? 27n : 28n));
+            if (v < 27) v += 27;
 
             const permitParams = { amount: value, deadline: Number(deadline), v, r, s };
-            const sigData = { params: permitParams, token: debtTokenAddr, deadline: Number(deadline), value };
+            const sigData = { params: permitParams, token: debtTokenAddr, deadline: Number(deadline), value, nonce };
 
             onSignatureCached?.(sigData);
             setForceRequirePermit(false);
@@ -291,7 +316,7 @@ export const useDebtSwitchActions = ({
             }
             throw err;
         }
-    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, preFetchedNonce, preFetchedTokenName, onSignatureCached]);
+    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, preFetchedTokenName, onSignatureCached]);
 
     const handleApproveDelegation = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint, skipNetworkCheck?: boolean, debtTokenAddressOverride?: string) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
@@ -354,7 +379,7 @@ export const useDebtSwitchActions = ({
 
     const handleSwap = useCallback(async () => {
         if (!account || !walletClient) return;
-        
+
         if (!adapterAddress) {
             addLog?.('Critical error: Adapter address not configured for this network', 'error');
             setTxError('System configuration error: Swap adapter missing.');
@@ -564,6 +589,7 @@ export const useDebtSwitchActions = ({
                 args: [swapParams, creditPermit, collateralPermit],
                 gas,
             });
+            onSignatureCached?.(null);
 
             addLog?.(`Transaction broadcasted: ${hash}`, 'success');
             if (txResult.transactionId) {
@@ -588,6 +614,7 @@ export const useDebtSwitchActions = ({
             }
 
             clearQuote();
+            onSignatureCached?.(null);
             fetchDebtData();
         } catch (error: any) {
             if (isUserRejectedError(error)) {
@@ -595,14 +622,8 @@ export const useDebtSwitchActions = ({
                 addLog?.('Cancelled by user.', 'warning');
                 if (currentTransactionId) rejectTransaction(currentTransactionId, 'wallet_rejected').catch(() => { });
             } else {
-                const diagnostic = Array.from(new Set([
-                    error?.shortMessage,
-                    error?.details,
-                    error?.code,
-                    error?.cause?.shortMessage,
-                    error?.cause?.details,
-                    error?.cause?.code,
-                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+                const diagnostic = collectErrorDetails(error);
+                const revertSelector = getRevertSelector(error);
                 const errorSnapshot = {
                     name: error?.name || null,
                     shortMessage: error?.shortMessage || null,
@@ -618,6 +639,7 @@ export const useDebtSwitchActions = ({
                         code: error?.cause?.code || null,
                         data: error?.cause?.data || null,
                     },
+                    revertSelector,
                 };
                 logger.error('[useDebtSwitchActions] Swap failure diagnostic', {
                     chainId,
@@ -628,18 +650,12 @@ export const useDebtSwitchActions = ({
                     swapAmount: swapAmount?.toString?.() || '0',
                     swapDebug: swapDebugMeta,
                     diagnostic,
+                    revertSelector,
                     error: errorSnapshot,
                     rawError: error,
                 });
 
-                const technicalErrorMessage = Array.from(new Set([
-                    error?.shortMessage,
-                    error?.message,
-                    error?.details,
-                    error?.cause?.shortMessage,
-                    error?.cause?.message,
-                    error?.cause?.details,
-                ].filter(Boolean).map((entry) => String(entry)))).join(' | ');
+                const technicalErrorMessage = diagnostic;
                 const friendlyMessage = mapErrorToUserFriendly(technicalErrorMessage)
                     || (simulationInProgress
                         ? 'Simulation failed. Try increasing slippage or reducing amount.'
@@ -652,7 +668,7 @@ export const useDebtSwitchActions = ({
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
-    }, [account, walletClient, publicClient, allowance, swapAmount, debtBalance, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedDebtTokenAddress, preFetchedNonce, preFetchedTokenName, networkAddresses, chainId, ensureWalletNetwork, preferPermit, forceRequirePermit, handleApproveDelegation, onTxSent, currentTransactionId, clearQuoteError, clearQuote, fetchDebtData, marketKey || '', targetNetwork?.key || '', cachedPermit]);
+    }, [account, walletClient, publicClient, allowance, swapAmount, debtBalance, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedDebtTokenAddress, preFetchedTokenName, networkAddresses, chainId, ensureWalletNetwork, preferPermit, forceRequirePermit, handleApproveDelegation, onTxSent, currentTransactionId, clearQuoteError, clearQuote, fetchDebtData, marketKey || '', targetNetwork?.key || '', cachedPermit]);
 
     return {
         isActionLoading, isSigning, signedPermit: cachedPermit, forceRequirePermit, txError, lastAttemptedQuote, userRejected,

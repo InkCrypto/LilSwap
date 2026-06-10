@@ -16,7 +16,7 @@ createServer((page) =>
             resolvePageComponent(
                 `./pages/${name}.tsx`,
                 import.meta.glob('./pages/**/*.tsx'),
-            ),
+            ) as any,
         setup: ({ App, props }) => {
             const initialApiMeta = (props as any)?.initialPage?.props?.apiMeta ?? {};
 

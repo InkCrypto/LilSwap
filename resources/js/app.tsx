@@ -20,7 +20,7 @@ createInertiaApp({
         resolvePageComponent(
             `./pages/${name}.tsx`,
             import.meta.glob('./pages/**/*.tsx'),
-        ),
+        ) as any,
     setup({ el, App, props }) {
         const root = createRoot(el);
         const initialApiMeta = (props as any)?.initialPage?.props?.apiMeta ?? {};
@@ -33,15 +33,15 @@ createInertiaApp({
                         initialApiStatus={initialApiMeta.isUp ?? true}
                     >
                         <UserActivityProvider>
-                                <ToastProvider>
-                                    <DonationVerificationProvider>
-                                        <TransactionTrackerProvider>
-                                            <TooltipProvider delayDuration={120}>
-                                                <App {...props} />
-                                            </TooltipProvider>
-                                        </TransactionTrackerProvider>
-                                    </DonationVerificationProvider>
-                                </ToastProvider>
+                            <ToastProvider>
+                                <DonationVerificationProvider>
+                                    <TransactionTrackerProvider>
+                                        <TooltipProvider delayDuration={120}>
+                                            <App {...props} />
+                                        </TooltipProvider>
+                                    </TransactionTrackerProvider>
+                                </DonationVerificationProvider>
+                            </ToastProvider>
                         </UserActivityProvider>
                     </ApiMetaProvider>
                 </StrictMode>

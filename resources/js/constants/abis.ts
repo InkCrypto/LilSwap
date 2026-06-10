@@ -146,5 +146,34 @@ export const ABIS = {
             "stateMutability": "nonpayable",
             "type": "function"
         }
+    ],
+    REPAY_WITH_COLLATERAL_ADAPTER: [
+        {
+            "inputs": [
+                { "internalType": "address", "name": "collateralAsset", "type": "address" },
+                { "internalType": "address", "name": "debtAsset", "type": "address" },
+                { "internalType": "uint256", "name": "collateralAmount", "type": "uint256" },
+                { "internalType": "uint256", "name": "debtRepayAmount", "type": "uint256" },
+                { "internalType": "uint256", "name": "debtRateMode", "type": "uint256" },
+                { "internalType": "uint256", "name": "buyAllBalanceOffset", "type": "uint256" },
+                { "internalType": "bytes", "name": "paraswapData", "type": "bytes" },
+                {
+                    "components": [
+                        { "internalType": "uint256", "name": "amount", "type": "uint256" },
+                        { "internalType": "uint256", "name": "deadline", "type": "uint256" },
+                        { "internalType": "uint8", "name": "v", "type": "uint8" },
+                        { "internalType": "bytes32", "name": "r", "type": "bytes32" },
+                        { "internalType": "bytes32", "name": "s", "type": "bytes32" }
+                    ],
+                    "internalType": "struct IParaSwapRepayAdapter.PermitSignature",
+                    "name": "permitSignature",
+                    "type": "tuple"
+                }
+            ],
+            "name": "swapAndRepay",
+            "outputs": [],
+            "stateMutability": "nonpayable",
+            "type": "function"
+        }
     ]
 } as const;

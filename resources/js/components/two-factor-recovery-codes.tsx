@@ -10,7 +10,11 @@ import {
     CardHeader,
     CardTitle,
 } from '@/components/ui/card';
-import { regenerateRecoveryCodes } from '@/routes/two-factor';
+
+const regenerateRecoveryCodesForm = {
+    action: '/user/two-factor-recovery-codes',
+    method: 'post' as const,
+};
 
 type Props = {
     recoveryCodesList: string[];
@@ -81,7 +85,7 @@ export default function TwoFactorRecoveryCodes({
 
                     {canRegenerateCodes && (
                         <Form
-                            {...regenerateRecoveryCodes.form()}
+                            {...regenerateRecoveryCodesForm}
                             options={{ preserveScroll: true }}
                             onSuccess={fetchRecoveryCodes}
                         >

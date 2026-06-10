@@ -14,7 +14,11 @@ import {
     DialogTrigger,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
+
+const destroyProfileForm = {
+    action: '/settings/profile',
+    method: 'delete' as const,
+};
 
 export default function DeleteUser() {
     const passwordInput = useRef<HTMLInputElement>(null);
@@ -55,7 +59,7 @@ export default function DeleteUser() {
                         </DialogDescription>
 
                         <Form
-                            {...ProfileController.destroy.form()}
+                            {...destroyProfileForm}
                             options={{
                                 preserveScroll: true,
                             }}
