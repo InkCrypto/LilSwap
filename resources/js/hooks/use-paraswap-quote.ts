@@ -430,7 +430,7 @@ export const useParaswapQuote = ({
     }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote, isTabVisible, isUserActive]);
 
     const { priceImpact, recommendedSlippage } = useMemo(() => {
-        const baseMinSlippage = 30; // 0.3% safe floor
+        const baseMinSlippage = isCollateral ? 30 : 10; // 0.3% floor for collateral, 0.1% floor for debt
 
         if (!swapQuote?.priceRoute) {
             return { priceImpact: 0, recommendedSlippage: baseMinSlippage };
@@ -448,7 +448,7 @@ export const useParaswapQuote = ({
         }
 
         return { priceImpact: impact, recommendedSlippage: Math.max(baseMinSlippage, Math.ceil(impact * 10000) + baseMinSlippage) };
-    }, [swapQuote, selectedNetwork?.chainId]);
+    }, [swapQuote, selectedNetwork?.chainId, isCollateral]);
 
     useEffect(() => {
         if (isAutoSlippage && swapQuote) {
