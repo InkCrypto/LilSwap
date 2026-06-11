@@ -18,6 +18,8 @@ import logger, { isUserRejectedError } from '../utils/logger';
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
 const APPROVAL_GAS_LIMIT = 150_000n;
+const PERMIT_TTL_SECONDS = 3600;
+const PERMIT_MIN_VALIDITY_SECONDS = 60;
 
 interface UseCollateralSwapActionsProps {
     account: string | null;
@@ -73,6 +75,20 @@ const toPermitAmount = (value: unknown): bigint | null => {
     } catch {
         return null;
     }
+};
+
+const getChainTimestamp = async (publicClient: any): Promise<number> => {
+    try {
+        const block = await publicClient?.getBlock({ blockTag: 'latest' });
+        const timestamp = Number(block?.timestamp);
+        if (Number.isSafeInteger(timestamp) && timestamp > 0) {
+            return timestamp;
+        }
+    } catch {
+        // Fall back to the device clock if the RPC timestamp read is unavailable.
+    }
+
+    return Math.floor(Date.now() / 1000);
 };
 
 const getPermitValidation = (params: any, now = Math.floor(Date.now() / 1000)) => {
@@ -362,7 +378,8 @@ export const useCollateralSwapActions = ({
             // Aave V3 Base cbBTC aToken version() reverts. Fallback to '1' since it's the standard for Aave V3.
             const version = '1';
 
-            const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+            const chainTimestamp = await getChainTimestamp(publicClient);
+            const deadline = BigInt(chainTimestamp + PERMIT_TTL_SECONDS);
             const value = exactAmount || approvalAmount;
 
             const domain = { name, version, chainId, verifyingContract: getAddress(aTokenAddr) };
@@ -537,6 +554,9 @@ export const useCollateralSwapActions = ({
             const hasCorrectNetwork = await ensureWalletNetwork();
             if (!hasCorrectNetwork) return;
 
+            const chainTimestamp = await getChainTimestamp(publicClient);
+            const minimumPermitDeadline = chainTimestamp + PERMIT_MIN_VALIDITY_SECONDS;
+
             const walletAccounts = await (walletClient as any).request({ method: 'eth_accounts' }) as string[];
             const activeWalletAccount = Array.isArray(walletAccounts) ? walletAccounts[0] : null;
             if (!activeWalletAccount || getAddress(activeWalletAccount) !== getAddress(account)) {
@@ -605,7 +625,7 @@ export const useCollateralSwapActions = ({
                         return approveWithBoundedFallback('permit_result_missing');
                     }
 
-                    const validation = getPermitValidation(permitResult.permit);
+                    const validation = getPermitValidation(permitResult.permit, minimumPermitDeadline);
                     logger.debug('[useCollateralSwapActions] Fresh permit validation', {
                         chainId,
                         token: aTokenAddr,
@@ -641,10 +661,10 @@ export const useCollateralSwapActions = ({
                         } catch {
                             tokenMatch = false;
                         }
-                        const deadlineValid = Number(effectiveSignedPermit.deadline || 0) > Math.floor(Date.now() / 1000);
+                        const deadlineValid = Number(effectiveSignedPermit.deadline || 0) > minimumPermitDeadline;
                         const cachedValue = toPermitAmount(effectiveSignedPermit.value);
                         const valueValid = cachedValue !== null && cachedValue >= requiredAllowance;
-                        const cachedPermitValidation = getPermitValidation(effectiveSignedPermit.params);
+                        const cachedPermitValidation = getPermitValidation(effectiveSignedPermit.params, minimumPermitDeadline);
 
                         logger.debug('[useCollateralSwapActions] Cached permit validation', {
                             chainId,
@@ -696,7 +716,21 @@ export const useCollateralSwapActions = ({
                 }
             }
 
-            const finalPermitValidation = getPermitValidation(permitParams);
+            const finalChainTimestamp = await getChainTimestamp(publicClient);
+            const finalMinimumPermitDeadline = finalChainTimestamp + PERMIT_MIN_VALIDITY_SECONDS;
+            let finalPermitValidation = getPermitValidation(permitParams, finalMinimumPermitDeadline);
+            if (!finalPermitValidation.valid && finalPermitValidation.reason === 'deadline_expired') {
+                logger.warn('[useCollateralSwapActions] Permit expired before build, renewing', {
+                    chainId,
+                    token: aTokenAddr,
+                    spender: adapterAddress,
+                    deadline: permitParams.deadline,
+                    chainTimestamp: finalChainTimestamp,
+                });
+                permitParams = await requestPermitOrApprove();
+                finalPermitValidation = getPermitValidation(permitParams, finalMinimumPermitDeadline);
+            }
+
             if (!finalPermitValidation.valid || !finalPermitValidation.params) {
                 logger.warn('[useCollateralSwapActions] Blocking invalid collateral permit before build', {
                     chainId,
