@@ -24,6 +24,22 @@ const DELEGATION_GAS_LIMIT = 180_000n;
 const SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
 const SWAP_GAS_LIMIT_MAX = 8_000_000n;
 const EXECUTION_GAS_BUFFER_BPS = 2_000n;
+const DELEGATION_PERMIT_TTL_SECONDS = 3600;
+const DELEGATION_PERMIT_MIN_VALIDITY_SECONDS = 60;
+
+const getChainTimestamp = async (publicClient: any): Promise<number> => {
+    try {
+        const block = await publicClient?.getBlock({ blockTag: 'latest' });
+        const timestamp = Number(block?.timestamp);
+        if (Number.isSafeInteger(timestamp) && timestamp > 0) {
+            return timestamp;
+        }
+    } catch {
+        // Fall back to the device clock if the RPC timestamp read is unavailable.
+    }
+
+    return Math.floor(Date.now() / 1000);
+};
 
 const parseGasLimit = (value: unknown): bigint | null => {
     if (value == null || value === '') {
@@ -281,7 +297,8 @@ export const useDebtSwitchActions = ({
                 }) as string;
             }
 
-            const deadline = BigInt(Math.floor(Date.now() / 1000) + 3600);
+            const chainTimestamp = await getChainTimestamp(publicClient);
+            const deadline = BigInt(chainTimestamp + DELEGATION_PERMIT_TTL_SECONDS);
             const value = exactAmount;
 
             const domain = { name, version: '1', chainId, verifyingContract: getAddress(debtTokenAddr) };
@@ -461,7 +478,7 @@ export const useDebtSwitchActions = ({
                 walletAddress: account,
             });
             const executionSrcAmount = txResult?.srcAmount ? BigInt(txResult.srcAmount) : srcAmountBigInt;
-            const executionBufferBps = txResult?.slippageBps ?? txResult?.bufferBps ?? bufferBps;
+            const executionBufferBps = txResult?.bufferBps ?? bufferBps;
             const executionMaxNewDebt = calcApprovalAmount(executionSrcAmount, executionBufferBps);
             const executionDebtRepayAmount = txResult?.destAmount ? BigInt(txResult.destAmount) : BigInt(exactDebtRepayAmount);
             localTxId = txResult.transactionId?.toString?.() || null;
@@ -502,12 +519,13 @@ export const useDebtSwitchActions = ({
 
                 if (forceRequirePermit || preferPermit) {
                     const effectiveSignedPermit = cachedPermit;
-                    const now = Math.floor(Date.now() / 1000);
+                    const chainTimestamp = await getChainTimestamp(publicClient);
+                    const minimumPermitDeadline = chainTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
                     const tokenMatch = effectiveSignedPermit
                         ? getAddress(effectiveSignedPermit.token) === getAddress(newDebtTokenAddr)
                         : false;
                     const deadlineValid = effectiveSignedPermit
-                        ? effectiveSignedPermit.deadline > now
+                        ? effectiveSignedPermit.deadline > minimumPermitDeadline
                         : false;
                     const valueValid = effectiveSignedPermit
                         ? effectiveSignedPermit.value >= executionMaxNewDebt
@@ -542,6 +560,25 @@ export const useDebtSwitchActions = ({
                     setIsActionLoading(true);
                     await new Promise(r => setTimeout(r, 1500));
                     fetchDebtData();
+                }
+            }
+
+            if (permitParams.amount > 0n) {
+                const chainTimestamp = await getChainTimestamp(publicClient);
+                const minimumPermitDeadline = chainTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
+                if (permitParams.deadline <= minimumPermitDeadline) {
+                    logger.warn('[useDebtSwitchActions] Delegation permit expired before execution, renewing', {
+                        chainId,
+                        token: newDebtTokenAddr,
+                        deadline: permitParams.deadline,
+                        chainTimestamp,
+                    });
+                    const res = await handleApproveDelegation(true, executionMaxNewDebt, true, newDebtTokenAddr);
+                    if (!res?.permit) {
+                        throw new Error('Unable to renew delegation signature');
+                    }
+                    permitParams = res.permit;
+                    setIsActionLoading(true);
                 }
             }
 
