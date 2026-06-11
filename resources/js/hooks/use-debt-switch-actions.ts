@@ -461,7 +461,7 @@ export const useDebtSwitchActions = ({
                 walletAddress: account,
             });
             const executionSrcAmount = txResult?.srcAmount ? BigInt(txResult.srcAmount) : srcAmountBigInt;
-            const executionBufferBps = txResult?.bufferBps ?? bufferBps;
+            const executionBufferBps = txResult?.slippageBps ?? txResult?.bufferBps ?? bufferBps;
             const executionMaxNewDebt = calcApprovalAmount(executionSrcAmount, executionBufferBps);
             const executionDebtRepayAmount = txResult?.destAmount ? BigInt(txResult.destAmount) : BigInt(exactDebtRepayAmount);
             localTxId = txResult.transactionId?.toString?.() || null;
