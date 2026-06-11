@@ -430,7 +430,7 @@ export const useParaswapQuote = ({
     }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote, isTabVisible, isUserActive]);
 
     const { priceImpact, recommendedSlippage } = useMemo(() => {
-        const baseMinSlippage = 10; // Standard floor
+        const baseMinSlippage = 30; // 0.3% safe floor
 
         if (!swapQuote?.priceRoute) {
             return { priceImpact: 0, recommendedSlippage: baseMinSlippage };
