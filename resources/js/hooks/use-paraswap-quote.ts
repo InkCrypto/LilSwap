@@ -316,6 +316,7 @@ export const useParaswapQuote = ({
                     apyPercent: apyPercentToSend,
                     marketKey: marketKey || selectedNetwork?.key,
                     chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId,
+                    isMaxSwap,
                 }, signal);
 
                 const { priceRoute, srcAmount, destAmount: quotedDestAmount, version, augustus, bufferBps, apyPercent } = routeResult;

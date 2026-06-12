@@ -6,6 +6,7 @@ import {
     zeroAddress,
     encodeAbiParameters,
     Hex,
+    maxUint256,
     zeroHash,
 } from 'viem';
 import { useCallback, useEffect, useState, useMemo } from 'react';
@@ -21,69 +22,8 @@ import { calcApprovalAmount } from '../utils/swap-math';
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 
 const DELEGATION_GAS_LIMIT = 180_000n;
-const SWAP_GAS_LIMIT_FALLBACK = 2_500_000n;
-const SWAP_GAS_LIMIT_MAX = 8_000_000n;
-const EXECUTION_GAS_BUFFER_BPS = 2_000n;
 const DELEGATION_PERMIT_TTL_SECONDS = 3600;
 const DELEGATION_PERMIT_MIN_VALIDITY_SECONDS = 60;
-
-const getChainTimestamp = async (publicClient: any): Promise<number> => {
-    try {
-        const block = await publicClient?.getBlock({ blockTag: 'latest' });
-        const timestamp = Number(block?.timestamp);
-        if (Number.isSafeInteger(timestamp) && timestamp > 0) {
-            return timestamp;
-        }
-    } catch {
-        // Fall back to the device clock if the RPC timestamp read is unavailable.
-    }
-
-    return Math.floor(Date.now() / 1000);
-};
-
-const parseGasLimit = (value: unknown): bigint | null => {
-    if (value == null || value === '') {
-        return null;
-    }
-
-    try {
-        return BigInt(value as string | number | bigint);
-    } catch {
-        return null;
-    }
-};
-
-const resolveSwapGasLimit = (txResult: any, priceRoute: any): bigint => {
-    const explicitGas = parseGasLimit(txResult?.gas);
-
-    if (explicitGas && explicitGas > 0n) {
-        return explicitGas;
-    }
-
-    const routeGas = parseGasLimit(priceRoute?.gasCost);
-
-    if (!routeGas || routeGas <= 0n) {
-        return SWAP_GAS_LIMIT_FALLBACK;
-    }
-
-    const buffered = routeGas * 4n + 500_000n;
-
-    if (buffered < SWAP_GAS_LIMIT_FALLBACK) {
-        return SWAP_GAS_LIMIT_FALLBACK;
-    }
-
-    if (buffered > SWAP_GAS_LIMIT_MAX) {
-        return SWAP_GAS_LIMIT_MAX;
-    }
-
-    return buffered;
-};
-
-const applyExecutionGasBuffer = (estimatedGas: bigint): bigint => {
-    const buffered = estimatedGas + (estimatedGas * EXECUTION_GAS_BUFFER_BPS / 10_000n);
-
-    return buffered > SWAP_GAS_LIMIT_MAX ? SWAP_GAS_LIMIT_MAX : buffered;
-};
 
 const collectErrorDetails = (error: any) => {
     const details: string[] = [];
@@ -167,6 +107,7 @@ export const useDebtSwitchActions = ({
     cachedPermit,
     adapterAddress: providedAdapterAddress,
     debtTokenAddress: providedDebtTokenAddress,
+    preFetchedNonce,
     preFetchedTokenName,
 }: UseDebtSwitchActionsProps) => {
     const publicClient = usePublicClient();
@@ -257,48 +198,23 @@ export const useDebtSwitchActions = ({
         return true;
     }, [walletClient, chainId, addLog]);
 
-    const generateAndCachePermit = useCallback(async (debtTokenAddr: string, exactAmount: bigint) => {
+    const generateAndCachePermit = useCallback(async (debtTokenAddr: string, exactAmount: bigint, referenceTimestamp?: number) => {
         if (!walletClient || !account) return null;
         try {
             if (exactAmount <= 0n) {
                 throw new Error('Invalid delegation amount');
             }
 
-            let nonce: bigint;
-            let name: string;
-
-            const calls = [
-                {
-                    address: getAddress(debtTokenAddr),
-                    abi: parseAbi(ABIS.DEBT_TOKEN),
-                    functionName: 'nonces',
-                    args: [getAddress(account)],
-                },
-                {
-                    address: getAddress(debtTokenAddr),
-                    abi: parseAbi(ABIS.DEBT_TOKEN),
-                    functionName: 'name',
-                }
-            ];
-
-            const results = await publicClient?.multicall({
-                contracts: calls as any,
-                allowFailure: true,
-            });
-
-            nonce = (results?.[0]?.status === 'success' ? (results[0].result as bigint) : 0n);
-            name = (results?.[1]?.status === 'success' ? (results[1].result as string) : preFetchedTokenName || '');
-
-            if (!name) {
-                name = await publicClient?.readContract({
-                    address: getAddress(debtTokenAddr),
-                    abi: parseAbi(ABIS.DEBT_TOKEN),
-                    functionName: 'name',
-                }) as string;
+            if (preFetchedNonce === null || preFetchedNonce === undefined || !preFetchedTokenName) {
+                throw new Error('Delegation permit data is still loading. Please try again.');
             }
 
-            const chainTimestamp = await getChainTimestamp(publicClient);
-            const deadline = BigInt(chainTimestamp + DELEGATION_PERMIT_TTL_SECONDS);
+            const nonce = preFetchedNonce;
+            const name = preFetchedTokenName;
+            if (!Number.isSafeInteger(referenceTimestamp) || Number(referenceTimestamp) <= 0) {
+                throw new Error('Authoritative chain timestamp is unavailable. Please try again.');
+            }
+            const deadline = BigInt(Number(referenceTimestamp) + DELEGATION_PERMIT_TTL_SECONDS);
             const value = exactAmount;
 
             const domain = { name, version: '1', chainId, verifyingContract: getAddress(debtTokenAddr) };
@@ -340,9 +256,9 @@ export const useDebtSwitchActions = ({
             }
             throw err;
         }
-    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, preFetchedTokenName, onSignatureCached]);
+    }, [account, walletClient, adapterAddress, chainId, addLog, preFetchedNonce, preFetchedTokenName, onSignatureCached]);
 
-    const handleApproveDelegation = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint, skipNetworkCheck?: boolean, debtTokenAddressOverride?: string) => {
+    const handleApproveDelegation = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint, skipNetworkCheck?: boolean, debtTokenAddressOverride?: string, referenceTimestamp?: number) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
         if (!walletClient || !toToken || !adapterAddress || !account) return;
 
@@ -372,7 +288,7 @@ export const useDebtSwitchActions = ({
             }
 
             if (preferPermitFinal) {
-                const permit = await generateAndCachePermit(debtTokenAddress, exactAmount);
+                const permit = await generateAndCachePermit(debtTokenAddress, exactAmount, referenceTimestamp);
                 return { type: 'permit', permit };
             }
 
@@ -426,7 +342,6 @@ export const useDebtSwitchActions = ({
         let localTxId: string | null = null;
         let preflightPassed = false;
         let walletPromptOpened = false;
-        let finalGasLimit: bigint | null = null;
         if (!activeQuote) {
             addLog?.('Fetching quote...', 'info');
             activeQuote = await fetchQuote();
@@ -445,6 +360,7 @@ export const useDebtSwitchActions = ({
             const bufferBps = activeQuote?.bufferBps ?? 70;
             const maxNewDebt = calcApprovalAmount(srcAmountBigInt, bufferBps);
             const exactDebtRepayAmount = activeQuote.destAmount;
+            const isMaxSwap = debtBalance !== null && swapAmount >= debtBalance;
 
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
             let newDebtTokenAddr = providedDebtTokenAddress || toToken?.variableDebtTokenAddress || qTo?.variableDebtTokenAddress;
@@ -476,11 +392,16 @@ export const useDebtSwitchActions = ({
                 marketKey: marketKey || targetNetwork.key,
                 chainId,
                 walletAddress: account,
+                isMaxSwap,
             });
             const executionSrcAmount = txResult?.srcAmount ? BigInt(txResult.srcAmount) : srcAmountBigInt;
             const executionBufferBps = txResult?.bufferBps ?? bufferBps;
             const executionMaxNewDebt = calcApprovalAmount(executionSrcAmount, executionBufferBps);
             const executionDebtRepayAmount = txResult?.destAmount ? BigInt(txResult.destAmount) : BigInt(exactDebtRepayAmount);
+            const authoritativeChainTimestamp = Number(txResult?.chainTimestamp);
+            if (!Number.isSafeInteger(authoritativeChainTimestamp) || authoritativeChainTimestamp <= 0) {
+                throw new Error('Authoritative chain timestamp is unavailable. Please try again.');
+            }
             localTxId = txResult.transactionId?.toString?.() || null;
             updateCurrentTransactionId(localTxId);
             swapDebugMeta = txResult?.debugFlags || null;
@@ -519,8 +440,7 @@ export const useDebtSwitchActions = ({
 
                 if (forceRequirePermit || preferPermit) {
                     const effectiveSignedPermit = cachedPermit;
-                    const chainTimestamp = await getChainTimestamp(publicClient);
-                    const minimumPermitDeadline = chainTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
+                    const minimumPermitDeadline = authoritativeChainTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
                     const tokenMatch = effectiveSignedPermit
                         ? getAddress(effectiveSignedPermit.token) === getAddress(newDebtTokenAddr)
                         : false;
@@ -544,7 +464,7 @@ export const useDebtSwitchActions = ({
                         permitParams = effectiveSignedPermit.params;
                     } else {
                         addLog?.('Requesting delegation signature...', 'warning');
-                        const res = await handleApproveDelegation(true, executionMaxNewDebt, true, newDebtTokenAddr);
+                        const res = await handleApproveDelegation(true, executionMaxNewDebt, true, newDebtTokenAddr, authoritativeChainTimestamp);
 
                         setIsActionLoading(true);
 
@@ -564,16 +484,15 @@ export const useDebtSwitchActions = ({
             }
 
             if (permitParams.amount > 0n) {
-                const chainTimestamp = await getChainTimestamp(publicClient);
-                const minimumPermitDeadline = chainTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
+                const minimumPermitDeadline = authoritativeChainTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
                 if (permitParams.deadline <= minimumPermitDeadline) {
                     logger.warn('[useDebtSwitchActions] Delegation permit expired before execution, renewing', {
                         chainId,
                         token: newDebtTokenAddr,
                         deadline: permitParams.deadline,
-                        chainTimestamp,
+                        minimumPermitDeadline,
                     });
-                    const res = await handleApproveDelegation(true, executionMaxNewDebt, true, newDebtTokenAddr);
+                    const res = await handleApproveDelegation(true, executionMaxNewDebt, true, newDebtTokenAddr, authoritativeChainTimestamp);
                     if (!res?.permit) {
                         throw new Error('Unable to renew delegation signature');
                     }
@@ -589,7 +508,7 @@ export const useDebtSwitchActions = ({
 
             const swapParams = {
                 debtAsset: getAddress(qFrom.address || qFrom.underlyingAsset),
-                debtRepayAmount: executionDebtRepayAmount,
+                debtRepayAmount: isMaxSwap ? maxUint256 : executionDebtRepayAmount,
                 debtRateMode: 2n,
                 newDebtAsset: getAddress(qTo.address || qTo.underlyingAsset),
                 maxNewDebtAmount: executionMaxNewDebt,
@@ -614,10 +533,6 @@ export const useDebtSwitchActions = ({
                 throw new Error(`Unable to refresh delegation for updated route requirement. Signed: ${creditPermit.value.toString()} Required: ${executionMaxNewDebt.toString()}`);
             }
 
-            finalGasLimit = resolveSwapGasLimit(txResult, priceRoute);
-
-            // Preflight simulation removed to minimize delay
-
             addLog?.('Confirm in your wallet...', 'warning');
             walletPromptOpened = true;
             const hash = await walletClient.writeContract({
@@ -626,7 +541,6 @@ export const useDebtSwitchActions = ({
                 abi: ABIS.ADAPTER,
                 functionName: 'swapDebt',
                 args: [swapParams, creditPermit, collateralPermit],
-                gas: finalGasLimit,
             });
             onSignatureCached?.(null);
 
@@ -670,7 +584,7 @@ export const useDebtSwitchActions = ({
                     transactionId: localTxId,
                     walletPromptOpened,
                     preflightPassed,
-                    gas: finalGasLimit?.toString() || null,
+                    gas: null,
                     adapterAddress,
                     swapDebug: swapDebugMeta,
                     error: {
@@ -714,7 +628,7 @@ export const useDebtSwitchActions = ({
                     swapDebug: swapDebugMeta,
                     walletPromptOpened,
                     preflightPassed,
-                    gas: finalGasLimit?.toString() || null,
+                    gas: null,
                     adapterAddress,
                     diagnostic,
                     revertSelector,

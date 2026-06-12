@@ -251,6 +251,29 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         return market.addresses.DEBT_SWAP_ADAPTER;
     }, [effectiveMarketKey]);
 
+    const activeDebtAssets = useMemo(() => {
+        const sourceBorrows = providedBorrows || borrows || [];
+
+        return sourceBorrows
+            .filter(b => b.amount && BigInt(b.amount) > BigInt(0))
+            .map(b => {
+                const match = (localMarketAssets || []).find(m => m.underlyingAsset?.toLowerCase() === b.underlyingAsset?.toLowerCase());
+
+                return { ...b, ...match };
+            });
+    }, [providedBorrows, borrows, localMarketAssets]);
+
+    const debtBalance = useMemo(() => {
+        if (!fromToken) {
+            return BigInt(0);
+        }
+
+        const addr = (fromToken.underlyingAsset || fromToken.address || '').toLowerCase();
+        const borrow = activeDebtAssets.find(b => (b.underlyingAsset || '').toLowerCase() === addr);
+
+        return borrow ? BigInt(borrow.amount) : BigInt(0);
+    }, [fromToken, activeDebtAssets]);
+
     // --- Actions ---
 
     // Borrow and Swap logic hooks initialization
@@ -282,34 +305,12 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         enabled: isOpen && swapMode === 'market',
         freezeQuote,
         marketAssets: localMarketAssets,
+        isMaxSwap: debtBalance !== null && debtBalance > 0n && swapAmount >= debtBalance,
     });
 
     // --- Computed Values ---
     const limitInputValue = inputValue;
     const limitInputAmount = swapAmount;
-
-    const activeDebtAssets = useMemo(() => {
-        const sourceBorrows = providedBorrows || borrows || [];
-
-        return sourceBorrows
-            .filter(b => b.amount && BigInt(b.amount) > BigInt(0))
-            .map(b => {
-                const match = (localMarketAssets || []).find(m => m.underlyingAsset?.toLowerCase() === b.underlyingAsset?.toLowerCase());
-
-                return { ...b, ...match };
-            });
-    }, [providedBorrows, borrows, localMarketAssets]);
-
-    const debtBalance = useMemo(() => {
-        if (!fromToken) {
-            return BigInt(0);
-        }
-
-        const addr = (fromToken.underlyingAsset || fromToken.address || '').toLowerCase();
-        const borrow = activeDebtAssets.find(b => (b.underlyingAsset || '').toLowerCase() === addr);
-
-        return borrow ? BigInt(borrow.amount) : BigInt(0);
-    }, [fromToken, activeDebtAssets]);
 
     const formattedDebt = useMemo(() => {
         if (!fromToken) {
