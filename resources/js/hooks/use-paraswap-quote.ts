@@ -448,11 +448,8 @@ export const useParaswapQuote = ({
     }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote, isTabVisible, isUserActive]);
 
     const { priceImpact, recommendedSlippage } = useMemo(() => {
-        const isCorrelatedDebtPair = areTokenSymbolsCorrelated(fromToken?.symbol, toToken?.symbol);
-        // Match Aave's debt policy: 20 bps for correlated pairs and 40 bps
-        // for non-correlated pairs. Keep LilSwap's intentional 30 bps
-        // collateral floor unchanged.
-        const baseMinSlippage = isCollateral ? 30 : (isCorrelatedDebtPair ? 20 : 40);
+        const isCorrelatedPair = areTokenSymbolsCorrelated(fromToken?.symbol, toToken?.symbol);
+        const baseMinSlippage = isCollateral ? 30 : (isCorrelatedPair ? 20 : 40);
 
         if (!swapQuote?.priceRoute) {
             return { priceImpact: 0, recommendedSlippage: baseMinSlippage };
