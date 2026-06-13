@@ -101,6 +101,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     const [isMaxSelected, setIsMaxSelected] = useState(false);
     const [showSlippageSettings, setShowSlippageSettings] = useState(false);
     const [showTransactionOverview, setShowTransactionOverview] = useState(false);
+    const [showReceivedDetails, setShowReceivedDetails] = useState(false);
     const [tokenSelectorOpen, setTokenSelectorOpen] = useState(false);
     const [selectingForFrom, setSelectingForFrom] = useState(false);
     const [swappableTokens, setSwappableTokens] = useState<Record<string, { swappable: boolean | null; checking: boolean }>>({});
@@ -328,6 +329,25 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         }
         return null;
     }, [toToken, swapQuote, isUSDMode]);
+
+    const receivedValuePreview = useMemo(() => {
+        if (!swapQuote?.destAmount || !toToken) return null;
+
+        try {
+            const estimatedAmount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+            const minimumAmount = estimatedAmount * Math.max(0, 1 - (executionSlippage / 10000));
+            const price = getTokenUsdPrice(toToken);
+
+            return {
+                estimatedAmount,
+                minimumAmount,
+                estimatedUsd: estimatedAmount * price,
+                minimumUsd: minimumAmount * price,
+            };
+        } catch {
+            return null;
+        }
+    }, [swapQuote?.destAmount, toToken, executionSlippage]);
 
     const renderTokenStatus = (token: any) => {
         const reasons = [];
@@ -821,7 +841,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                 }`}
                             title="Slippage settings"
                         >
-                            <span>{(slippage / 100).toFixed(2)}%</span>
+                            <span>{(executionSlippage / 100).toFixed(2)}%</span>
                             <Settings className="w-3 h-3" />
                         </button>
                     </div>
@@ -1539,7 +1559,11 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                 </div>
 
                                 {/* Supply Balance Row */}
-                                <div className="flex justify-between items-center text-[13px] text-slate-600 dark:text-slate-300 font-medium pb-1">
+                                <button
+                                    type="button"
+                                    onClick={() => setShowReceivedDetails(!showReceivedDetails)}
+                                    className="w-full flex justify-between items-center text-[13px] text-slate-600 dark:text-slate-300 font-medium pb-1 transition-colors hover:text-slate-800 dark:hover:text-slate-100"
+                                >
                                     <div className="flex items-center gap-1.5">
                                         <span>Min. balance after switch</span>
                                         <InfoTooltip content="Your estimated token balance in the protocol after the swap is completed." size={12} />
@@ -1600,8 +1624,35 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                 </>
                                             );
                                         })()}
+                                        {showReceivedDetails ? <ChevronUp className="w-3.5 h-3.5 text-slate-400" /> : <ChevronDown className="w-3.5 h-3.5 text-slate-400" />}
                                     </div>
-                                </div>
+                                </button>
+
+                                {receivedValuePreview && showReceivedDetails && (
+                                    <div className="mx-3 pb-1 space-y-1.5 text-[12px] text-slate-600 dark:text-slate-300">
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>Estimated received</span>
+                                                    <span className="text-right font-medium">
+                                                        {formatCompactNumber(receivedValuePreview.estimatedAmount)} {getDisplaySymbol(toToken, localMarketAssets)}
+                                                        <span className="ml-1 text-slate-400">({formatUSD(receivedValuePreview.estimatedUsd)})</span>
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>Minimum received</span>
+                                                    <span className="text-right font-medium">
+                                                        {formatCompactNumber(receivedValuePreview.minimumAmount)} {getDisplaySymbol(toToken, localMarketAssets)}
+                                                        <span className="ml-1 text-slate-400">({formatUSD(receivedValuePreview.minimumUsd)})</span>
+                                                    </span>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-3">
+                                                    <span>Slippage used</span>
+                                                    <span className="font-medium">{(executionSlippage / 100).toFixed(2)}%</span>
+                                                </div>
+                                                <p className="text-[11px] leading-snug text-slate-400">
+                                                    Minimum received is protected by slippage tolerance.
+                                                </p>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>

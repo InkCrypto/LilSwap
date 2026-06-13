@@ -8,6 +8,20 @@ import { useDebounce } from './use-debounce';
 
 const AUTO_REFRESH_SECONDS = 30;
 const EMPTY_ARRAY: any[] = [];
+const CORRELATED_TOKEN_GROUPS = [
+    new Set(['USDC', 'USDCN', 'USDBC', 'USDC.E', 'USDT', 'USDT0', 'DAI', 'SDAI', 'GHO', 'LUSD', 'FRAX', 'CRVUSD', 'PYUSD', 'USDE', 'SUSDE', 'EUSDE', 'USDTB', 'SYRUPUSDT', 'SYRUPUSDC', 'USDG', 'USDS', 'RLUSD', 'MUSD', 'STUSD', 'FDUSD', 'HYUSD', 'MIMATIC', 'MAI', 'EURC', 'EURA', 'EURS', 'JEUR']),
+    new Set(['ETH', 'WETH', 'WSTETH', 'STETH', 'CBETH', 'RETH', 'WEETH', 'EZETH', 'WRSETH', 'RSETH', 'OSETH', 'ETHX', 'FRXETH', 'SFRXETH', 'APXETH', 'TETH']),
+    new Set(['WBTC', 'CBBTC', 'TBTC', 'LBTC', 'BTCB', 'FBTC', 'EBTC']),
+];
+
+const normalizeTokenSymbol = (symbol: unknown): string => String(symbol || '').trim().toUpperCase();
+
+const areTokenSymbolsCorrelated = (fromSymbol: unknown, toSymbol: unknown): boolean => {
+    const from = normalizeTokenSymbol(fromSymbol);
+    const to = normalizeTokenSymbol(toSymbol);
+
+    return from !== '' && to !== '' && CORRELATED_TOKEN_GROUPS.some(group => group.has(from) && group.has(to));
+};
 
 const pickNumberish = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -245,7 +259,7 @@ export const useParaswapQuote = ({
                     isMaxSwap,
                 }, signal);
 
-                const { priceRoute, srcAmount: quotedSrcAmount, destAmount, version, augustus, bufferBps, approval, execution } = routeResult;
+                const { priceRoute, srcAmount: quotedSrcAmount, destAmount, version, augustus, bufferBps, approval, execution, chainTimestamp, chainTimestampSource } = routeResult;
                 const feeBps = resolveFeeBps(routeResult);
                 const discountPercent = resolveDiscountPercent(routeResult);
                 const srcAmountBn = BigInt(quotedSrcAmount ?? priceRoute?.srcAmount ?? srcAmount);
@@ -267,6 +281,9 @@ export const useParaswapQuote = ({
                     apyPercent: null,
                     approval,
                     execution,
+                    chainTimestamp,
+                    chainTimestampSource,
+                    chainTimestampObservedAtMs: performance.now(),
                 };
 
                 if (quoteRequestIdRef.current !== currentRequestId) {
@@ -431,7 +448,11 @@ export const useParaswapQuote = ({
     }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote, isTabVisible, isUserActive]);
 
     const { priceImpact, recommendedSlippage } = useMemo(() => {
-        const baseMinSlippage = isCollateral ? 30 : 10; // 0.3% floor for collateral, 0.1% floor for debt
+        const isCorrelatedDebtPair = areTokenSymbolsCorrelated(fromToken?.symbol, toToken?.symbol);
+        // Match Aave's debt policy: 20 bps for correlated pairs and 40 bps
+        // for non-correlated pairs. Keep LilSwap's intentional 30 bps
+        // collateral floor unchanged.
+        const baseMinSlippage = isCollateral ? 30 : (isCorrelatedDebtPair ? 20 : 40);
 
         if (!swapQuote?.priceRoute) {
             return { priceImpact: 0, recommendedSlippage: baseMinSlippage };
@@ -449,7 +470,7 @@ export const useParaswapQuote = ({
         }
 
         return { priceImpact: impact, recommendedSlippage: Math.max(baseMinSlippage, Math.ceil(impact * 10000) + baseMinSlippage) };
-    }, [swapQuote, selectedNetwork?.chainId, isCollateral]);
+    }, [swapQuote, selectedNetwork?.chainId, isCollateral, fromToken?.symbol, toToken?.symbol]);
 
     useEffect(() => {
         if (isAutoSlippage && swapQuote) {

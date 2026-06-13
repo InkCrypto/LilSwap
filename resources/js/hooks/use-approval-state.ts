@@ -37,6 +37,7 @@ export const useApprovalState = ({
     const [nonce, setNonce] = useState<bigint>(0n);
     const [tokenName, setTokenName] = useState<string>('');
     const [isFetching, setIsFetching] = useState(false);
+    const [cacheVersion, setCacheVersion] = useState(0);
 
     const cacheKey = useMemo(() => {
         if (!tokenAddress || !spenderAddress || !account) return null;
@@ -62,7 +63,7 @@ export const useApprovalState = ({
             logger.debug(`[useApprovalState] Signature CACHE HIT for ${tokenAddress} | Key: ${cacheKey}`);
         }
         return sig;
-    }, [cacheKey, nonce, tokenAddress]);
+    }, [cacheKey, nonce, tokenAddress, cacheVersion]);
 
     const fetchAllowance = useCallback(async () => {
         if (!enabled) return;
@@ -152,8 +153,6 @@ export const useApprovalState = ({
 
         fetchAllowance();
     }, [enabled, fetchAllowance, chainId]);
-
-    const [cacheVersion, setCacheVersion] = useState(0);
 
     const isApproved = useMemo(() => {
         // Use cacheVersion to force re-memoization when a signature is saved

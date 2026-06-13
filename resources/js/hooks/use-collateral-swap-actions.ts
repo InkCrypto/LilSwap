@@ -77,20 +77,6 @@ const toPermitAmount = (value: unknown): bigint | null => {
     }
 };
 
-const getChainTimestamp = async (publicClient: any): Promise<number> => {
-    try {
-        const block = await publicClient?.getBlock({ blockTag: 'latest' });
-        const timestamp = Number(block?.timestamp);
-        if (Number.isSafeInteger(timestamp) && timestamp > 0) {
-            return timestamp;
-        }
-    } catch {
-        // Fall back to the device clock if the RPC timestamp read is unavailable.
-    }
-
-    return Math.floor(Date.now() / 1000);
-};
-
 const getPermitValidation = (params: any, now = Math.floor(Date.now() / 1000)) => {
     const amount = toPermitAmount(params?.amount);
     const deadline = Number(params?.deadline ?? 0);
@@ -332,7 +318,7 @@ export const useCollateralSwapActions = ({
         }
     };
 
-    const generateAndCachePermit = useCallback(async (aTokenAddr: string, exactAmount?: bigint) => {
+    const generateAndCachePermit = useCallback(async (aTokenAddr: string, exactAmount?: bigint, referenceTimestamp?: number) => {
         if (!walletClient || !account) return null;
         try {
             let nonce: bigint;
@@ -378,8 +364,7 @@ export const useCollateralSwapActions = ({
             // Aave V3 Base cbBTC aToken version() reverts. Fallback to '1' since it's the standard for Aave V3.
             const version = '1';
 
-            const chainTimestamp = await getChainTimestamp(publicClient);
-            const deadline = BigInt(chainTimestamp + PERMIT_TTL_SECONDS);
+            const deadline = BigInt((referenceTimestamp ?? Math.floor(Date.now() / 1000)) + PERMIT_TTL_SECONDS);
             const value = exactAmount || approvalAmount;
 
             const domain = { name, version, chainId, verifyingContract: getAddress(aTokenAddr) };
@@ -541,6 +526,8 @@ export const useCollateralSwapActions = ({
         let diagnosticGasEstimate: string | null = null;
         let transactionRequest: any = null;
         let activeQuote = swapQuote;
+        let failureStage = 'prepare';
+        let executionSnapshot: any = null;
 
         if (!activeQuote) {
             addLog?.('Fetching latest quote...', 'info');
@@ -551,17 +538,19 @@ export const useCollateralSwapActions = ({
         setIsActionLoading(true);
 
         try {
+            failureStage = 'network_check';
             const hasCorrectNetwork = await ensureWalletNetwork();
             if (!hasCorrectNetwork) return;
 
-            const chainTimestamp = await getChainTimestamp(publicClient);
-            const minimumPermitDeadline = chainTimestamp + PERMIT_MIN_VALIDITY_SECONDS;
-
-            const walletAccounts = await (walletClient as any).request({ method: 'eth_accounts' }) as string[];
-            const activeWalletAccount = Array.isArray(walletAccounts) ? walletAccounts[0] : null;
-            if (!activeWalletAccount || getAddress(activeWalletAccount) !== getAddress(account)) {
-                throw new Error('Connected wallet account changed. Reopen the swap and try again.');
-            }
+            const quoteTimestamp = Number(activeQuote?.chainTimestamp);
+            const quoteTimestampObservedAtMs = Number(activeQuote?.chainTimestampObservedAtMs);
+            const elapsedSinceQuoteSeconds = Number.isFinite(quoteTimestampObservedAtMs)
+                ? Math.max(0, Math.floor((performance.now() - quoteTimestampObservedAtMs) / 1000))
+                : 0;
+            const referenceTimestamp = Number.isFinite(quoteTimestamp) && quoteTimestamp > 0
+                ? quoteTimestamp + elapsedSinceQuoteSeconds
+                : Math.floor(Date.now() / 1000);
+            const minimumPermitDeadline = referenceTimestamp + PERMIT_MIN_VALIDITY_SECONDS;
 
             const { priceRoute, srcAmount, fromToken: quoteFrom, toToken: quoteTo } = activeQuote;
             let permitParams = { amount: 0n, deadline: 0, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
@@ -572,17 +561,7 @@ export const useCollateralSwapActions = ({
                 throw new Error('Unable to prepare approval token for collateral swap');
             }
 
-            // The displayed allowance can be stale by the time MAX is rebuilt. Read the
-            // executable allowance immediately before deciding whether approval is needed.
-            let effectiveAllowance = allowance;
-            if (publicClient) {
-                effectiveAllowance = await publicClient.readContract({
-                    address: getAddress(aTokenAddr),
-                    abi: parseAbi(ABIS.ERC20),
-                    functionName: 'allowance',
-                    args: [getAddress(account), getAddress(adapterAddress)],
-                }) as bigint;
-            }
+            const effectiveAllowance = allowance;
 
             const effectivePreferPermit = forceRequirePermit || preferPermit;
 
@@ -618,7 +597,8 @@ export const useCollateralSwapActions = ({
             const requestPermitOrApprove = async () => {
                 const permitAmount = requiredAllowance + (requiredAllowance * 100n / 10000n) + 1n;
                 try {
-                    const permitResult: any = await handleApprove(effectivePreferPermit, permitAmount, true, aTokenAddr);
+                    const permit = await generateAndCachePermit(aTokenAddr, permitAmount, referenceTimestamp);
+                    const permitResult: any = permit ? { permit } : null;
                     setIsActionLoading(true);
 
                     if (!permitResult?.permit) {
@@ -652,6 +632,7 @@ export const useCollateralSwapActions = ({
 
             if (effectiveAllowance < requiredAllowance || forceRequirePermit) {
                 if (effectivePreferPermit) {
+                    failureStage = 'permit';
                     const effectiveSignedPermit = cachedPermit;
 
                     if (effectiveSignedPermit) {
@@ -692,6 +673,7 @@ export const useCollateralSwapActions = ({
                         permitParams = await requestPermitOrApprove();
                     }
                 } else {
+                    failureStage = 'approve';
                     await handleApprove(false, requiredAllowance, true, aTokenAddr);
                     setIsActionLoading(true);
                     await new Promise(r => setTimeout(r, 1500));
@@ -716,20 +698,8 @@ export const useCollateralSwapActions = ({
                 }
             }
 
-            const finalChainTimestamp = await getChainTimestamp(publicClient);
-            const finalMinimumPermitDeadline = finalChainTimestamp + PERMIT_MIN_VALIDITY_SECONDS;
+            const finalMinimumPermitDeadline = referenceTimestamp + PERMIT_MIN_VALIDITY_SECONDS;
             let finalPermitValidation = getPermitValidation(permitParams, finalMinimumPermitDeadline);
-            if (!finalPermitValidation.valid && finalPermitValidation.reason === 'deadline_expired') {
-                logger.warn('[useCollateralSwapActions] Permit expired before build, renewing', {
-                    chainId,
-                    token: aTokenAddr,
-                    spender: adapterAddress,
-                    deadline: permitParams.deadline,
-                    chainTimestamp: finalChainTimestamp,
-                });
-                permitParams = await requestPermitOrApprove();
-                finalPermitValidation = getPermitValidation(permitParams, finalMinimumPermitDeadline);
-            }
 
             if (!finalPermitValidation.valid || !finalPermitValidation.params) {
                 logger.warn('[useCollateralSwapActions] Blocking invalid collateral permit before build', {
@@ -745,6 +715,7 @@ export const useCollateralSwapActions = ({
             }
 
             addLog?.('Building secure transaction calldata...', 'warning');
+            failureStage = 'build';
             const baseBuildParams = {
                 fromToken: { ...quoteFrom, address: getAddress(quoteFrom.address || quoteFrom.underlyingAsset) },
                 toToken: { ...quoteTo, address: getAddress(quoteTo.address || quoteTo.underlyingAsset) },
@@ -763,6 +734,7 @@ export const useCollateralSwapActions = ({
                     r: permitParams.r,
                     s: permitParams.s,
                 },
+                quoteExecution: activeQuote?.execution || null,
             };
 
             const txResult = await buildCollateralSwapTx(baseBuildParams);
@@ -785,10 +757,37 @@ export const useCollateralSwapActions = ({
             });
 
             diagnosticGasEstimate = txResult?.gasEstimate?.gas?.toString?.() || null;
+            executionSnapshot = {
+                chainId,
+                transactionId: localTxId,
+                isMaxSwap,
+                fromToken: quoteFrom?.symbol,
+                toToken: quoteTo?.symbol,
+                amount: srcAmount?.toString?.() || null,
+                priceRouteSrcAmount: priceRoute?.srcAmount || null,
+                priceRouteDestAmount: priceRoute?.destAmount || null,
+                priceRouteSrcUSD: priceRoute?.srcUSD || null,
+                priceRouteDestUSD: priceRoute?.destUSD || null,
+                priceRoute,
+                requestedSlippageBps: slippage,
+                effectiveSlippageBps: txResult?.effectiveSlippageBps ?? null,
+                minAmountToReceive: txResult?.minAmountToReceive ?? null,
+                selector: txResult?.calldataDiagnostics?.selector || null,
+                augustus: txResult?.augustus || null,
+                offset: txResult?.swapAllBalanceOffset ?? null,
+                amountOccurrences: txResult?.calldataDiagnostics?.amountOccurrences || [],
+                fixedAmountOccurrences: txResult?.calldataDiagnostics?.fixedAmountOccurrences || [],
+                hasPermit: BigInt(permitParams.amount || 0) > 0n,
+                permitDeadline: permitParams.deadline || 0,
+                chainTimestamp: txResult?.chainTimestamp || activeQuote?.chainTimestamp || null,
+                chainTimestampSource: txResult?.chainTimestampSource || activeQuote?.chainTimestampSource || null,
+            };
+            logger.debug('[useCollateralSwapActions] Collateral execution snapshot', executionSnapshot);
 
             // Preflight simulation removed to minimize delay
 
             addLog?.('Confirm in your wallet...', 'warning');
+            failureStage = 'wallet_send';
             walletPromptOpened = true;
             const hash = await walletClient.sendTransaction({
                 account: getAddress(account),
@@ -808,6 +807,7 @@ export const useCollateralSwapActions = ({
             }
             onTxSent?.(hash);
 
+            failureStage = 'receipt';
             const receipt = await publicClient?.waitForTransactionReceipt({ hash });
 
             if (receipt?.status === 'reverted') throw new Error('Transaction reverted on-chain.');
@@ -845,6 +845,8 @@ export const useCollateralSwapActions = ({
                     calldataSelector: transactionRequest?.data?.slice?.(0, 10) || null,
                     calldataLength: transactionRequest?.data?.length || null,
                     swapDebug: swapDebugMeta,
+                    failureStage,
+                    executionSnapshot,
                     error: {
                         name: error?.name || null,
                         shortMessage: error?.shortMessage || null,
@@ -892,6 +894,8 @@ export const useCollateralSwapActions = ({
                     toToken: toToken?.symbol,
                     swapAmount: swapAmount?.toString?.() || '0',
                     swapDebug: swapDebugMeta,
+                    failureStage,
+                    executionSnapshot,
                     walletPromptOpened,
                     preflightPassed,
                     diagnosticGasEstimate,
