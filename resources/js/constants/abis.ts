@@ -112,6 +112,9 @@ export const ABIS = {
             "type": "function"
         }
     ],
+    COLLATERAL_SWAP_ADAPTER: [
+        "function swapAndDeposit(address assetToSwapFrom, address assetToSwapTo, uint256 amountToSwap, uint256 minAmountToReceive, uint256 swapAllBalanceOffset, bytes swapCalldata, address augustus, tuple(uint256 amount, uint256 deadline, uint8 v, bytes32 r, bytes32 s) permitParams) external"
+    ],
     WETH_GATEWAY: [
         "function depositETH(address pool, address onBehalfOf, uint16 referralCode) external payable",
         "function withdrawETH(address pool, uint256 amount, address to) external",

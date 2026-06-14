@@ -64,6 +64,12 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
     'MAX_SWAP_OFFSET_NOT_FOUND': {
         en: 'This MAX swap route cannot be prepared without leaving dust. Try entering a slightly smaller amount instead of using MAX, or choose another token route.'
     },
+    'COLLATERAL_MAX_QUOTE_STALE': {
+        en: 'This MAX quote no longer matches your collateral balance. The quote was refreshed; review it and try again.'
+    },
+    'INSUFFICIENT_AMOUNT_TO_SWAP': {
+        en: 'This MAX quote no longer matches your collateral balance. Refresh the quote and try again.'
+    },
     'unable to find a unique source amount offset': {
         en: 'This MAX swap route cannot be prepared without leaving dust. Try entering a slightly smaller amount instead of using MAX, or choose another token route.'
     },

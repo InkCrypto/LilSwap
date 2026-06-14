@@ -191,6 +191,12 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
     const isInsufficientBalance = !isMaxSelected && swapAmount > (availableBalance || 0n);
 
+    useEffect(() => {
+        if (isMaxSelected && availableBalance > 0n && swapAmount !== availableBalance) {
+            setIsMaxSelected(false);
+        }
+    }, [availableBalance, isMaxSelected, swapAmount]);
+
     // Use Approval Hook for Collateral (aToken)
     const {
         onChainAllowance,

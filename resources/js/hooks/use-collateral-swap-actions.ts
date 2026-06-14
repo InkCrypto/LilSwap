@@ -511,7 +511,17 @@ export const useCollateralSwapActions = ({
         clearQuoteError?.();
         setUserRejected(false);
 
-        if (!isMaxSwap && supplyBalance !== null && swapAmount > supplyBalance) {
+        const maxBalanceTolerance = supplyBalance !== null
+            ? (supplyBalance / 10_000n) + 1n
+            : 0n;
+        const effectiveIsMaxSwap = Boolean(
+            isMaxSwap &&
+            supplyBalance !== null &&
+            supplyBalance > 0n &&
+            swapAmount + maxBalanceTolerance >= supplyBalance
+        );
+
+        if (!effectiveIsMaxSwap && supplyBalance !== null && swapAmount > supplyBalance) {
             setTxError('Amount is above the executable limit for the current balance.');
             addLog?.('Amount is above the executable limit for the current balance.', 'error');
             return;
@@ -533,6 +543,19 @@ export const useCollateralSwapActions = ({
             addLog?.('Fetching latest quote...', 'info');
             activeQuote = await fetchQuote();
             if (!activeQuote) return;
+        }
+
+        if (Boolean(activeQuote?.execution?.isMaxSwap) !== effectiveIsMaxSwap) {
+            addLog?.('Refreshing quote to match the selected amount...', 'info');
+            activeQuote = await fetchQuote();
+            if (!activeQuote || Boolean(activeQuote?.execution?.isMaxSwap) !== effectiveIsMaxSwap) {
+                const staleQuoteMessage = mapErrorToUserFriendly('COLLATERAL_MAX_QUOTE_STALE')
+                    || 'This quote no longer matches the selected amount. Refresh and try again.';
+                setTxError(staleQuoteMessage);
+                addLog?.(staleQuoteMessage, 'warning');
+                resetRefreshCountdown();
+                return;
+            }
         }
 
         setIsActionLoading(true);
@@ -572,7 +595,7 @@ export const useCollateralSwapActions = ({
                 throw new Error('Unable to prepare approval amount for collateral swap');
             }
 
-            if (!isMaxSwap && supplyBalance !== null && swapAmount > supplyBalance) {
+            if (!effectiveIsMaxSwap && supplyBalance !== null && swapAmount > supplyBalance) {
                 setTxError('Amount is above the executable limit for the current balance.');
                 addLog?.('Amount is above the executable limit for the current balance.', 'error');
                 return;
@@ -722,7 +745,7 @@ export const useCollateralSwapActions = ({
                 priceRoute,
                 adapterAddress,
                 srcAmount: srcAmount.toString(),
-                isMaxSwap,
+                isMaxSwap: effectiveIsMaxSwap,
                 slippageBps: slippage,
                 marketKey: marketKey || targetNetwork.key,
                 chainId,
@@ -760,7 +783,7 @@ export const useCollateralSwapActions = ({
             executionSnapshot = {
                 chainId,
                 transactionId: localTxId,
-                isMaxSwap,
+                isMaxSwap: effectiveIsMaxSwap,
                 fromToken: quoteFrom?.symbol,
                 toToken: quoteTo?.symbol,
                 amount: srcAmount?.toString?.() || null,
