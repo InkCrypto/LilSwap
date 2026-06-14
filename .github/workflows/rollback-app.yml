@@ -8,6 +8,10 @@ on:
         required: true
         type: string
 
+concurrency:
+  group: deploy-app-production
+  cancel-in-progress: false
+
 jobs:
   check-and-restore:
     runs-on: ubuntu-latest
@@ -56,6 +60,8 @@ jobs:
           TAG: ${{ github.event.inputs.target_tag }}
         run: |
           ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
+            set -e
+
             TAG='$TAG'
             ROOT='$APP_ROOT'
             REPO='$APP_REPO'
@@ -107,7 +113,11 @@ jobs:
             composer install --no-dev --optimize-autoloader
             php artisan key:generate --force
             php artisan migrate --force
-            \$NODE_BIN/corepack pnpm install --frozen-lockfile
+            if ! \$NODE_BIN/corepack pnpm install --frozen-lockfile; then
+              echo \"pnpm install failed; repairing the shared store and retrying...\"
+              rm -rf node_modules
+              \$NODE_BIN/corepack pnpm install --frozen-lockfile --force
+            fi
             \$NODE_BIN/corepack pnpm build
 
             # Finalize

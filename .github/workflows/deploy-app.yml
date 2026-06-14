@@ -5,6 +5,10 @@ on:
     tags:
       - "v*"
 
+concurrency:
+  group: deploy-app-production
+  cancel-in-progress: false
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -40,6 +44,8 @@ jobs:
       - name: Clone and Build on Server
         run: |
           ssh -o StrictHostKeyChecking=no -p ${{ secrets.REMOTE_PORT }} ${{ secrets.REMOTE_USER }}@${{ secrets.REMOTE_HOST }} "
+            set -e
+
             # Definindo as variáveis no remoto de forma segura
             TAG='$APP_TAG'
             ROOT='$APP_ROOT'
@@ -96,7 +102,11 @@ jobs:
             composer install --no-dev --optimize-autoloader
             php artisan key:generate --force
             php artisan migrate --force
-            \$NODE_BIN/corepack pnpm install --frozen-lockfile
+            if ! \$NODE_BIN/corepack pnpm install --frozen-lockfile; then
+              echo \"pnpm install failed; repairing the shared store and retrying...\"
+              rm -rf node_modules
+              \$NODE_BIN/corepack pnpm install --frozen-lockfile --force
+            fi
             \$NODE_BIN/corepack pnpm build
 
             # 6. Finalize
