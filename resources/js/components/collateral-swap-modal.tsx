@@ -313,6 +313,14 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         }
     }, [isUSDMode, fromToken, swapAmount]);
 
+    const minimumDestAmount = useMemo(() => {
+        if (!swapQuote?.destAmount) return null;
+
+        const netDestAmount = BigInt(swapQuote.destAmount);
+        const retainedBps = BigInt(Math.max(0, 10000 - executionSlippage));
+        return (netDestAmount * retainedBps) / 10000n;
+    }, [swapQuote?.destAmount, executionSlippage]);
+
     const toSecondaryValue = useMemo(() => {
         if (!toToken) return null;
 
@@ -344,7 +352,9 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
         try {
             const estimatedAmount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
-            const minimumAmount = estimatedAmount * Math.max(0, 1 - (executionSlippage / 10000));
+            const minimumAmount = minimumDestAmount === null
+                ? estimatedAmount
+                : parseFloat(formatUnits(minimumDestAmount, toToken.decimals || 18));
             const price = getTokenUsdPrice(toToken);
 
             return {
@@ -356,7 +366,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         } catch {
             return null;
         }
-    }, [swapQuote?.destAmount, toToken, executionSlippage]);
+    }, [swapQuote?.destAmount, minimumDestAmount, toToken]);
 
     const renderTokenStatus = (token: any) => {
         const reasons = [];
@@ -697,7 +707,15 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
     const simulationStatus = useMemo(() => {
         if (!swapQuote || !fromToken || !toToken || !summary) {
-            return { currentHf: -1, simulatedHf: -1, isEmodeRestricted: false, currentTotalBorrowsUSD: 0 };
+            return {
+                currentHf: -1,
+                simulatedHf: -1,
+                isEmodeRestricted: false,
+                currentTotalBorrowsUSD: 0,
+                currentTotalCollateralUSD: 0,
+                simulatedTotalCollateralUSD: 0,
+                toCanBeCollateral: false,
+            };
         }
 
         let simulatedHf = -1;
@@ -713,6 +731,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
         const fromAddr = (fromToken.address || fromToken.underlyingAsset || '').toLowerCase();
         const fromMarketToken = (localMarketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === fromAddr);
+        const toCanBeCollateral = toMarketToken?.usageAsCollateralEnabled === true;
 
         // E-Mode boost: use eModeCategoryId (borrowable bitmap) as primary signal,
         // with eModeCollateralCategories as fallback. AaveV3Ethereum has all-zero collateralBitmap
@@ -734,22 +753,27 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
         const emodeLT = activeEmode ? (Number(activeEmode.liquidationThreshold) / 10000) : 0;
 
         let simulatedLT = currentLiquidationThreshold;
+        let simulatedTotalCollateralUSD = currentTotalCollateralUSD;
 
         try {
             const fromLiqThreshold = isFromAssetEmode ? emodeLT : (parseFloat(fromMarketToken?.reserveLiquidationThreshold || '0') || 0);
-            const toLiqThreshold = isToAssetEmode ? emodeLT : (parseFloat(toMarketToken?.reserveLiquidationThreshold || '0') || 0);
+            const toLiqThreshold = toCanBeCollateral
+                ? (isToAssetEmode ? emodeLT : (parseFloat(toMarketToken?.reserveLiquidationThreshold || '0') || 0))
+                : 0;
 
             const srcUSD = parseFloat(swapQuote.priceRoute?.srcUSD || '0');
-            const netReceivedUsd = parseFloat(swapQuote.priceRoute?.destUSD || '0');
+            const quotedNetAmount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
+            const toPrice = getTokenUsdPrice(toToken);
+            const netReceivedUsd = quotedNetAmount * Math.max(0, 1 - (executionSlippage / 10000)) * toPrice;
 
             if (srcUSD > 0 && netReceivedUsd > 0) {
                 const lostCollateralPower = srcUSD * fromLiqThreshold;
-                // Gained collateral power uses effective (potentially boosted) toLiqThreshold
                 const gainedCollateralPower = netReceivedUsd * toLiqThreshold;
+                const destinationCollateralUsd = toCanBeCollateral ? netReceivedUsd : 0;
 
                 const currentCollateralPower = currentTotalCollateralUSD * currentLiquidationThreshold;
                 const simulatedCollateralPower = Math.max(0, currentCollateralPower - lostCollateralPower + gainedCollateralPower);
-                const simulatedTotalCollateralUSD = Math.max(0, currentTotalCollateralUSD - srcUSD + netReceivedUsd);
+                simulatedTotalCollateralUSD = Math.max(0, currentTotalCollateralUSD - srcUSD + destinationCollateralUsd);
 
                 if (simulatedTotalCollateralUSD > 0) {
                     simulatedLT = simulatedCollateralPower / simulatedTotalCollateralUSD;
@@ -765,10 +789,29 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             logger.error('Collateral HF Simulation Error', err);
         }
 
-        return { currentHf, simulatedHf, isEmodeRestricted, currentTotalBorrowsUSD, simulatedLT, currentLiquidationThreshold };
-    }, [swapQuote, fromToken, toToken, summary, localMarketAssets]);
+        return {
+            currentHf,
+            simulatedHf,
+            isEmodeRestricted,
+            currentTotalBorrowsUSD,
+            currentTotalCollateralUSD,
+            simulatedTotalCollateralUSD,
+            simulatedLT,
+            currentLiquidationThreshold,
+            toCanBeCollateral,
+        };
+    }, [swapQuote, fromToken, toToken, summary, localMarketAssets, executionSlippage]);
 
-    const { currentHf, simulatedHf, isEmodeRestricted, currentTotalBorrowsUSD, simulatedLT = 0, currentLiquidationThreshold = 0 } = simulationStatus;
+    const {
+        currentHf,
+        simulatedHf,
+        isEmodeRestricted,
+        currentTotalBorrowsUSD,
+        currentTotalCollateralUSD,
+        simulatedTotalCollateralUSD,
+        simulatedLT = 0,
+        currentLiquidationThreshold = 0,
+    } = simulationStatus;
     const requiresLowHfConfirmation = requiresLowHealthFactorConfirmation(currentHf, simulatedHf);
 
     useEffect(() => {
@@ -1240,8 +1283,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                             // Add platform fee estimate from backend quote (already discount-aware)
                                             if (swapQuote) {
                                                 const feeBps = swapQuote?.feeBps || 0;
-                                                const amount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
-                                                totalUsd += amount * (feeBps / 10000) * parseFloat(toToken.priceInUSD || '0');
+                                                const grossAmount = parseFloat(formatUnits(swapQuote.grossDestAmount ?? swapQuote.destAmount, toToken.decimals || 18));
+                                                totalUsd += grossAmount * (feeBps / 10000) * parseFloat(toToken.priceInUSD || '0');
                                             }
 
                                             return formatUSD(totalUsd);
@@ -1301,8 +1344,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                         return 'Free';
                                                     }
 
-                                                    const amount = parseFloat(formatUnits(swapQuote.destAmount, toToken.decimals || 18));
-                                                    const fee = amount * (feeBps / 10000);
+                                                    const grossAmount = parseFloat(formatUnits(swapQuote.grossDestAmount ?? swapQuote.destAmount, toToken.decimals || 18));
+                                                    const fee = grossAmount * (feeBps / 10000);
 
                                                     return fee < 0.00001 ? '< 0.00001' : fee.toLocaleString('en-US', { maximumFractionDigits: 6 });
                                                 })()}
@@ -1366,10 +1409,11 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                     const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
                                                     const toMarketToken = (localMarketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === toAddr);
                                                     const toPrice = parseFloat(toMarketToken?.priceInUSD ?? toToken?.priceInUSD) || 0;
+                                                    const toCanBeCollateral = toMarketToken?.usageAsCollateralEnabled === true;
 
                                                     // Same logic for the destination asset
-                                                    let toLt = parseFloat(toMarketToken?.reserveLiquidationThreshold || '0');
-                                                    if (userEmodeId > 0 && activeEMode) {
+                                                    let toLt = toCanBeCollateral ? parseFloat(toMarketToken?.reserveLiquidationThreshold || '0') : 0;
+                                                    if (toCanBeCollateral && userEmodeId > 0 && activeEMode) {
                                                         const toInEMode =
                                                             (toMarketToken?.eModeCategoryId === userEmodeId) ||
                                                             ((toMarketToken?.eModeCollateralCategories || []) as number[]).includes(userEmodeId);
@@ -1380,11 +1424,12 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
                                                     if (fromPrice > 0 && toPrice > 0) {
                                                         const withdrawnUsd = withdrawnAmountF * fromPrice;
-                                                        // Net received includes base service fee + standard slippage deduction approximation
-                                                        const netReceivedAmountToken = newAmountF * (1 - ((swapQuote.feeBps || 0) / 10000)) * (1 - (slippage / 10000));
+                                                        // Quote output is already net of the service fee.
+                                                        const netReceivedAmountToken = newAmountF * (1 - (executionSlippage / 10000));
                                                         const newUsd = netReceivedAmountToken * toPrice;
 
-                                                        const newTotalCollateralUSD = Math.max(0, currentTotalCollateralUSD - withdrawnUsd + newUsd);
+                                                        const destinationCollateralUsd = toCanBeCollateral ? newUsd : 0;
+                                                        const newTotalCollateralUSD = Math.max(0, currentTotalCollateralUSD - withdrawnUsd + destinationCollateralUsd);
 
                                                         let newAvgLt = currentLiquidationThreshold;
 
@@ -1460,6 +1505,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
                                                         const toAddr = (toToken?.underlyingAsset || toToken?.address || '').toLowerCase();
                                                         const toMarketToken = (localMarketAssets || []).find(m => (m.underlyingAsset || m.address || '').toLowerCase() === toAddr);
+                                                        const toCanBeCollateral = toMarketToken?.usageAsCollateralEnabled === true;
 
                                                         // FIX: Normalize price (Aave raw prices are 1e8)
                                                         const rawToPrice = parseFloat(toMarketToken?.priceInUSD ?? toToken?.priceInUSD ?? '0');
@@ -1467,8 +1513,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
                                                         if (fromPrice > 0 && toPrice > 0) {
                                                             const withdrawnUsd = parseFloat(swapQuote.priceRoute?.srcUSD || '0') || (withdrawnAmountF * fromPrice);
-                                                            const netReceivedUsd = parseFloat(swapQuote.priceRoute?.destUSD || '0') || (newAmountF * (1 - ((swapQuote.feeBps || 0) / 10000)) * (1 - (slippage / 10000)) * toPrice);
-                                                            simulatedTotalCollateralUSD = Math.max(0, currentTotalCollateralUSD - withdrawnUsd + netReceivedUsd);
+                                                            const netReceivedUsd = newAmountF * (1 - (executionSlippage / 10000)) * toPrice;
+                                                            simulatedTotalCollateralUSD = Math.max(0, currentTotalCollateralUSD - withdrawnUsd + (toCanBeCollateral ? netReceivedUsd : 0));
                                                         }
                                                     } catch {
                                                         // Keep preview resilient if interim quote math fails.
@@ -1608,10 +1654,10 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                                                 toTotal = existingToBalance;
 
                                                 if (swapQuote) {
-                                                    const grossReceived = parseFloat(formatUnits(swapQuote.destAmount || "0", toToken.decimals || 18));
-                                                    // Deduct fee and slippage for conservative estimate
-                                                    const netReceived = grossReceived * (1 - ((swapQuote.feeBps || 0) / 10000)) * (1 - (slippage / 10000));
-                                                    toTotal = existingToBalance + netReceived;
+                                                    const netReceived = parseFloat(formatUnits(swapQuote.destAmount || "0", toToken.decimals || 18));
+                                                    // Quote output is net of fee; apply only slippage for the conservative balance.
+                                                    const minimumReceived = netReceived * (1 - (executionSlippage / 10000));
+                                                    toTotal = existingToBalance + minimumReceived;
                                                 }
                                             } catch {
                                                 // Ignore malformed balances from upstream data.

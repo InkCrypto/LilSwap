@@ -56,6 +56,38 @@ const getRevertSelector = (error: any): string | null => {
     return details.match(/0x[a-fA-F0-9]{8}/)?.[0] || null;
 };
 
+const getDebtSimulationErrorMessage = ({
+    diagnostic,
+    revertSelector,
+    slippageBps,
+    recommendedSlippageBps,
+}: {
+    diagnostic: string;
+    revertSelector: string | null;
+    slippageBps: number;
+    recommendedSlippageBps: number;
+}) => {
+    const mappedRevert = mapErrorToUserFriendly(revertSelector || diagnostic);
+    const normalizedDiagnostic = diagnostic.toLowerCase();
+    const isKnownSlippageFailure = (
+        revertSelector?.toLowerCase() === '0x81ceff30' ||
+        revertSelector?.toLowerCase() === '0xcea9e31d' ||
+        normalizedDiagnostic.includes('slippage')
+    );
+
+    if (isKnownSlippageFailure) {
+        return `${mappedRevert || 'Preflight simulation failed because the execution tolerance was exceeded.'} Used ${(slippageBps / 100).toFixed(2)}%; recommended ${(recommendedSlippageBps / 100).toFixed(2)}%.`;
+    }
+
+    if (revertSelector) {
+        return `Preflight simulation reverted (${revertSelector}). The transaction was blocked before opening your wallet.`;
+    }
+
+    return mappedRevert && mappedRevert !== diagnostic
+        ? mappedRevert
+        : 'Preflight simulation reverted for an unknown reason. The transaction was blocked before opening your wallet.';
+};
+
 interface UseDebtSwitchActionsProps {
     account: string | null;
     fromToken: any;
@@ -654,7 +686,12 @@ export const useDebtSwitchActions = ({
 
                 const technicalErrorMessage = diagnostic;
                 const friendlyMessage = simulationInProgress
-                    ? `Simulation failed with ${(slippage / 100).toFixed(2)}% slippage. The recommended setting for this route is ${(recommendedSlippage / 100).toFixed(2)}%.`
+                    ? getDebtSimulationErrorMessage({
+                        diagnostic,
+                        revertSelector,
+                        slippageBps: slippage,
+                        recommendedSlippageBps: recommendedSlippage,
+                    })
                     : mapErrorToUserFriendly(technicalErrorMessage) || 'Swap failed. Please try again.';
 
                 setTxError(friendlyMessage);

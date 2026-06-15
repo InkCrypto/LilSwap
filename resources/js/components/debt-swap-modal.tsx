@@ -2564,7 +2564,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         }
 
         if (txError) {
-            const friendly = mapErrorToUserFriendly(txError) || 'Swap failed. Please try again.';
+            const friendly = txError || 'Swap failed. Please try again.';
             const errorKey = `tx:${friendly}`;
 
             if (lastToastErrorRef.current !== errorKey) {
@@ -3411,7 +3411,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                                 <div className="text-right">
                                                     <div className="flex items-center justify-end gap-1.5 text-slate-900 dark:text-slate-100">
                                                         <span>{formatUSD(debtSwapValueImpact.repaidDebtUsd)}</span>
-                                                        <span className="text-slate-400 font-normal">â†’</span>
+                                                        <span className="text-slate-400 font-normal">→</span>
                                                         <span>{formatUSD(debtSwapValueImpact.newDebtUsd)}</span>
                                                     </div>
                                                     {Math.abs(debtSwapValueImpact.deltaUsd) >= 0.01 && (
@@ -3687,7 +3687,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                 <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
                                 <div className="flex-1 min-w-0">
                                     <p className="text-xs text-red-800 dark:text-red-300 font-medium">
-                                        {userRejected ? 'Transaction rejected in wallet' : mapErrorToUserFriendly(txError)}
+                                        {userRejected ? 'Transaction rejected in wallet' : txError}
                                     </p>
                                 </div>
                                 <button onClick={userRejected ? clearUserRejected : clearTxError} className="p-0.5 hover:bg-red-100 dark:hover:bg-red-900/50 rounded transition-colors">

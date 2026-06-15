@@ -511,15 +511,11 @@ export const useCollateralSwapActions = ({
         clearQuoteError?.();
         setUserRejected(false);
 
-        const maxBalanceTolerance = supplyBalance !== null
-            ? (supplyBalance / 10_000n) + 1n
-            : 0n;
-        const effectiveIsMaxSwap = Boolean(
-            isMaxSwap &&
-            supplyBalance !== null &&
-            supplyBalance > 0n &&
-            swapAmount + maxBalanceTolerance >= supplyBalance
-        );
+        // MAX is an explicit user intent. aToken balances accrue continuously, so
+        // comparing the selected amount with a later frontend balance snapshot can
+        // incorrectly reclassify MAX as an over-balance partial swap. The backend
+        // refreshes and validates the executable MAX balance before building.
+        const effectiveIsMaxSwap = Boolean(isMaxSwap);
 
         if (!effectiveIsMaxSwap && supplyBalance !== null && swapAmount > supplyBalance) {
             setTxError('Amount is above the executable limit for the current balance.');
@@ -593,12 +589,6 @@ export const useCollateralSwapActions = ({
                 : approvalAmount;
             if (requiredAllowance <= 0n) {
                 throw new Error('Unable to prepare approval amount for collateral swap');
-            }
-
-            if (!effectiveIsMaxSwap && supplyBalance !== null && swapAmount > supplyBalance) {
-                setTxError('Amount is above the executable limit for the current balance.');
-                addLog?.('Amount is above the executable limit for the current balance.', 'error');
-                return;
             }
 
             const approveWithBoundedFallback = async (reason: string) => {
@@ -765,7 +755,6 @@ export const useCollateralSwapActions = ({
             localTxId = txResult.transactionId;
             updateCurrentTransactionId(localTxId);
             swapDebugMeta = txResult?.debugFlags || null;
-            const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
             transactionRequest = txResult?.transactionRequest;
             if (!transactionRequest?.to || !transactionRequest?.data) {
                 throw new Error('Backend did not return a transaction request for collateral swap');
@@ -779,7 +768,6 @@ export const useCollateralSwapActions = ({
                 swapDebug: swapDebugMeta,
             });
 
-            diagnosticGasEstimate = txResult?.gasEstimate?.gas?.toString?.() || null;
             executionSnapshot = {
                 chainId,
                 transactionId: localTxId,
@@ -808,16 +796,20 @@ export const useCollateralSwapActions = ({
             logger.debug('[useCollateralSwapActions] Collateral execution snapshot', executionSnapshot);
 
             if (!publicClient) {
-                throw new Error('Unable to verify transaction before execution. Please reconnect and try again.');
+                throw new Error('Unable to estimate transaction gas before execution. Please reconnect and try again.');
             }
+
+            // eth_estimateGas executes the final request and returns the revert when
+            // it is not executable, so a separate eth_call would be redundant.
             failureStage = 'preflight';
             addLog?.('Checking transaction...', 'info');
-            await publicClient.call({
+            const estimatedGas = await publicClient.estimateGas({
                 account: getAddress(account),
                 to: getAddress(transactionRequest.to),
                 data: transactionRequest.data as Hex,
                 value: BigInt(transactionRequest.value || 0),
             });
+            diagnosticGasEstimate = estimatedGas.toString();
             preflightPassed = true;
 
             addLog?.('Confirm in your wallet...', 'warning');

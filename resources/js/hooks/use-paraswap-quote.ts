@@ -246,7 +246,21 @@ export const useParaswapQuote = ({
                     isMaxSwap,
                 }, signal);
 
-                const { priceRoute, srcAmount: quotedSrcAmount, destAmount, version, augustus, bufferBps, approval, execution, chainTimestamp, chainTimestampSource } = routeResult;
+                const {
+                    priceRoute,
+                    srcAmount: quotedSrcAmount,
+                    destAmount,
+                    grossDestAmount,
+                    partnerFeeAmount,
+                    netDestAmount,
+                    version,
+                    augustus,
+                    bufferBps,
+                    approval,
+                    execution,
+                    chainTimestamp,
+                    chainTimestampSource,
+                } = routeResult;
                 const feeBps = resolveFeeBps(routeResult);
                 const discountPercent = resolveDiscountPercent(routeResult);
                 const recommendedSlippageBps = requireRecommendedSlippageBps(routeResult);
@@ -257,6 +271,9 @@ export const useParaswapQuote = ({
                     priceRoute,
                     srcAmount: srcAmountBn,
                     destAmount: destAmountBn,
+                    grossDestAmount: BigInt(grossDestAmount ?? priceRoute?.destAmount ?? destAmount),
+                    partnerFeeAmount: BigInt(partnerFeeAmount ?? 0),
+                    netDestAmount: BigInt(netDestAmount ?? destAmount),
                     fromToken,
                     toToken,
                     timestamp: Math.floor(Date.now() / 1000),

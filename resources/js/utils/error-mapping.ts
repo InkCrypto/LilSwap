@@ -79,6 +79,9 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
     'COLLATERAL_CANNOT_COVER_NEW_BORROW': {
         en: 'Aave borrow power is too low for this debt switch. Repay a small amount or add collateral before switching debt.'
     },
+    'COLLATERAL_SWAP_HEALTH_FACTOR_TOO_LOW': {
+        en: 'This collateral swap would reduce your Health Factor below 1.0 and revert.'
+    },
     'liquidity': {
         en: 'Insufficient liquidity for this swap. Try a different amount or token pair.'
     },
@@ -89,7 +92,7 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
         en: 'Invalid fee configuration (must be an integer). Please reload and try again.'
     },
     'slippage': {
-        en: 'Execution failed due to price change. Try increasing slippage in Settings.'
+        en: 'Execution tolerance was exceeded. Review the route and slippage settings before trying again.'
     },
     'reverted': {
         en: 'Transaction reverted on-chain. This usually happens due to low slippage or high price impact.'
