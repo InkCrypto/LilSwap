@@ -25,6 +25,7 @@ import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
 import { getTokenLogo } from '../utils/get-token-logo';
 import logger from '../utils/logger';
 import { getWithdrawSwapQuote, buildWithdrawSwapTx } from '../services/api';
+import { requireRecommendedSlippageBps } from '../utils/slippage';
 
 interface WithdrawModalProps {
     isOpen: boolean;
@@ -290,7 +291,6 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
     const [lockedSwapQuote, setLockedSwapQuote] = useState<any>(null);
     const quoteLockedRef = useRef(false);
     const optimisticAllowanceSpenderRef = useRef<string | null>(null);
-    const [slippage, setSlippage] = useState<number>(0.5); // 0.5% default
     const [invertRate, setInvertRate] = useState(false);
     const [nextRefreshIn, setNextRefreshIn] = useState(30);
 
@@ -483,7 +483,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
         if (!isLoading) {
             clearLockedSwapQuote();
         }
-    }, [activeTab, clearLockedSwapQuote, initialAsset, isLoading, slippage, targetToken, withdrawAmount]);
+    }, [activeTab, clearLockedSwapQuote, initialAsset, isLoading, targetToken, withdrawAmount]);
 
     useEffect(() => {
         let cancelled = false;
@@ -876,7 +876,10 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                 return;
             }
 
-            setSwapQuote(quote);
+            setSwapQuote({
+                ...quote,
+                recommendedSlippageBps: requireRecommendedSlippageBps(quote),
+            });
         } catch (err: any) {
             if (quoteLockedRef.current && !force) {
                 return;
@@ -1149,7 +1152,7 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                     adapterAddress: getAddress(withdrawSwapAdapterAddress),
                     srcAmount: quoteAmount.toString(),
                     isMaxSwap: isMax,
-                    slippageBps: slippage * 100,
+                    slippageBps: requireRecommendedSlippageBps(latestQuote),
                     chainId,
                     walletAddress,
                     marketKey,

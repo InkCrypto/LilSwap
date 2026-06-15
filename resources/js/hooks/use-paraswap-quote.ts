@@ -4,24 +4,11 @@ import { DEFAULT_NETWORK } from '../constants/networks';
 import { useUserActivity } from '../contexts/user-activity-context';
 import { getDebtQuote, getCollateralQuote } from '../services/api';
 import logger from '../utils/logger';
+import { requireRecommendedSlippageBps } from '../utils/slippage';
 import { useDebounce } from './use-debounce';
 
 const AUTO_REFRESH_SECONDS = 30;
 const EMPTY_ARRAY: any[] = [];
-const CORRELATED_TOKEN_GROUPS = [
-    new Set(['USDC', 'USDCN', 'USDBC', 'USDC.E', 'USDT', 'USDT0', 'DAI', 'SDAI', 'GHO', 'LUSD', 'FRAX', 'CRVUSD', 'PYUSD', 'USDE', 'SUSDE', 'EUSDE', 'USDTB', 'SYRUPUSDT', 'SYRUPUSDC', 'USDG', 'USDS', 'RLUSD', 'MUSD', 'STUSD', 'FDUSD', 'HYUSD', 'MIMATIC', 'MAI', 'EURC', 'EURA', 'EURS', 'JEUR']),
-    new Set(['ETH', 'WETH', 'WSTETH', 'STETH', 'CBETH', 'RETH', 'WEETH', 'EZETH', 'WRSETH', 'RSETH', 'OSETH', 'ETHX', 'FRXETH', 'SFRXETH', 'APXETH', 'TETH']),
-    new Set(['WBTC', 'CBBTC', 'TBTC', 'LBTC', 'BTCB', 'FBTC', 'EBTC']),
-];
-
-const normalizeTokenSymbol = (symbol: unknown): string => String(symbol || '').trim().toUpperCase();
-
-const areTokenSymbolsCorrelated = (fromSymbol: unknown, toSymbol: unknown): boolean => {
-    const from = normalizeTokenSymbol(fromSymbol);
-    const to = normalizeTokenSymbol(toSymbol);
-
-    return from !== '' && to !== '' && CORRELATED_TOKEN_GROUPS.some(group => group.has(from) && group.has(to));
-};
 
 const pickNumberish = (value: unknown): number | null => {
     if (typeof value === 'number' && Number.isFinite(value)) {
@@ -123,7 +110,7 @@ export const useParaswapQuote = ({
     const [swapQuote, setSwapQuote] = useState<any>(null);
     const [autoRefreshEnabled, setAutoRefreshEnabled] = useState(false);
     const [nextRefreshIn, setNextRefreshIn] = useState(AUTO_REFRESH_SECONDS);
-    const [slippage, setSlippage] = useState(50);
+    const [slippage, setSlippage] = useState(0);
     const [isAutoSlippage, setIsAutoSlippage] = useState(true);
     const [isQuoteLoading, setIsQuoteLoading] = useState(false);
     const [isTyping, setIsTyping] = useState(false);
@@ -262,6 +249,7 @@ export const useParaswapQuote = ({
                 const { priceRoute, srcAmount: quotedSrcAmount, destAmount, version, augustus, bufferBps, approval, execution, chainTimestamp, chainTimestampSource } = routeResult;
                 const feeBps = resolveFeeBps(routeResult);
                 const discountPercent = resolveDiscountPercent(routeResult);
+                const recommendedSlippageBps = requireRecommendedSlippageBps(routeResult);
                 const srcAmountBn = BigInt(quotedSrcAmount ?? priceRoute?.srcAmount ?? srcAmount);
                 const destAmountBn = BigInt(destAmount);
 
@@ -275,6 +263,7 @@ export const useParaswapQuote = ({
                     version,
                     augustus,
                     bufferBps,
+                    recommendedSlippageBps,
                     feeBps,
                     discountPercent,
                     volumeUsd: resolveVolumeUsd(priceRoute),
@@ -339,6 +328,7 @@ export const useParaswapQuote = ({
                 const { priceRoute, srcAmount, destAmount: quotedDestAmount, version, augustus, bufferBps, apyPercent } = routeResult;
                 const feeBps = resolveFeeBps(routeResult);
                 const discountPercent = resolveDiscountPercent(routeResult);
+                const recommendedSlippageBps = requireRecommendedSlippageBps(routeResult);
                 const srcAmountBigInt = BigInt(srcAmount);
                 const destAmountBigIntFinal = BigInt(quotedDestAmount ?? destAmount);
 
@@ -352,6 +342,7 @@ export const useParaswapQuote = ({
                     version,
                     augustus,
                     bufferBps,
+                    recommendedSlippageBps,
                     feeBps,
                     discountPercent,
                     volumeUsd: resolveVolumeUsd(priceRoute),
@@ -448,11 +439,8 @@ export const useParaswapQuote = ({
     }, [autoRefreshEnabled, fetchQuote, enabled, freezeQuote, isTabVisible, isUserActive]);
 
     const { priceImpact, recommendedSlippage } = useMemo(() => {
-        const isCorrelatedPair = areTokenSymbolsCorrelated(fromToken?.symbol, toToken?.symbol);
-        const baseMinSlippage = isCollateral ? 30 : (isCorrelatedPair ? 20 : 40);
-
         if (!swapQuote?.priceRoute) {
-            return { priceImpact: 0, recommendedSlippage: baseMinSlippage };
+            return { priceImpact: 0, recommendedSlippage: 0 };
         }
 
         let impact = swapQuote.priceRoute.priceImpact || 0;
@@ -466,8 +454,13 @@ export const useParaswapQuote = ({
             }
         }
 
-        return { priceImpact: impact, recommendedSlippage: Math.max(baseMinSlippage, Math.ceil(impact * 10000) + baseMinSlippage) };
-    }, [swapQuote, selectedNetwork?.chainId, isCollateral, fromToken?.symbol, toToken?.symbol]);
+        const backendRecommendation = Number(swapQuote.recommendedSlippageBps);
+
+        return {
+            priceImpact: impact,
+            recommendedSlippage: Number.isFinite(backendRecommendation) ? backendRecommendation : 0,
+        };
+    }, [swapQuote]);
 
     useEffect(() => {
         if (isAutoSlippage && swapQuote) {

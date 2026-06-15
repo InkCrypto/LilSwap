@@ -36,9 +36,11 @@ import { getPairStatus, checkPairSwappable } from '../services/token-pair-cache'
 import { mapErrorToUserFriendly } from '../utils/error-mapping';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import { normalizeDecimalInput, computeLimitOutputDisplay } from '../utils/normalize-decimal-input';
+import { requiresLowHealthFactorConfirmation } from '../utils/health-factor';
 import { saveTokenSelection, getSavedTokenSelection } from '../utils/token-selection-memory';
 import { CompactAmountInput } from './compact-amount-input';
 import { InfoTooltip } from './info-tooltip';
+import { LowHealthFactorConfirmationModal } from './low-health-factor-confirmation-modal';
 import { Modal } from './modal';
 import { TokenSelector } from './token-selector';
 import { Button } from './ui/button';
@@ -176,6 +178,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const [showMethodMenu, setShowMethodMenu] = useState(false);
     const [isPairValidationRunning, setIsPairValidationRunning] = useState(false);
     const [isUSDMode, setIsUSDMode] = useState(false);
+    const [showLowHfConfirmation, setShowLowHfConfirmation] = useState(false);
     const publicClient = usePublicClient();
     const { data: walletClient } = useWalletClient();
 
@@ -280,10 +283,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const {
         swapQuote,
         slippage,
+        recommendedSlippage,
         setSlippage,
         isAutoSlippage,
         setIsAutoSlippage,
-        recommendedSlippage,
         isQuoteLoading,
         nextRefreshIn,
         fetchQuote,
@@ -307,6 +310,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         marketAssets: localMarketAssets,
         isMaxSwap: debtBalance !== null && debtBalance > 0n && swapAmount >= debtBalance,
     });
+    const executionSlippage = isAutoSlippage ? recommendedSlippage : slippage;
 
     // --- Computed Values ---
     const limitInputValue = inputValue;
@@ -1672,7 +1676,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         swapAmount,
         debtBalance,
         swapQuote,
-        slippage,
+        slippage: executionSlippage,
+        recommendedSlippage,
         fetchDebtData: refreshGlobalPosition,
         fetchQuote,
         resetRefreshCountdown,
@@ -1729,10 +1734,16 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     }, []);
 
     const getTokenUsdPrice = useCallback((token: any) => {
-        const rawPrice = parseFloat(token?.priceInUSD || '0');
+        const tokenAddress = (token?.underlyingAsset || token?.address || '').toLowerCase();
+        const marketAsset = (localMarketAssets || []).find(
+            asset => (asset.underlyingAsset || asset.address || '').toLowerCase() === tokenAddress
+        );
+        const marketPrice = parseFloat(marketAsset?.priceInUSD || '0');
+        const tokenPrice = parseFloat(token?.priceInUSD || '0');
+        const rawPrice = Number.isFinite(marketPrice) && marketPrice > 0 ? marketPrice : tokenPrice;
         const price = rawPrice > 1_000_000_000 ? rawPrice / 1e8 : rawPrice;
         return Number.isFinite(price) && price > 0 ? price : 0;
-    }, []);
+    }, [localMarketAssets]);
 
     const getRawAmountUsd = useCallback((rawAmount: string | undefined | null, token: any) => {
         if (!rawAmount || !token) return null;
@@ -1746,6 +1757,30 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             return null;
         }
     }, [getTokenUsdPrice]);
+
+    const debtSwapValueImpact = useMemo(() => {
+        if (!swapQuote?.srcAmount || !swapQuote?.destAmount || !fromToken || !toToken) {
+            return null;
+        }
+
+        const oracleRepaidDebtUsd = getRawAmountUsd(swapQuote.destAmount, fromToken);
+        const oracleNewDebtUsd = getRawAmountUsd(swapQuote.srcAmount, toToken);
+        const repaidDebtUsd = oracleRepaidDebtUsd ?? parseFloat(swapQuote.priceRoute?.destUSD || '');
+        const newDebtUsd = oracleNewDebtUsd ?? parseFloat(swapQuote.priceRoute?.srcUSD || '');
+
+        if (!Number.isFinite(repaidDebtUsd) || !Number.isFinite(newDebtUsd) || repaidDebtUsd <= 0) {
+            return null;
+        }
+
+        const deltaUsd = newDebtUsd - repaidDebtUsd;
+        return {
+            repaidDebtUsd,
+            newDebtUsd,
+            deltaUsd,
+            deltaBps: (deltaUsd / repaidDebtUsd) * 10_000,
+            usesMarketOracle: oracleRepaidDebtUsd != null && oracleNewDebtUsd != null,
+        };
+    }, [swapQuote, fromToken, toToken, getRawAmountUsd]);
 
     const debtSwapBorrowPower = useMemo(() => {
         if (!summary || !swapQuote || !fromToken || !toToken) {
@@ -1778,23 +1813,21 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             return total + (amount * price * ltv);
         }, 0);
 
-        const repaidDebtUsd = parseFloat(swapQuote.destUSD || '')
-            || getRawAmountUsd(swapQuote.destAmount, fromToken)
-            || 0;
-        const newDebtUsd = parseFloat(swapQuote.srcUSD || '')
-            || getRawAmountUsd(swapQuote.srcAmount, toToken)
-            || 0;
-        const finalBorrowsUsd = Math.max(0, currentBorrowsUsd - repaidDebtUsd + newDebtUsd);
-        const toleranceUsd = Math.max(1, finalBorrowsUsd * 0.0005);
+        const repaidDebtUsd = debtSwapValueImpact?.repaidDebtUsd || 0;
+        const newDebtUsd = debtSwapValueImpact?.newDebtUsd || 0;
+        const bufferedNewDebtUsd = newDebtUsd * (1 + ((swapQuote.bufferBps || 0) / 10000));
+        const finalBorrowsUsd = Math.max(0, currentBorrowsUsd - repaidDebtUsd + bufferedNewDebtUsd);
+        const toleranceUsd = Math.max(0.01, finalBorrowsUsd * 0.0001);
         const deficitUsd = finalBorrowsUsd - borrowLimitUsd;
 
         return {
             borrowLimitUsd,
             finalBorrowsUsd,
+            bufferedNewDebtUsd,
             deficitUsd,
             isBlocked: borrowLimitUsd > 0 && deficitUsd > toleranceUsd,
         };
-    }, [summary, swapQuote, fromToken, toToken, providedSupplies, supplies, localMarketAssets, getTokenUsdPrice, getRawAmountUsd]);
+    }, [summary, swapQuote, fromToken, toToken, providedSupplies, supplies, localMarketAssets, getTokenUsdPrice, debtSwapValueImpact]);
 
     const buildBorrowImpactRows = useCallback(({
         repaidRawAmount,
@@ -1877,6 +1910,34 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 </div>
             ),
         });
+
+        if (repaidDebtUsd != null && newDebtUsd != null) {
+            const debtValueDeltaUsd = newDebtUsd - repaidDebtUsd;
+            const debtValueDeltaPercent = repaidDebtUsd > 0
+                ? (debtValueDeltaUsd / repaidDebtUsd) * 100
+                : 0;
+
+            rows.push({
+                key: 'debt-value',
+                label: 'Estimated debt value',
+                tooltip: 'Estimated with Aave market oracle prices, not ParaSwap route USD metadata.',
+                className: 'text-[13px] text-slate-600 dark:text-slate-300 font-medium',
+                value: (
+                    <div className="text-right">
+                        <div className="flex items-center justify-end gap-1.5 font-medium text-slate-900 dark:text-slate-100">
+                            <span>{formatUSD(repaidDebtUsd)}</span>
+                            <span className="text-slate-400 font-normal">â†’</span>
+                            <span>{unavailable ? 'â€”' : formatUSD(newDebtUsd)}</span>
+                        </div>
+                        {!unavailable && Math.abs(debtValueDeltaUsd) >= 0.01 && (
+                            <div className={`text-[10px] ${debtValueDeltaUsd > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                                {debtValueDeltaUsd > 0 ? '+' : ''}{formatUSD(debtValueDeltaUsd)} ({debtValueDeltaPercent > 0 ? '+' : ''}{debtValueDeltaPercent.toFixed(2)}%)
+                            </div>
+                        )}
+                    </div>
+                ),
+            });
+        }
 
         const activeBorrows = providedBorrows || borrows || [];
         let fromRemaining = 0;
@@ -2091,6 +2152,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 return null;
             }
         } else {
+            const marketUsdValue = getRawAmountUsd(swapQuote?.destAmount || swapAmount.toString(), fromToken);
+            if (marketUsdValue != null) {
+                return formatUSD(marketUsdValue);
+            }
+
             if (swapQuote?.priceRoute?.destUSD) {
                 return formatUSD(parseFloat(swapQuote.priceRoute.destUSD));
             }
@@ -2101,7 +2167,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
             return formatUSD(tokenAmount * price);
         }
-    }, [isUSDMode, fromToken, swapAmount, swapQuote, inputValue]);
+    }, [isUSDMode, fromToken, swapAmount, swapQuote, inputValue, getRawAmountUsd]);
 
     const toSecondaryValue = useMemo(() => {
         if (!toToken) {
@@ -2124,6 +2190,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
             return `0 ${toToken.symbol}`;
         } else {
             // In Token mode, show USD value
+            const marketUsdValue = getRawAmountUsd(swapQuote?.srcAmount, toToken);
+            if (marketUsdValue != null) {
+                return formatUSD(marketUsdValue);
+            }
+
             if (swapQuote?.priceRoute?.srcUSD) {
                 return formatUSD(parseFloat(swapQuote.priceRoute.srcUSD));
             }
@@ -2139,7 +2210,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         }
 
         return null;
-    }, [toToken, swapQuote, isUSDMode]);
+    }, [toToken, swapQuote, isUSDMode, getRawAmountUsd]);
 
     const getBorrowStatus = useCallback((token: any) => {
         if (!token) {
@@ -2455,10 +2526,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     const isAnySwapActionLoading = isActionLoading || isDebtLimitMainActionBusy;
 
     useEffect(() => {
-        if (isAnySwapActionLoading !== freezeQuote) {
-            setFreezeQuote(isAnySwapActionLoading);
+        const shouldFreezeQuote = isAnySwapActionLoading || showLowHfConfirmation;
+        if (shouldFreezeQuote !== freezeQuote) {
+            setFreezeQuote(shouldFreezeQuote);
         }
-    }, [isAnySwapActionLoading, freezeQuote]);
+    }, [isAnySwapActionLoading, showLowHfConfirmation, freezeQuote]);
 
     useEffect(() => {
         if (quoteError && isOpen) {
@@ -2740,7 +2812,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         <div className="flex justify-end items-center mb-2 relative">
                             <div className={`flex items-center gap-1.5 transition-all ${!swapQuote ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
                                 <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 ml-1">
-                                    {isAutoSlippage ? 'Auto Slippage' : 'Slippage'}
+                                    {isAutoSlippage ? 'Auto Slippage' : 'Custom Slippage'}
                                 </span>
                                 <button
                                     data-slippage-toggle="true"
@@ -2751,7 +2823,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                         : 'text-slate-900 dark:text-white hover:text-primary dark:hover:text-primary'
                                         }`}
                                 >
-                                    <span>{(slippage / 100).toFixed(2)}%</span>
+                                    <span>{(executionSlippage / 100).toFixed(2)}%</span>
                                     <Settings className="w-3 h-3" />
                                 </button>
                             </div>
@@ -3258,8 +3330,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
                                                     if (swapQuote && swapQuote.srcAmount && swapQuote.destAmount) {
                                                         try {
-                                                            const repaidDebtUsd = parseFloat(swapQuote.destUSD || '0');
-                                                            const newDebtUsd = parseFloat(swapQuote.srcUSD || '0');
+                                                            const repaidDebtUsd = debtSwapValueImpact?.repaidDebtUsd || 0;
+                                                            const newDebtUsd = debtSwapValueImpact?.newDebtUsd || 0;
 
                                                             // Calculate the new total borrows.
                                                             // If we are swapping a specific debt to another, the net change is (newDebt - repaidDebt).
@@ -3324,6 +3396,33 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                                 })()}
                                             </div>
                                         </div>
+
+                                        {debtSwapValueImpact && (
+                                            <div className="flex justify-between items-start text-[13px] text-slate-600 dark:text-slate-300 font-medium">
+                                                <div className="flex items-center gap-1.5">
+                                                    <span>Estimated debt value</span>
+                                                    <InfoTooltip
+                                                        content={debtSwapValueImpact.usesMarketOracle
+                                                            ? 'Estimated with Aave market oracle prices, not ParaSwap route USD metadata.'
+                                                            : 'Aave market oracle price unavailable. Showing ParaSwap route USD metadata as fallback.'}
+                                                        size={12}
+                                                    />
+                                                </div>
+                                                <div className="text-right">
+                                                    <div className="flex items-center justify-end gap-1.5 text-slate-900 dark:text-slate-100">
+                                                        <span>{formatUSD(debtSwapValueImpact.repaidDebtUsd)}</span>
+                                                        <span className="text-slate-400 font-normal">â†’</span>
+                                                        <span>{formatUSD(debtSwapValueImpact.newDebtUsd)}</span>
+                                                    </div>
+                                                    {Math.abs(debtSwapValueImpact.deltaUsd) >= 0.01 && (
+                                                        <div className={`text-[10px] ${debtSwapValueImpact.deltaUsd > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
+                                                            {debtSwapValueImpact.deltaUsd > 0 ? '+' : ''}{formatUSD(debtSwapValueImpact.deltaUsd)}
+                                                            {' '}({debtSwapValueImpact.deltaBps > 0 ? '+' : ''}{(debtSwapValueImpact.deltaBps / 100).toFixed(2)}%)
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        )}
 
                                         {/* Borrow Balance Row */}
                                         <div className="flex justify-between items-center text-[13px] text-slate-600 dark:text-slate-300 font-medium pb-1">
@@ -3398,7 +3497,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
                         {/* Safety Alerts */}
                         {(() => {
-                            if (!fromToken || !toToken || !localMarketAssets || !summary) {
+                            if (!fromToken || !toToken || !localMarketAssets || !summary || !swapQuote) {
                                 return null;
                             }
 
@@ -3415,8 +3514,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     const currentLiquidationThreshold = parseFloat(summary.currentLiquidationThreshold) || 0;
                                     const currentTotalBorrowsUSD = parseFloat(summary.totalBorrowsUSD) || 0;
 
-                                    const repaidDebtUsd = parseFloat(swapQuote.destUSD || '0');
-                                    const newDebtUsd = parseFloat(swapQuote.srcUSD || '0');
+                                    const repaidDebtUsd = debtSwapValueImpact?.repaidDebtUsd || 0;
+                                    const newDebtUsd = debtSwapValueImpact?.newDebtUsd || 0;
                                     const simulatedTotalBorrowsUSD = Math.max(0, currentTotalBorrowsUSD - repaidDebtUsd + newDebtUsd);
 
                                     if (simulatedTotalBorrowsUSD > 0.01) {
@@ -3438,11 +3537,17 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                 });
                             }
 
-                            if (simulatedHf !== -1 && simulatedHf < 1.05 && !isInsufficientBalance) {
+                            if (simulatedHf !== -1 && simulatedHf < 1.0 && !isInsufficientBalance) {
                                 alerts.push({
-                                    label: 'Danger:',
-                                    message: `This swap will leave your Health Factor very low (${formatHF(simulatedHf)}).`,
+                                    label: 'Critical:',
+                                    message: 'Post-swap Health Factor will be below 1.0, which would cause the transaction to revert.',
                                     isDanger: true,
+                                });
+                            } else if (requiresLowHealthFactorConfirmation(currentHf, simulatedHf) && !isInsufficientBalance) {
+                                alerts.push({
+                                    label: 'Review:',
+                                    message: `This swap lowers your Health Factor to ${formatHF(simulatedHf)}.`,
+                                    isDanger: false,
                                 });
                             }
 
@@ -3454,11 +3559,35 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                 });
                             }
 
+                            if (debtSwapValueImpact && debtSwapValueImpact.deltaUsd > 0.01 && debtSwapValueImpact.deltaBps > 10) {
+                                alerts.push({
+                                    label: 'Debt value increase:',
+                                    message: `Estimated debt value increases by ${formatUSD(debtSwapValueImpact.deltaUsd)} (+${(debtSwapValueImpact.deltaBps / 100).toFixed(2)}%)${debtSwapValueImpact.usesMarketOracle ? ' using Aave market oracle prices' : ''}. Slippage does not protect against an already-unfavorable quote.`,
+                                    isDanger: debtSwapValueImpact.deltaBps > 100,
+                                });
+                            }
+
                             if (priceImpact > 0.05) {
                                 alerts.push({
                                     label: 'High Impact:',
                                     message: `Price impact is very high (${(priceImpact * 100).toFixed(2)}%).`,
                                     isDanger: true,
+                                });
+                            }
+
+                            if (!isAutoSlippage && slippage < recommendedSlippage) {
+                                alerts.push({
+                                    label: 'Warning:',
+                                    message: `Custom slippage ${(slippage / 100).toFixed(2)}% is below the recommended ${(recommendedSlippage / 100).toFixed(2)}%. The transaction may fail simulation.`,
+                                    isDanger: false,
+                                });
+                            }
+
+                            if (priceImpact > 0.02) {
+                                alerts.push({
+                                    label: 'Warning:',
+                                    message: 'High price impact. Review the quoted amounts before proceeding.',
+                                    isDanger: false,
                                 });
                             }
 
@@ -3469,11 +3598,17 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             return (
                                 <div className="space-y-1 mb-1 mt-2">
                                     {alerts.map((alert, i) => (
-                                        <div key={`${alert.label}-${i}`} className="flex justify-center gap-1.5 px-1">
-                                            <span className={`text-[11px] font-bold ${alert.isDanger ? 'text-red-500' : 'text-amber-500'}`}>{alert.label}</span>
-                                            <div className={`flex items-center gap-1 text-[11px] font-bold ${alert.isDanger ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-500'}`}>
-                                                <span className="text-center">{alert.message}</span>
-                                                <AlertTriangle className="w-3 h-3 shrink-0" />
+                                        <div
+                                            key={`${alert.label}-${i}`}
+                                            className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 ${alert.isDanger
+                                                ? 'border-red-500/20 bg-red-500/5 text-red-600 dark:text-red-400'
+                                                : 'border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400'
+                                                }`}
+                                        >
+                                            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                            <div className="min-w-0 text-[11px] leading-snug">
+                                                <span className="font-bold">{alert.label}</span>{' '}
+                                                <span className="font-medium">{alert.message}</span>
                                             </div>
                                         </div>
                                     ))}
@@ -3543,55 +3678,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                                     </div>
                                 )}
 
-                                {/* Liquidation Risk Alert */}
-                                {(() => {
-                                    if (!summary) {
-                                        return null;
-                                    }
-
-                                    const currentHf = parseFloat(summary.healthFactor);
-
-                                    // Simple simulation logic again for the alert
-                                    let simulatedHf = currentHf;
-
-                                    if (swapQuote && swapQuote.srcAmount && swapQuote.destAmount) {
-                                        try {
-                                            const currentTotalCollateralUSD = parseFloat(summary.totalCollateralUSD) || 0;
-                                            const currentLiquidationThreshold = parseFloat(summary.currentLiquidationThreshold) || 0;
-                                            const currentTotalBorrowsUSD = parseFloat(summary.totalBorrowsUSD) || 0;
-                                            const reducedDebtAmountF = parseFloat(formatUnits(swapQuote.destAmount, fromToken.decimals || 18));
-                                            const newDebtAmountF = parseFloat(formatUnits(swapQuote.srcAmount, toToken.decimals || 18));
-                                            const fromPrice = parseFloat(fromToken.priceInUSD) || 0;
-                                            const toPrice = parseFloat(toToken.priceInUSD) || 0;
-
-                                            if (fromPrice > 0 && toPrice > 0) {
-                                                const repaidDebtUsd = reducedDebtAmountF * fromPrice;
-                                                const newDebtUsd = newDebtAmountF * toPrice;
-                                                const newTotalBorrowsUSD = Math.max(0, currentTotalBorrowsUSD - repaidDebtUsd + newDebtUsd);
-
-                                                if (newTotalBorrowsUSD > 0) {
-                                                    simulatedHf = (currentTotalCollateralUSD * currentLiquidationThreshold) / newTotalBorrowsUSD;
-                                                }
-                                            }
-                                        } catch {
-                                            // Alert simulation should never break rendering.
-                                        }
-                                    }
-
-                                    if (!isInsufficientBalance && simulatedHf < 1.05 && simulatedHf !== -1) {
-                                        return (
-                                            <div className="p-3 bg-red-50 dark:bg-red-950/30 border border-red-200 dark:border-red-800 rounded-lg flex items-start gap-2">
-                                                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                                                <div className="flex-1 min-w-0">
-                                                    <p className="text-xs text-red-800 dark:text-red-300 font-bold uppercase tracking-tight">Danger</p>
-                                                    <p className="text-[10px] text-red-600 dark:text-red-400">This swap would bring your Health Factor too close to 1.00.</p>
-                                                </div>
-                                            </div>
-                                        );
-                                    }
-
-                                    return null;
-                                })()}
                             </div>
                         )}
 
@@ -3618,30 +3704,75 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             const isEmodeConflict = userEmodeCategoryId > 0 && toMarketToken && toMarketToken.isBorrowableInCurrentEMode === false;
                             const isBorrowPowerBlocked = debtSwapBorrowPower?.isBlocked === true;
 
+                            const currentHfRaw = parseFloat(summary?.healthFactor || '0');
+                            const currentHf = (isNaN(currentHfRaw) || currentHfRaw > 100) ? -1 : currentHfRaw;
+
+                            let simulatedHf = currentHf;
+                            const currentTotalBorrowsUSD = parseFloat(summary?.totalBorrowsUSD || '0') || 0;
+                            if (swapQuote && swapQuote.srcAmount && swapQuote.destAmount && summary) {
+                                try {
+                                    const currentTotalCollateralUSD = parseFloat(summary.totalCollateralUSD) || 0;
+                                    const currentLiquidationThreshold = parseFloat(summary.currentLiquidationThreshold) || 0;
+
+                                    const repaidDebtUsd = debtSwapValueImpact?.repaidDebtUsd || 0;
+                                    const newDebtUsd = debtSwapValueImpact?.newDebtUsd || 0;
+                                    const simulatedTotalBorrowsUSD = Math.max(0, currentTotalBorrowsUSD - repaidDebtUsd + newDebtUsd);
+
+                                    if (simulatedTotalBorrowsUSD > 0.01) {
+                                        simulatedHf = (currentTotalCollateralUSD * currentLiquidationThreshold) / simulatedTotalBorrowsUSD;
+                                    } else {
+                                        simulatedHf = -1;
+                                    }
+                                } catch { }
+                            }
+
+                            const isCriticalHf = simulatedHf !== -1 && currentTotalBorrowsUSD > 0 && simulatedHf < 1.0 && !isInsufficientBalance;
+                            const requiresLowHfConfirmation = currentTotalBorrowsUSD > 0
+                                && requiresLowHealthFactorConfirmation(currentHf, simulatedHf);
                             return (
-                                <Button
-                                    disabled={isBusy || !fromToken || !toToken || !swapAmount || !!quoteError || isBlockedByZeroLtv || isInsufficientBalance || isEmodeConflict || isBorrowPowerBlocked}
-                                    onClick={handleSwap}
-                                    className={`w-full py-3 h-auto font-bold rounded-xl mt-2 ${isInsufficientBalance || isBorrowPowerBlocked ? 'bg-rose-500 hover:bg-rose-600 border-rose-600 text-white' : ''}`}
-                                >
-                                    {isActionLoading ? (
-                                        <>
-                                            <RefreshCw className="w-4 h-4 animate-spin" />
-                                            {isSigning ? 'Signing in wallet...' : 'Processing...'}
-                                        </>
-                                    ) : isInsufficientBalance ? (
-                                        'Insufficient Balance'
-                                    ) : isBorrowPowerBlocked ? (
-                                        'Borrow Limit Exceeded'
-                                    ) : isEmodeConflict ? (
-                                        'E-Mode Conflict'
-                                    ) : (
-                                        <>
-                                            <ArrowRightLeft className="w-4 h-4" />
-                                            {isApproved && !forceRequirePermit ? 'Confirm Swap' : 'Approve & Swap'}
-                                        </>
-                                    )}
-                                </Button>
+                                <>
+                                    <Button
+                                        disabled={isBusy || !fromToken || !toToken || !swapAmount || !!quoteError || isBlockedByZeroLtv || isInsufficientBalance || isEmodeConflict || isBorrowPowerBlocked || isCriticalHf}
+                                        onClick={() => {
+                                            if (requiresLowHfConfirmation) {
+                                                setShowLowHfConfirmation(true);
+                                                return;
+                                            }
+                                            handleSwap();
+                                        }}
+                                        className={`w-full py-3 h-auto font-bold rounded-xl mt-2 ${isInsufficientBalance || isBorrowPowerBlocked || isCriticalHf ? 'bg-rose-500 hover:bg-rose-600 border-rose-600 text-white' : ''}`}
+                                    >
+                                        {isActionLoading ? (
+                                            <>
+                                                <RefreshCw className="w-4 h-4 animate-spin" />
+                                                {isSigning ? 'Signing in wallet...' : 'Processing...'}
+                                            </>
+                                        ) : isInsufficientBalance ? (
+                                            'Insufficient Balance'
+                                        ) : isCriticalHf ? (
+                                            'Critical Health Factor'
+                                        ) : isBorrowPowerBlocked ? (
+                                            'Borrow Limit Exceeded'
+                                        ) : isEmodeConflict ? (
+                                            'E-Mode Conflict'
+                                        ) : (
+                                            <>
+                                                <ArrowRightLeft className="w-4 h-4" />
+                                                {isApproved && !forceRequirePermit ? 'Confirm Swap' : 'Approve & Swap'}
+                                            </>
+                                        )}
+                                    </Button>
+
+                                    <LowHealthFactorConfirmationModal
+                                        isOpen={showLowHfConfirmation}
+                                        healthFactor={simulatedHf}
+                                        onCancel={() => setShowLowHfConfirmation(false)}
+                                        onConfirm={() => {
+                                            setShowLowHfConfirmation(false);
+                                            handleSwap();
+                                        }}
+                                    />
+                                </>
                             );
                         })()}
                     </>

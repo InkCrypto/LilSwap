@@ -807,7 +807,18 @@ export const useCollateralSwapActions = ({
             };
             logger.debug('[useCollateralSwapActions] Collateral execution snapshot', executionSnapshot);
 
-            // Preflight simulation removed to minimize delay
+            if (!publicClient) {
+                throw new Error('Unable to verify transaction before execution. Please reconnect and try again.');
+            }
+            failureStage = 'preflight';
+            addLog?.('Checking transaction...', 'info');
+            await publicClient.call({
+                account: getAddress(account),
+                to: getAddress(transactionRequest.to),
+                data: transactionRequest.data as Hex,
+                value: BigInt(transactionRequest.value || 0),
+            });
+            preflightPassed = true;
 
             addLog?.('Confirm in your wallet...', 'warning');
             failureStage = 'wallet_send';

@@ -28,11 +28,13 @@ import { mapErrorToUserFriendly } from '../utils/error-mapping';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
 import logger from '../utils/logger';
 import { normalizeDecimalInput } from '../utils/normalize-decimal-input';
+import { requiresLowHealthFactorConfirmation } from '../utils/health-factor';
 import { useApprovalState } from '../hooks/use-approval-state';
 import { saveTokenSelection, getSavedTokenSelection } from '../utils/token-selection-memory';
 import { MARKETS, DEFAULT_MARKET } from '../constants/networks';
 import { CompactAmountInput } from './compact-amount-input';
 import { InfoTooltip } from './info-tooltip';
+import { LowHealthFactorConfirmationModal } from './low-health-factor-confirmation-modal';
 import { Modal } from './modal';
 import { TokenSelector } from './token-selector';
 import { Button } from './ui/button';
@@ -111,6 +113,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     const [showMethodMenu, setShowMethodMenu] = useState(false);
     const [isPairValidationRunning, setIsPairValidationRunning] = useState(false);
     const [isUSDMode, setIsUSDMode] = useState(false);
+    const [showLowHfConfirmation, setShowLowHfConfirmation] = useState(false);
 
     const slippageMenuRef = useRef<HTMLDivElement>(null);
     const methodMenuRef = useRef<HTMLDivElement>(null);
@@ -602,10 +605,11 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
     }, [isOpen]);
 
     useEffect(() => {
-        if (isActionLoading !== freezeQuote) {
-            setFreezeQuote(isActionLoading);
+        const shouldFreezeQuote = isActionLoading || showLowHfConfirmation;
+        if (shouldFreezeQuote !== freezeQuote) {
+            setFreezeQuote(shouldFreezeQuote);
         }
-    }, [isActionLoading, freezeQuote]);
+    }, [isActionLoading, showLowHfConfirmation, freezeQuote]);
 
     useEffect(() => {
         if (quoteError && isOpen) {
@@ -693,7 +697,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
     const simulationStatus = useMemo(() => {
         if (!swapQuote || !fromToken || !toToken || !summary) {
-            return { simulatedHf: -1, isEmodeRestricted: false, currentTotalBorrowsUSD: 0 };
+            return { currentHf: -1, simulatedHf: -1, isEmodeRestricted: false, currentTotalBorrowsUSD: 0 };
         }
 
         let simulatedHf = -1;
@@ -761,10 +765,11 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
             logger.error('Collateral HF Simulation Error', err);
         }
 
-        return { simulatedHf, isEmodeRestricted, currentTotalBorrowsUSD, simulatedLT, currentLiquidationThreshold };
+        return { currentHf, simulatedHf, isEmodeRestricted, currentTotalBorrowsUSD, simulatedLT, currentLiquidationThreshold };
     }, [swapQuote, fromToken, toToken, summary, localMarketAssets]);
 
-    const { simulatedHf, isEmodeRestricted, currentTotalBorrowsUSD, simulatedLT = 0, currentLiquidationThreshold = 0 } = simulationStatus;
+    const { currentHf, simulatedHf, isEmodeRestricted, currentTotalBorrowsUSD, simulatedLT = 0, currentLiquidationThreshold = 0 } = simulationStatus;
+    const requiresLowHfConfirmation = requiresLowHealthFactorConfirmation(currentHf, simulatedHf);
 
     useEffect(() => {
         if (txError || userRejected) {
@@ -835,7 +840,7 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                 <div className="flex justify-end items-center mb-2 relative">
                     <div className={`flex items-center gap-1.5 transition-all ${!swapQuote ? 'opacity-50 grayscale pointer-events-none' : ''}`}>
                         <span className="text-[11px] font-medium text-slate-400 dark:text-slate-500 ml-1">
-                            {isAutoSlippage ? 'Auto Slippage' : 'Slippage'}
+                            {isAutoSlippage ? 'Auto Slippage' : 'Custom Slippage'}
                         </span>
                         <button
                             data-slippage-toggle="true"
@@ -1692,11 +1697,17 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                         });
                     }
 
-                    if (simulatedHf !== -1 && simulatedHf < 1.05 && currentTotalBorrowsUSD > 0 && !isInsufficientBalance) {
+                    if (simulatedHf !== -1 && simulatedHf < 1.0 && currentTotalBorrowsUSD > 0 && !isInsufficientBalance) {
                         alerts.push({
-                            label: 'Danger:',
-                            message: `This swap will leave your Health Factor very low (${formatHF(simulatedHf)}).`,
+                            label: 'Critical:',
+                            message: 'Post-swap Health Factor will be below 1.0, which would cause the transaction to revert.',
                             isDanger: true,
+                        });
+                    } else if (requiresLowHfConfirmation && currentTotalBorrowsUSD > 0 && !isInsufficientBalance) {
+                        alerts.push({
+                            label: 'Review:',
+                            message: `This swap lowers your Health Factor to ${formatHF(simulatedHf)}.`,
+                            isDanger: false,
                         });
                     }
 
@@ -1708,11 +1719,19 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                         });
                     }
 
-                    if (slippage < recommendedSlippage || priceImpact > 0.02) {
+                    if (!isAutoSlippage && slippage < recommendedSlippage) {
                         alerts.push({
                             label: 'Warning:',
-                            message: 'High risk of revert. Consider increasing slippage.',
-                            isDanger: true,
+                            message: 'Custom slippage is lower than recommended. There is a high risk of transaction revert.',
+                            isDanger: false,
+                        });
+                    }
+
+                    if (priceImpact > 0.02) {
+                        alerts.push({
+                            label: 'Warning:',
+                            message: 'High price impact. Review the quoted amounts before proceeding.',
+                            isDanger: false,
                         });
                     }
 
@@ -1723,11 +1742,17 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                     return (
                         <div className="space-y-1 mb-1">
                             {alerts.map((alert, i) => (
-                                <div key={`${alert.label}-${i}`} className="flex justify-center gap-1.5 px-1">
-                                    <span className={`text-[11px] font-bold ${alert.isDanger ? 'text-red-500' : 'text-amber-500'}`}>{alert.label}</span>
-                                    <div className={`flex items-center gap-1 text-[11px] font-bold ${alert.isDanger ? 'text-red-600 dark:text-red-400' : 'text-amber-600 dark:text-amber-500'}`}>
-                                        <span className="text-center">{alert.message}</span>
-                                        <AlertTriangle className="w-3 h-3 shrink-0" />
+                                <div
+                                    key={`${alert.label}-${i}`}
+                                    className={`flex items-start gap-2 rounded-lg border px-2.5 py-2 ${alert.isDanger
+                                        ? 'border-red-500/20 bg-red-500/5 text-red-600 dark:text-red-400'
+                                        : 'border-amber-500/20 bg-amber-500/5 text-amber-600 dark:text-amber-400'
+                                        }`}
+                                >
+                                    <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                                    <div className="min-w-0 text-[11px] leading-snug">
+                                        <span className="font-bold">{alert.label}</span>{' '}
+                                        <span className="font-medium">{alert.message}</span>
                                     </div>
                                 </div>
                             ))}
@@ -1784,8 +1809,14 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
                 {/* Swap Button */}
                 <Button
-                    disabled={isActionLoading || !swapQuote || swapAmount === BigInt(0) || isInsufficientBalance || (simulatedHf !== -1 && simulatedHf < 1.05 && currentTotalBorrowsUSD > 0) || isBlockedByZeroLtv}
-                    onClick={handleSwap}
+                    disabled={isActionLoading || !swapQuote || swapAmount === BigInt(0) || isInsufficientBalance || isBlockedByZeroLtv || (simulatedHf !== -1 && currentTotalBorrowsUSD > 0 && simulatedHf < 1.0)}
+                    onClick={() => {
+                        if (requiresLowHfConfirmation && currentTotalBorrowsUSD > 0) {
+                            setShowLowHfConfirmation(true);
+                            return;
+                        }
+                        handleSwap();
+                    }}
                     className={`w-full py-3 h-auto font-bold rounded-xl mt-2 ${isInsufficientBalance ? 'bg-rose-500 hover:bg-rose-600 border-rose-600 text-white' : ''}`}
                 >
                     {isActionLoading ? (
@@ -1795,8 +1826,8 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                         </>
                     ) : isInsufficientBalance ? (
                         'Above Max'
-                    ) : (simulatedHf !== -1 && simulatedHf < 1.05 && currentTotalBorrowsUSD > 0) ? (
-                        'Unsafe Health Factor'
+                    ) : (simulatedHf !== -1 && currentTotalBorrowsUSD > 0 && simulatedHf < 1.0) ? (
+                        'Critical Health Factor'
                     ) : (
                         <>
                             <ArrowRightLeft className="w-4 h-4 group-hover:rotate-180 transition-transform duration-500" />
@@ -1804,6 +1835,16 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
                         </>
                     )}
                 </Button>
+
+                <LowHealthFactorConfirmationModal
+                    isOpen={showLowHfConfirmation}
+                    healthFactor={simulatedHf}
+                    onCancel={() => setShowLowHfConfirmation(false)}
+                    onConfirm={() => {
+                        setShowLowHfConfirmation(false);
+                        handleSwap();
+                    }}
+                />
 
                 {/* Error Display */}
                 {(txError || userRejected) && (

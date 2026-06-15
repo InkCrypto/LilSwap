@@ -65,6 +65,7 @@ interface UseDebtSwitchActionsProps {
     debtBalance: bigint | null;
     swapQuote: any;
     slippage: number;
+    recommendedSlippage: number;
     addLog?: (message: string, type?: string) => void;
     fetchDebtData: () => void;
     fetchQuote: () => Promise<any>;
@@ -93,6 +94,7 @@ export const useDebtSwitchActions = ({
     debtBalance,
     swapQuote,
     slippage,
+    recommendedSlippage,
     addLog,
     fetchDebtData,
     fetchQuote,
@@ -405,7 +407,6 @@ export const useDebtSwitchActions = ({
             localTxId = txResult.transactionId?.toString?.() || null;
             updateCurrentTransactionId(localTxId);
             swapDebugMeta = txResult?.debugFlags || null;
-            const shouldSimulateBeforeSwap = txResult?.debugFlags?.simulateBeforeSwap === true;
             logger.debug('[useDebtSwitchActions] Swap debug decision', {
                 chainId,
                 marketKey: marketKey || targetNetwork?.key,
@@ -533,6 +534,21 @@ export const useDebtSwitchActions = ({
                 throw new Error(`Unable to refresh delegation for updated route requirement. Signed: ${creditPermit.value.toString()} Required: ${executionMaxNewDebt.toString()}`);
             }
 
+            simulationInProgress = true;
+            addLog?.('Checking transaction...', 'info');
+            if (!publicClient) {
+                throw new Error('Unable to verify transaction before execution. Please reconnect and try again.');
+            }
+            await publicClient.simulateContract({
+                account: getAddress(account),
+                address: getAddress(adapterAddress),
+                abi: ABIS.ADAPTER,
+                functionName: 'swapDebt',
+                args: [swapParams, creditPermit, collateralPermit],
+            });
+            simulationInProgress = false;
+            preflightPassed = true;
+
             addLog?.('Confirm in your wallet...', 'warning');
             walletPromptOpened = true;
             const hash = await walletClient.writeContract({
@@ -637,10 +653,9 @@ export const useDebtSwitchActions = ({
                 });
 
                 const technicalErrorMessage = diagnostic;
-                const friendlyMessage = mapErrorToUserFriendly(technicalErrorMessage)
-                    || (simulationInProgress
-                        ? 'Simulation failed. Try increasing slippage or reducing amount.'
-                        : 'Swap failed. Please try again.');
+                const friendlyMessage = simulationInProgress
+                    ? `Simulation failed with ${(slippage / 100).toFixed(2)}% slippage. The recommended setting for this route is ${(recommendedSlippage / 100).toFixed(2)}%.`
+                    : mapErrorToUserFriendly(technicalErrorMessage) || 'Swap failed. Please try again.';
 
                 setTxError(friendlyMessage);
                 addLog?.(`Error: ${friendlyMessage}`, 'error');
@@ -649,7 +664,7 @@ export const useDebtSwitchActions = ({
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
-    }, [account, walletClient, publicClient, allowance, swapAmount, debtBalance, swapQuote, fetchQuote, addLog, slippage, providedAdapterAddress, providedDebtTokenAddress, preFetchedTokenName, networkAddresses, chainId, ensureWalletNetwork, preferPermit, forceRequirePermit, handleApproveDelegation, onTxSent, currentTransactionId, clearQuoteError, clearQuote, fetchDebtData, marketKey || '', targetNetwork?.key || '', cachedPermit]);
+    }, [account, walletClient, publicClient, allowance, swapAmount, debtBalance, swapQuote, fetchQuote, addLog, slippage, recommendedSlippage, providedAdapterAddress, providedDebtTokenAddress, preFetchedTokenName, networkAddresses, chainId, ensureWalletNetwork, preferPermit, forceRequirePermit, handleApproveDelegation, onTxSent, currentTransactionId, clearQuoteError, clearQuote, fetchDebtData, marketKey || '', targetNetwork?.key || '', cachedPermit]);
 
     return {
         isActionLoading, isSigning, signedPermit: cachedPermit, forceRequirePermit, txError, lastAttemptedQuote, userRejected,

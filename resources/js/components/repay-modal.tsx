@@ -13,6 +13,7 @@ import { getMarketByKey } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useWeb3 } from '../contexts/web3-context';
 import { buildRepaySwapTx, getRepaySwapQuote } from '../services/api';
+import { requireRecommendedSlippageBps } from '../utils/slippage';
 import {
     formatAPY,
     formatCompactNumber,
@@ -200,7 +201,6 @@ export const RepayModal: React.FC<RepayModalProps> = ({
     const [isQuoteLoading, setIsQuoteLoading] = useState(false);
     const [swapQuote, setSwapQuote] = useState<any>(null);
     const [lockedSwapQuote, setLockedSwapQuote] = useState<any>(null);
-    const [slippage] = useState<number>(0.5); // 0.5% default
     const [nextRefreshIn, setNextRefreshIn] = useState(30);
 
     const quoteLockedRef = useRef(false);
@@ -921,10 +921,14 @@ export const RepayModal: React.FC<RepayModalProps> = ({
 
         let simulatedCollateralPower = currentCollateralPower;
         let simulatedCollateral = totalCollateral;
+        let executionHealthFactor = currentHF;
 
         if (activeTab === 'swap') {
-            const collateralSpentUSD = swapQuote?.srcAmount && selectedCollateral
-                ? parseFloat(formatUnits(BigInt(swapQuote.srcAmount), selectedCollateral.decimals || 18)) * parseFloat(selectedCollateral.priceInUSD || '0')
+            const collateralAmountForExecution = swapQuote?.maxCollateralAmount
+                || swapQuote?.approval?.amount
+                || swapQuote?.srcAmount;
+            const collateralSpentUSD = collateralAmountForExecution && selectedCollateral
+                ? parseFloat(formatUnits(BigInt(collateralAmountForExecution), selectedCollateral.decimals || 18)) * parseFloat(selectedCollateral.priceInUSD || '0')
                 : repaidUSD;
             const collateralLT = selectedCollateral
                 ? normalizeRatio(selectedCollateral.reserveLiquidationThreshold || selectedCollateral.baseLTVasCollateral)
@@ -935,6 +939,9 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 currentCollateralPower - collateralSpentUSD * collateralLT,
             );
             simulatedCollateral = Math.max(0, totalCollateral - collateralSpentUSD);
+            executionHealthFactor = totalDebt > 0
+                ? simulatedCollateralPower / totalDebt
+                : Infinity;
         } else if (repaySourceTab === 'atoken') {
             const assetLT = normalizeRatio(
                 selectedDebt.reserveLiquidationThreshold ||
@@ -961,6 +968,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
         return {
             currentHF,
             simulatedHF,
+            executionHealthFactor,
             currentCollateralPower,
             simulatedCollateralPower,
             currentLiquidationThreshold: avgLT,
@@ -984,7 +992,13 @@ export const RepayModal: React.FC<RepayModalProps> = ({
         (repaySourceTab === 'atoken' || activeTab === 'swap') &&
         !!simulation &&
         simulation.simulatedDebt > 0 &&
-        simulation.simulatedHF < RISK_HEALTH_FACTOR_THRESHOLD;
+        simulation.simulatedHF < RISK_HEALTH_FACTOR_THRESHOLD &&
+        simulation.simulatedHF < simulation.currentHF - 0.005;
+    const isRepaySwapExecutionBlocked =
+        activeTab === 'swap' &&
+        !!simulation &&
+        simulation.currentDebt > 0 &&
+        simulation.executionHealthFactor < 1;
 
     useEffect(() => {
         let cancelled = false;
@@ -1149,7 +1163,10 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 return;
             }
 
-            setSwapQuote(quote);
+            setSwapQuote({
+                ...quote,
+                recommendedSlippageBps: requireRecommendedSlippageBps(quote),
+            });
         } catch (err: any) {
             if (quoteLockedRef.current && !force) {
                 return;
@@ -1199,7 +1216,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
         if (!isLoading) {
             clearLockedSwapQuote();
         }
-    }, [activeTab, clearLockedSwapQuote, selectedCollateral, selectedDebt, isLoading, slippage, repayAmount]);
+    }, [activeTab, clearLockedSwapQuote, selectedCollateral, selectedDebt, isLoading, repayAmount]);
 
     const remainingDebt = useMemo(() => {
         if (!selectedDebt) {
@@ -1621,7 +1638,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 priceRoute: quoteForExecution.priceRoute,
                 adapterAddress: getAddress(repayWithCollateralAdapterAddress),
                 destAmount: repayAmount.toString(),
-                slippageBps: slippage * 100,
+                slippageBps: requireRecommendedSlippageBps(quoteForExecution),
                 chainId,
                 walletAddress,
                 marketKey,
@@ -1789,22 +1806,20 @@ export const RepayModal: React.FC<RepayModalProps> = ({
             } as const;
             let gas = resolveRepaySwapGasLimit(txData, quoteForExecution.priceRoute);
 
-            if (txData?.debugFlags?.simulateBeforeSwap === true) {
-                if (!readClient) {
-                    throw new Error('Simulation client is unavailable for this network.');
-                }
-
-                const estimatedGas = await readClient.estimateContractGas(transactionParameters);
-                const estimatedGasWithBuffer = applyRepaySwapGasBuffer(estimatedGas);
-                if (estimatedGasWithBuffer > gas) {
-                    gas = estimatedGasWithBuffer;
-                }
-
-                await readClient.simulateContract({
-                    ...transactionParameters,
-                    gas,
-                });
+            if (!readClient) {
+                throw new Error('Simulation client is unavailable for this network.');
             }
+
+            const estimatedGas = await readClient.estimateContractGas(transactionParameters);
+            const estimatedGasWithBuffer = applyRepaySwapGasBuffer(estimatedGas);
+            if (estimatedGasWithBuffer > gas) {
+                gas = estimatedGasWithBuffer;
+            }
+
+            await readClient.simulateContract({
+                ...transactionParameters,
+                gas,
+            });
 
             const txHash = await walletClient.writeContract({
                 ...transactionParameters,
@@ -1851,6 +1866,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
             !walletClient ||
             !selectedDebt ||
             isAmountInvalid ||
+            isRepaySwapExecutionBlocked ||
             (requiresRiskAcceptance && !riskAccepted)
         ) {
             return;
@@ -2006,6 +2022,10 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 return 'Accept risk to continue';
             }
 
+            if (isRepaySwapExecutionBlocked) {
+                return 'Position too close to liquidation';
+            }
+
             if (isApproveRequired) {
                 return 'Approve & Repay';
             }
@@ -2043,6 +2063,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
         maxRepayAmount,
         repayAmount,
         requiresRiskAcceptance,
+        isRepaySwapExecutionBlocked,
         riskAccepted,
         selectedDebt,
         selectedCollateral,
@@ -2564,6 +2585,15 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                             </div>
                         )}
 
+                        {isRepaySwapExecutionBlocked && (
+                            <div className="flex items-start gap-2 rounded-xl border border-amber-500/20 bg-amber-500/5 p-3 text-amber-700 dark:text-amber-400">
+                                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                                <p className="text-xs font-medium leading-relaxed">
+                                    This repay would improve your final Health Factor, but the adapter must first use the selected collateral. Your current position does not have enough safety margin for that intermediate step. Repay from your wallet or add collateral first.
+                                </p>
+                            </div>
+                        )}
+
                         {errorText && (
                             <div className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-3 dark:border-red-900/30 dark:bg-red-950/20">
                                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-500" />
@@ -2594,6 +2624,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                                         isBalancesLoading ||
                                         isAmountInvalid ||
                                         !selectedDebt ||
+                                        isRepaySwapExecutionBlocked ||
                                         (requiresRiskAcceptance &&
                                             !riskAccepted)
                                     }
