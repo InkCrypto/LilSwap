@@ -1306,6 +1306,20 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         setDebtLimitPostError(null);
 
         try {
+            const hasDelegationPermitFields =
+                delegationSignature.amount != null &&
+                delegationSignature.deadline != null &&
+                delegationSignature.v != null &&
+                !!delegationSignature.r &&
+                !!delegationSignature.s;
+
+            if (!hasDelegationPermitFields) {
+                setDebtLimitDelegationSignature(null);
+                setLimitDelegationStatus('idle');
+                setDebtLimitSubmitError('Delegation signature is incomplete. Please sign the limit swap again.');
+                return null;
+            }
+
             const orderBuyAmount = orderBuyRawAmount || limitInputAmount.toString();
             const result = await submitDebtLimitSwap({
                 walletAddress: account,
@@ -1335,7 +1349,7 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                 orderType: 'limit',
                 approvedAddress: prepareResult.instanceAddress,
                 delegationPermit: {
-                    amount: delegationSignature.amount.toString(),
+                    amount: String(delegationSignature.amount),
                     deadline: delegationSignature.deadline,
                     v: delegationSignature.v,
                     r: delegationSignature.r,
