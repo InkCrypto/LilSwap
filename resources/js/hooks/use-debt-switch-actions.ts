@@ -9,7 +9,7 @@ import {
     maxUint256,
     zeroHash,
 } from 'viem';
-import { useCallback, useEffect, useState, useMemo } from 'react';
+import { useCallback, useEffect, useState, useMemo, useRef } from 'react';
 import { usePublicClient, useWalletClient } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
@@ -149,6 +149,7 @@ export const useDebtSwitchActions = ({
 
     const [isActionLoading, setIsActionLoading] = useState(false);
     const [isSigning, setIsSigning] = useState(false);
+    const shouldRefreshQuoteBeforeNextAttemptRef = useRef(false);
 
     const [forceRequirePermit, setForceRequirePermit] = useState(() => {
         try {
@@ -376,9 +377,10 @@ export const useDebtSwitchActions = ({
         let localTxId: string | null = null;
         let preflightPassed = false;
         let walletPromptOpened = false;
-        if (!activeQuote) {
-            addLog?.('Fetching quote...', 'info');
+        if (!activeQuote || shouldRefreshQuoteBeforeNextAttemptRef.current) {
+            addLog?.(shouldRefreshQuoteBeforeNextAttemptRef.current ? 'Refreshing quote...' : 'Fetching quote...', 'info');
             activeQuote = await fetchQuote();
+            shouldRefreshQuoteBeforeNextAttemptRef.current = false;
             if (!activeQuote) return;
         }
 
@@ -392,7 +394,9 @@ export const useDebtSwitchActions = ({
             const { priceRoute, srcAmount, fromToken: qFrom, toToken: qTo } = activeQuote;
             const srcAmountBigInt = BigInt(srcAmount);
             const bufferBps = activeQuote?.bufferBps ?? 70;
-            const maxNewDebt = calcApprovalAmount(srcAmountBigInt, bufferBps);
+            const maxNewDebt = activeQuote?.requiredDebtDelegationAmount
+                ? BigInt(activeQuote.requiredDebtDelegationAmount)
+                : calcApprovalAmount(srcAmountBigInt, activeQuote?.delegationBufferBps ?? bufferBps);
             const exactDebtRepayAmount = activeQuote.destAmount;
             const isMaxSwap = debtBalance !== null && swapAmount >= debtBalance;
 
@@ -429,8 +433,10 @@ export const useDebtSwitchActions = ({
                 isMaxSwap,
             });
             const executionSrcAmount = txResult?.srcAmount ? BigInt(txResult.srcAmount) : srcAmountBigInt;
-            const executionBufferBps = txResult?.bufferBps ?? bufferBps;
-            const executionMaxNewDebt = calcApprovalAmount(executionSrcAmount, executionBufferBps);
+            const executionBufferBps = txResult?.bufferBps ?? activeQuote?.delegationBufferBps ?? bufferBps;
+            const executionMaxNewDebt = txResult?.maxNewDebtAmount
+                ? BigInt(txResult.maxNewDebtAmount)
+                : calcApprovalAmount(executionSrcAmount, executionBufferBps);
             const executionDebtRepayAmount = txResult?.destAmount ? BigInt(txResult.destAmount) : BigInt(exactDebtRepayAmount);
             const authoritativeChainTimestamp = Number(txResult?.chainTimestamp);
             if (!Number.isSafeInteger(authoritativeChainTimestamp) || authoritativeChainTimestamp <= 0) {
@@ -445,7 +451,7 @@ export const useDebtSwitchActions = ({
                 account,
                 transactionId: txResult?.transactionId || null,
                 swapDebug: swapDebugMeta,
-                dynamicOffset: txResult?.dynamicOffset ?? null,
+                amountPosition: txResult?.amountPosition ?? null,
                 augustus: txResult?.augustus ?? null,
                 contractMethod: txResult?.contractMethod ?? null,
                 quoteSrcAmount: srcAmountBigInt.toString(),
@@ -547,7 +553,7 @@ export const useDebtSwitchActions = ({
                 maxNewDebtAmount: executionMaxNewDebt,
                 extraCollateralAsset: zeroAddress,
                 extraCollateralAmount: 0n,
-                offset: BigInt(txResult.dynamicOffset || 0),
+                offset: BigInt(txResult.amountPosition || 0),
                 paraswapData: encodedParaswapData,
             };
 
@@ -646,6 +652,7 @@ export const useDebtSwitchActions = ({
                 });
 
                 if (localTxId) rejectTransaction(localTxId, rejectionReason).catch(() => { });
+                shouldRefreshQuoteBeforeNextAttemptRef.current = true;
             } else {
                 const diagnostic = collectErrorDetails(error);
                 const revertSelector = getRevertSelector(error);
@@ -696,6 +703,7 @@ export const useDebtSwitchActions = ({
 
                 setTxError(friendlyMessage);
                 addLog?.(`Error: ${friendlyMessage}`, 'error');
+                shouldRefreshQuoteBeforeNextAttemptRef.current = true;
             }
         } finally {
             setIsActionLoading(false);

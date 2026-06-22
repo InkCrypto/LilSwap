@@ -61,8 +61,11 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
     'INSUFFICIENT_ATOKEN_BALANCE': {
         en: 'Amount is above the executable limit for the current balance.'
     },
-    'MAX_SWAP_OFFSET_NOT_FOUND': {
+    'MAX_SWAP_AMOUNT_NOT_FOUND': {
         en: 'This MAX swap route cannot be prepared without leaving dust. Try entering a slightly smaller amount instead of using MAX, or choose another token route.'
+    },
+    'DEBT_MAX_ROUTE_INVALID': {
+        en: 'This MAX debt swap route is no longer valid. Refreshing quote.'
     },
     'COLLATERAL_MAX_QUOTE_STALE': {
         en: 'This MAX quote no longer matches your collateral balance. The quote was refreshed; review it and try again.'
@@ -70,7 +73,7 @@ const ERROR_MAP: Record<string, ErrorConfig> = {
     'INSUFFICIENT_AMOUNT_TO_SWAP': {
         en: 'This MAX quote no longer matches your collateral balance. Refresh the quote and try again.'
     },
-    'unable to find a unique source amount offset': {
+    'unable to find a unique source amount value': {
         en: 'This MAX swap route cannot be prepared without leaving dust. Try entering a slightly smaller amount instead of using MAX, or choose another token route.'
     },
     'cannot be prepared dust-free': {
@@ -123,7 +126,7 @@ export const mapErrorToUserFriendly = (technicalMessage: string | null | undefin
     }
 
     const technicalMessageLower = String(technicalMessage).toLowerCase().trim();
-    
+
     // Explicit hardcoded match for the slippage error code
     if (technicalMessageLower.includes('0xcea9e31d')) {
         return 'Slippage too high or transaction failed simulation. Please try increasing slippage or check your balance.';
@@ -138,7 +141,7 @@ export const mapErrorToUserFriendly = (technicalMessage: string | null | undefin
 
     // Fallback logic for common phrases
     const lowerMessage = technicalMessage.toLowerCase();
-    
+
     if (lowerMessage.includes('user rejected')) {
         return 'Transaction cancelled by user.';
     }
@@ -148,8 +151,8 @@ export const mapErrorToUserFriendly = (technicalMessage: string | null | undefin
     }
 
     // Default Fallback logic
-    // If the message is very long and doesn't match anything known, it's likely a cryptic 
-    // technical revert/bytecode. We return a generic message while the background 
+    // If the message is very long and doesn't match anything known, it's likely a cryptic
+    // technical revert/bytecode. We return a generic message while the background
     // logger (logger.ts) handles the full detail sync to the backend.
     if (technicalMessage.length > 140) {
         return "The transaction failed. Technical details have been logged for inspection.";

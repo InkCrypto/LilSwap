@@ -400,8 +400,11 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
 
     const amountRequired = useMemo(() => {
         if (!swapQuote) return swapAmount;
+        if (swapQuote.requiredDebtDelegationAmount) {
+            return BigInt(swapQuote.requiredDebtDelegationAmount);
+        }
         const srcAmount = BigInt(swapQuote.srcAmount);
-        const bufferBps = swapQuote.bufferBps || 70;
+        const bufferBps = swapQuote.delegationBufferBps ?? swapQuote.bufferBps ?? 70;
         return calcApprovalAmount(srcAmount, bufferBps);
     }, [swapQuote, swapAmount]);
 
@@ -2761,11 +2764,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                             setSwapMode('market');
                             resetDebtLimitPreparedState();
                         }}
-                        className={`flex-1 py-1.5 text-[11px] font-black uppercase tracking-wider rounded-md transition-all ${
-                            swapMode === 'market'
+                        className={`flex-1 py-1.5 text-[11px] font-black uppercase tracking-wider rounded-md transition-all ${swapMode === 'market'
                                 ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
                                 : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
-                        }`}
+                            }`}
                     >
                         Market
                     </button>
@@ -2774,11 +2776,10 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                         onClick={() => {
                             setSwapMode('limit');
                         }}
-                        className={`flex-1 py-1.5 text-[11px] font-black uppercase tracking-wider rounded-md transition-all flex items-center justify-center gap-1.5 ${
-                            swapMode === 'limit'
+                        className={`flex-1 py-1.5 text-[11px] font-black uppercase tracking-wider rounded-md transition-all flex items-center justify-center gap-1.5 ${swapMode === 'limit'
                                 ? 'bg-white dark:bg-slate-700 text-slate-900 dark:text-white shadow-xs'
                                 : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
-                        }`}
+                            }`}
                     >
                         Limit
                         <span className="px-1.5 py-0.5 text-[8px] uppercase tracking-widest font-extrabold rounded bg-amber-100 dark:bg-amber-950/60 text-amber-600 dark:text-amber-400 border border-amber-200/50 dark:border-amber-900/50 leading-none">

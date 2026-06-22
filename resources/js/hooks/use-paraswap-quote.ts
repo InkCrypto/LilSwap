@@ -342,7 +342,7 @@ export const useParaswapQuote = ({
                     isMaxSwap,
                 }, signal);
 
-                const { priceRoute, srcAmount, destAmount: quotedDestAmount, version, augustus, bufferBps, apyPercent } = routeResult;
+                const { priceRoute, srcAmount, destAmount: quotedDestAmount, version, augustus, bufferBps, delegationBufferBps, requiredDebtDelegationAmount, maxNewDebtAmount, apyPercent } = routeResult;
                 const feeBps = resolveFeeBps(routeResult);
                 const discountPercent = resolveDiscountPercent(routeResult);
                 const recommendedSlippageBps = requireRecommendedSlippageBps(routeResult);
@@ -359,6 +359,9 @@ export const useParaswapQuote = ({
                     version,
                     augustus,
                     bufferBps,
+                    delegationBufferBps,
+                    requiredDebtDelegationAmount,
+                    maxNewDebtAmount,
                     recommendedSlippageBps,
                     feeBps,
                     discountPercent,
