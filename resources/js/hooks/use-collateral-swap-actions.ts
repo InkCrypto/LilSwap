@@ -179,15 +179,57 @@ const collectErrorDetails = (error: any) => {
     return Array.from(new Set(details)).join(' | ');
 };
 
+const REVERT_SELECTOR_LENGTH = 10; // "0x" + 8 hex chars = 4 bytes
+
+const isMatchPartOfAddress = (haystack: string, matchIndex: number, matchLength: number): boolean => {
+    // An Ethereum address is 0x + 40 hex chars = 42 chars total.
+    // If the match is the first 10 chars of a 42-char address, the next
+    // 32 chars after the match will all be hex characters.
+    const restStart = matchIndex + matchLength;
+    const rest = haystack.slice(restStart, restStart + 32);
+
+    return rest.length === 32 && /^[a-fA-F0-9]{32}$/.test(rest);
+};
+
 const getRevertSelector = (error: any): string | null => {
+    // 1) Explicit revert selector from backend response
     const explicitSelector = error?.details?.revertSelector
         || error?.responseData?.details?.revertSelector;
     if (typeof explicitSelector === 'string') {
         return explicitSelector.toLowerCase();
     }
 
+    // 2) Viem stores the raw revert data in error.data (or cause chain).
+    const rawData = error?.data
+        ?? error?.cause?.data
+        ?? error?.error?.data
+        ?? error?.cause?.cause?.data;
+
+    if (typeof rawData === 'string' && rawData.startsWith('0x') && rawData.length >= REVERT_SELECTOR_LENGTH) {
+        const candidate = rawData.slice(0, REVERT_SELECTOR_LENGTH).toLowerCase();
+
+        // A full address (40+ hex chars) is NOT a revert selector
+        if (rawData.length < 42) {
+            return candidate;
+        }
+    }
+
+    // 3) Fallback: scan error details for 0x-prefixed 8-char hex patterns.
+    //    Skip matches that are part of a 42-char address (0x + 40 hex chars)
+    //    — those are contract addresses, not revert selectors.
     const details = collectErrorDetails(error);
-    return details.match(/0x[a-fA-F0-9]{8}/)?.[0] || null;
+    const regex = /0x[a-fA-F0-9]{8}/g;
+    let m: RegExpExecArray | null;
+
+    while ((m = regex.exec(details)) !== null) {
+        if (isMatchPartOfAddress(details, m.index, m[0].length)) {
+            continue;
+        }
+
+        return m[0];
+    }
+
+    return null;
 };
 
 const isInsufficientReturnAmountError = (error: any) => {

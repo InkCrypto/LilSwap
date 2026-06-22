@@ -51,9 +51,60 @@ const collectErrorDetails = (error: any) => {
     return Array.from(new Set(details)).join(' | ');
 };
 
+const REVERT_SELECTOR_LENGTH = 10; // "0x" + 8 hex chars = 4 bytes
+
+/**
+ * Known Aave adapter addresses on supported chains.
+ * Used to filter out false-positive revert selectors that are actually
+ * the first 4 bytes of a contract address appearing in error messages.
+ */
+const isMatchPartOfAddress = (haystack: string, matchIndex: number, matchLength: number): boolean => {
+    // An Ethereum address is 0x + 40 hex chars = 42 chars total.
+    // If the match is the first 10 chars of a 42-char address, the next
+    // 32 chars after the match will all be hex characters.
+    const restStart = matchIndex + matchLength;
+    const rest = haystack.slice(restStart, restStart + 32);
+
+    return rest.length === 32 && /^[a-fA-F0-9]{32}$/.test(rest);
+};
+
 const getRevertSelector = (error: any): string | null => {
+    // 1) Viem stores the raw revert data in error.data (or cause chain).
+    //    This is the canonical source — 4 bytes (0x + 8 hex) for custom errors,
+    //    or longer for errors with encoded parameters.
+    const rawData = error?.data
+        ?? error?.cause?.data
+        ?? error?.error?.data
+        ?? error?.cause?.cause?.data;
+
+    if (typeof rawData === 'string' && rawData.startsWith('0x') && rawData.length >= REVERT_SELECTOR_LENGTH) {
+        const candidate = rawData.slice(0, REVERT_SELECTOR_LENGTH).toLowerCase();
+
+        // A real revert selector is a short, standalone hex string (4 bytes).
+        // If the data is a full address (40+ hex chars), it's NOT a revert selector.
+        if (rawData.length >= 42) {
+            // This is likely an address or long data — skip it and fall through to regex scanning
+        } else {
+            return candidate;
+        }
+    }
+
+    // 2) Fallback: scan error details for 0x-prefixed 8-char hex patterns.
+    //    Use a heuristic to skip matches that are part of a 42-char address
+    //    (0x + 40 hex chars) — those are contract addresses, not revert selectors.
     const details = collectErrorDetails(error);
-    return details.match(/0x[a-fA-F0-9]{8}/)?.[0] || null;
+    const regex = /0x[a-fA-F0-9]{8}/g;
+    let m: RegExpExecArray | null;
+
+    while ((m = regex.exec(details)) !== null) {
+        if (isMatchPartOfAddress(details, m.index, m[0].length)) {
+            continue;
+        }
+
+        return m[0];
+    }
+
+    return null;
 };
 
 const getDebtSimulationErrorMessage = ({
@@ -451,7 +502,7 @@ export const useDebtSwitchActions = ({
                 account,
                 transactionId: txResult?.transactionId || null,
                 swapDebug: swapDebugMeta,
-                amountPosition: txResult?.amountPosition ?? null,
+                dynamicOffset: txResult?.dynamicOffset ?? null,
                 augustus: txResult?.augustus ?? null,
                 contractMethod: txResult?.contractMethod ?? null,
                 quoteSrcAmount: srcAmountBigInt.toString(),
@@ -553,7 +604,7 @@ export const useDebtSwitchActions = ({
                 maxNewDebtAmount: executionMaxNewDebt,
                 extraCollateralAsset: zeroAddress,
                 extraCollateralAmount: 0n,
-                offset: BigInt(txResult.amountPosition || 0),
+                offset: BigInt(txResult.dynamicOffset || 0),
                 paraswapData: encodedParaswapData,
             };
 
@@ -583,6 +634,10 @@ export const useDebtSwitchActions = ({
                 abi: ABIS.ADAPTER,
                 functionName: 'swapDebt',
                 args: [swapParams, creditPermit, collateralPermit],
+                // BSC nodes can be unreliable with gas estimation for complex
+                // adapter calls. A fixed 3M gas ceiling prevents unnecessary
+                // simulateContract failures while staying well within block limits.
+                gas: 3_000_000n,
             });
             simulationInProgress = false;
             preflightPassed = true;
