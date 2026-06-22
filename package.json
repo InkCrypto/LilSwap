@@ -18,7 +18,7 @@
         "release:patch": "git checkout master && git merge develop --ff-only && pnpm version patch && git checkout develop && git merge master",
         "release:minor": "git checkout master && git merge develop --ff-only && pnpm version minor && git checkout develop && git merge master",
         "release:push": "git push origin master develop",
-        "release:deploy": "git push origin $(git describe --tags --abbrev=0)"
+        "release:deploy": "git push origin --tags"
     },
     "devDependencies": {
         "@eslint/js": "^10.0.1",
