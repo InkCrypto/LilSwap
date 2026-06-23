@@ -194,12 +194,6 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
     const isInsufficientBalance = !isMaxSelected && swapAmount > (availableBalance || 0n);
 
-    useEffect(() => {
-        if (isMaxSelected && availableBalance > 0n && swapAmount !== availableBalance) {
-            setIsMaxSelected(false);
-        }
-    }, [availableBalance, isMaxSelected, swapAmount]);
-
     // Use Approval Hook for Collateral (aToken)
     const {
         onChainAllowance,
@@ -1687,27 +1681,27 @@ export const CollateralSwapModal: React.FC<CollateralSwapModalProps> = ({
 
                                 {receivedValuePreview && showReceivedDetails && (
                                     <div className="mx-3 pb-1 space-y-1.5 text-[12px] text-slate-600 dark:text-slate-300">
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <span>Estimated received</span>
-                                                    <span className="text-right font-medium">
-                                                        {formatCompactNumber(receivedValuePreview.estimatedAmount)} {getDisplaySymbol(toToken, localMarketAssets)}
-                                                        <span className="ml-1 text-slate-400">({formatUSD(receivedValuePreview.estimatedUsd)})</span>
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <span>Minimum received</span>
-                                                    <span className="text-right font-medium">
-                                                        {formatCompactNumber(receivedValuePreview.minimumAmount)} {getDisplaySymbol(toToken, localMarketAssets)}
-                                                        <span className="ml-1 text-slate-400">({formatUSD(receivedValuePreview.minimumUsd)})</span>
-                                                    </span>
-                                                </div>
-                                                <div className="flex items-center justify-between gap-3">
-                                                    <span>Slippage used</span>
-                                                    <span className="font-medium">{(executionSlippage / 100).toFixed(2)}%</span>
-                                                </div>
-                                                <p className="text-[11px] leading-snug text-slate-400">
-                                                    Minimum received is protected by slippage tolerance.
-                                                </p>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span>Estimated received</span>
+                                            <span className="text-right font-medium">
+                                                {formatCompactNumber(receivedValuePreview.estimatedAmount)} {getDisplaySymbol(toToken, localMarketAssets)}
+                                                <span className="ml-1 text-slate-400">({formatUSD(receivedValuePreview.estimatedUsd)})</span>
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span>Minimum received</span>
+                                            <span className="text-right font-medium">
+                                                {formatCompactNumber(receivedValuePreview.minimumAmount)} {getDisplaySymbol(toToken, localMarketAssets)}
+                                                <span className="ml-1 text-slate-400">({formatUSD(receivedValuePreview.minimumUsd)})</span>
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between gap-3">
+                                            <span>Slippage used</span>
+                                            <span className="font-medium">{(executionSlippage / 100).toFixed(2)}%</span>
+                                        </div>
+                                        <p className="text-[11px] leading-snug text-slate-400">
+                                            Minimum received is protected by slippage tolerance.
+                                        </p>
                                     </div>
                                 )}
                             </div>
