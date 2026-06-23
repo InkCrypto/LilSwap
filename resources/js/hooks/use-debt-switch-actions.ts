@@ -131,12 +131,12 @@ const getDebtSimulationErrorMessage = ({
     }
 
     if (revertSelector) {
-        return `Preflight simulation reverted (${revertSelector}). The transaction was blocked before opening your wallet.`;
+        return `Preflight check failed (${revertSelector}). This transaction would fail on-chain, so it was blocked to save gas. Please refresh the quote or try adjusting your slippage.`;
     }
 
     return mappedRevert && mappedRevert !== diagnostic
         ? mappedRevert
-        : 'Preflight simulation reverted for an unknown reason. The transaction was blocked before opening your wallet.';
+        : 'Preflight check failed. This transaction would fail on-chain, so it was blocked to save gas. Please refresh the quote, adjust your slippage, or check your balance.';
 };
 
 interface UseDebtSwitchActionsProps {
