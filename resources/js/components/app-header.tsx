@@ -2,7 +2,7 @@ import { Wallet, LogOut, ChevronDown, History, Eye, EyeOff, Landmark, ArrowRight
 import React from 'react';
 import { Link } from '@inertiajs/react';
 import { InfoTooltip } from '@/components/info-tooltip';
-import LilLogo from '@/components/lil-logo';
+import AppLogo from '@/components/app-logo';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { useWeb3 } from '@/contexts/web3-context';
@@ -29,7 +29,7 @@ export function AppHeader({
     const [isScrolled, setIsScrolled] = React.useState(false);
     const [isMenuOpen, setIsMenuOpen] = React.useState(false);
     const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/';
-    const isSwapActive = currentPath === '/swap/widget' || currentPath === '/spot';
+    const isSwapActive = currentPath === '/spot';
     const isHomeActive = currentPath === '/';
     const isAaveActive = currentPath === '/aave';
 
@@ -49,10 +49,7 @@ export function AppHeader({
                 <button
                     className="flex items-center gap-1.5 text-slate-900 dark:text-white select-none active:scale-[0.98] transition-all hover:opacity-85"
                 >
-                    <LilLogo className="w-8 h-8 shrink-0" />
-                    <h1 className="text-xl font-extrabold tracking-tight text-nowrap">
-                        LilSwap
-                    </h1>
+                    <AppLogo size="sm" />
                     <ChevronDown
                         className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform duration-300 ${isMenuOpen ? 'rotate-180 text-primary dark:text-purple-400' : ''}`}
                     />
@@ -68,8 +65,8 @@ export function AppHeader({
                         href="/"
                         onClick={() => setIsMenuOpen(false)}
                         className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${isHomeActive || isAaveActive
-                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                                : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
+                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                            : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
                             }`}
                     >
                         <Landmark className="w-4 h-4 shrink-0" strokeWidth={2.2} />
@@ -80,8 +77,8 @@ export function AppHeader({
                         href="/spot"
                         onClick={() => setIsMenuOpen(false)}
                         className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${isSwapActive
-                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
-                                : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
+                            ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                            : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
                             }`}
                     >
                         <ArrowRightLeft className="w-4 h-4 shrink-0" strokeWidth={2.2} />
@@ -107,43 +104,16 @@ export function AppHeader({
                             logoContentMobile
                         ) : (
                             isHomeActive ? (
-                                <div className="flex items-center gap-2 pr-3 select-none">
-                                    <LilLogo className="w-8 h-8 shrink-0" />
-                                    <h1 className="text-xl font-extrabold tracking-tight text-nowrap">
-                                        LilSwap
-                                    </h1>
-                                </div>
+                                <AppLogo size="sm" className="pr-3" />
                             ) : (
-                                <Link href="/" className="flex items-center gap-2 pr-3 select-none">
-                                    <LilLogo className="w-8 h-8 shrink-0" />
-                                    <h1 className="text-xl font-extrabold tracking-tight text-nowrap">
-                                        LilSwap
-                                    </h1>
-                                </Link>
+                                <AppLogo size="sm" href="/" className="pr-3" />
                             )
                         )}
                     </div>
 
                     {/* Desktop Logo */}
                     <div className="hidden sm:flex items-center gap-3 sm:gap-4 min-w-0">
-                        {(() => {
-                            const logoContent = (
-                                <>
-                                    <LilLogo className="w-10 h-10 md:w-12 md:h-12 shrink-0" />
-                                    <div className="min-w-0 flex flex-col justify-start">
-                                        <div className="flex items-center gap-1.5 sm:gap-2 leading-none">
-                                            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight text-nowrap">
-                                                LilSwap
-                                            </h1>
-                                            <span className="px-1 py-0 rounded text-primary text-[8px] font-bold border-2 border-primary/30 mt-0.5 shrink-0">
-                                                BETA
-                                            </span>
-                                        </div>
-                                    </div>
-                                </>
-                            );
-                            return isHomeActive ? logoContent : <Link href="/" className="flex items-center gap-2 sm:gap-2.5">{logoContent}</Link>;
-                        })()}
+                        <AppLogo size="lg" showBeta href={isHomeActive ? undefined : '/'} />
 
                         {account && (
                             <nav className="hidden sm:flex items-center gap-8 ml-8">

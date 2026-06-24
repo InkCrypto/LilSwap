@@ -5,7 +5,7 @@ import { SpotSwapCard } from '../components/spot-swap-card';
 import { useFlipPhrase } from '../components/flip-phrase';
 import { useWeb3 } from '@/contexts/web3-context';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
-import LilLogo from '../components/lil-logo';
+import AppLogo from '@/components/app-logo';
 import { Button } from '../components/ui/button';
 import { Wallet } from 'lucide-react';
 
@@ -29,7 +29,7 @@ export default function Swap() {
                 ) : (
                     <div className="mt-12 sm:mt-16 bg-white dark:bg-slate-900 rounded-3xl pt-14 pb-10 px-10 sm:pt-16 sm:pb-12 sm:px-12 border border-slate-200 dark:border-slate-800 text-center shadow-xl max-w-lg mx-auto overflow-hidden">
                         <div className="mb-8 flex flex-col items-center">
-                            <LilLogo className="w-10 h-10 sm:w-12 sm:h-12 mb-6" />
+                            <AppLogo size="xl" />
 
                             <p className="text-slate-700 dark:text-slate-100 text-lg sm:text-2xl font-bold leading-tight mb-8">
                                 Swap tokens & positions with <br />

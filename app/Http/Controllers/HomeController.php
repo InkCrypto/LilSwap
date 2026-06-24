@@ -47,13 +47,6 @@ class HomeController extends Controller
             'walletAddress' => $walletAddress,
         ]);
     }
-    public function swapCustom(Request $request): Response
-    {
-        $walletAddress = $this->resolveActiveWallet($request);
-        return Inertia::render('swap-custom', [
-            'walletAddress' => $walletAddress,
-        ]);
-    }
     private function resolveActiveWallet(Request $request): ?string
     {
         $sessionData = (array) $request->session()->get('proxy_session', []);

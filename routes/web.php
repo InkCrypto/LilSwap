@@ -6,8 +6,7 @@ use App\Http\Controllers\LogController;
 use App\Http\Controllers\TransactionController;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
-Route::get('/spot', [HomeController::class, 'swapCustom'])->name('spot');
-Route::get('/swap/widget', [HomeController::class, 'swap'])->name('swap.widget');
+Route::get('/spot', [HomeController::class, 'swap'])->name('spot');
 Route::get('/aave', [HomeController::class, 'index'])->name('aave');
 
 Route::post('/session/bootstrap', [\App\Http\Controllers\ProxySessionController::class, 'bootstrap'])
