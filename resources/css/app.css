@@ -256,3 +256,28 @@
         background-clip: padding-box;
     }
 }
+
+/* FlipPhrase animations */
+@keyframes word-exit {
+    from {
+        transform: translateY(0);
+        opacity: 1;
+    }
+
+    to {
+        transform: translateY(-130%);
+        opacity: 0;
+    }
+}
+
+@keyframes word-enter {
+    from {
+        transform: translateY(130%);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}

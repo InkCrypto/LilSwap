@@ -1,11 +1,12 @@
 import { Heart, Wallet } from 'lucide-react';
-import React, { useState, useEffect, Suspense, lazy } from 'react';
+import React, { useState, Suspense, lazy } from 'react';
 import { AaveHistorySheet } from '@/components/aave-history-sheet';
 import { AppHeader } from '@/components/app-header';
 import { InfoTooltip } from '@/components/info-tooltip';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
 import { useWeb3 } from '@/contexts/web3-context';
 import { usePositions } from '@/hooks/use-positions';
+import { useFlipPhrase } from '../components/flip-phrase';
 import AppFooter from '../components/app-footer';
 import { DonateModal } from '../components/donate-modal';
 import LilLogo from '../components/lil-logo';
@@ -21,62 +22,7 @@ export default function Welcome() {
     const { positionsByChain, donator, loading, error, lastFetch, refresh } = usePositions(account);
     const [isDonateOpen, setIsDonateOpen] = useState(false);
     const [isVerifyOpen, setIsVerifyOpen] = useState(false);
-    const [flipState, setFlipState] = useState<{ current: string; prev: string | null; key: number }>({
-        current: 'Little', prev: null, key: 0,
-    });
-
-    useEffect(() => {
-        const interval = setInterval(() => {
-            setFlipState((currentState) => ({
-                prev: currentState.current,
-                current: currentState.current === 'Little' ? "Lil'" : 'Little',
-                key: currentState.key + 1,
-            }));
-
-            setTimeout(() => {
-                setFlipState((currentState) => ({ ...currentState, prev: null }));
-            }, 380);
-        }, 3500);
-
-        return () => clearInterval(interval);
-    }, []);
-
-    const spanBase: React.CSSProperties = {
-        position: 'absolute',
-        left: 0,
-        right: 0,
-        textAlign: 'center',
-    };
-
-    const flipPhrase = (
-        <span
-            style={{
-                position: 'relative',
-                display: 'inline-block',
-                clipPath: 'inset(0 -6px)',
-                verticalAlign: 'bottom',
-                padding: '0 4px',
-            }}
-        >
-            <span aria-hidden style={{ visibility: 'hidden' }}>
-                <span className="text-primary italic">Little</span> fees & <span className="text-primary italic">Little</span> effort!
-            </span>
-            {flipState.prev !== null && (
-                <span key={`out-${flipState.key}`} style={{ ...spanBase, animation: 'word-exit 340ms ease forwards' }}>
-                    <span className="text-primary italic">{flipState.prev}</span> fees & <span className="text-primary italic">{flipState.prev}</span> effort!
-                </span>
-            )}
-            <span
-                key={`in-${flipState.key}`}
-                style={{
-                    ...spanBase,
-                    animation: flipState.prev !== null ? 'word-enter 340ms ease forwards' : 'none',
-                }}
-            >
-                <span className="text-primary italic">{flipState.current}</span> fees & <span className="text-primary italic">{flipState.current}</span> effort!
-            </span>
-        </span>
-    );
+    const flipPhrase = useFlipPhrase();
 
     const donatorTagSuffix = donator.type?.toLowerCase().includes('partner') ? 'Partner' : 'Donator';
     const appTagLabel = donator.isDonator ? `Lil'${donatorTagSuffix}` : 'Get 10% Fee Discount';

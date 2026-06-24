@@ -9,6 +9,7 @@ import React from 'react';
 import { AppHeader } from '@/components/app-header';
 import AppFooter from '../components/app-footer';
 import { SpotSwapCard } from '../components/spot-swap-card';
+import { useFlipPhrase } from '../components/flip-phrase';
 import { useWeb3 } from '@/contexts/web3-context';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
 import LilLogo from '../components/lil-logo';
@@ -19,6 +20,7 @@ export default function SwapCustom() {
     const { account, connectWallet, isConnecting, isReconnecting, isConnectModalOpen } = useWeb3();
     const isConnectBusy = isReconnecting || (isConnecting && isConnectModalOpen);
     const { activeCount, setSheetOpen } = useTransactionTracker();
+    const flipPhrase = useFlipPhrase();
 
     return (
         <div className="flex flex-col min-h-screen bg-background text-slate-800 dark:text-slate-100 selection:bg-primary/30 font-sans">
@@ -37,8 +39,8 @@ export default function SwapCustom() {
                             <LilLogo className="w-10 h-10 sm:w-12 sm:h-12 mb-6" />
 
                             <p className="text-slate-700 dark:text-slate-100 text-lg sm:text-2xl font-bold leading-tight mb-8">
-                                Connect your wallet to <br />
-                                swap tokens on <span className="text-primary italic">LilSwap</span>
+                                Swap tokens & positions with <br />
+                                {flipPhrase}
                             </p>
 
                             <Button
