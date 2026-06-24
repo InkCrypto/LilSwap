@@ -14,48 +14,52 @@ class HomeController extends Controller
     public function __construct(
         protected EngineProxyClient $engineProxyClient,
         protected TransactionHistoryService $transactionHistoryService,
-    ) {
-    }
-
+    ) {}
     public function index(Request $request): Response
     {
         if ($this->shouldForceRefresh($request)) {
             $request->session()->put('positions_force_refresh_until', now()->addSeconds(10)->getTimestamp());
         }
-
         $walletAddress = $this->resolveActiveWallet($request);
         $props = [
             'positionsWallet' => $walletAddress,
             'historyWallet' => $walletAddress,
         ];
-
         if (! $walletAddress) {
             return Inertia::render('welcome', $props);
         }
-
         $props['positionsPayload'] = Inertia::defer(
-            fn () => $this->fetchPositionsPayload($request, $walletAddress),
+            fn() => $this->fetchPositionsPayload($request, $walletAddress),
             'positions'
         );
-
         if ($this->shouldLoadHistory($request)) {
             $props['historyPayload'] = Inertia::defer(
-                fn () => $this->fetchHistoryPayload($request, $walletAddress),
+                fn() => $this->fetchHistoryPayload($request, $walletAddress),
                 'history'
             );
         }
-
         return Inertia::render('welcome', $props);
     }
-
+    public function swap(Request $request): Response
+    {
+        $walletAddress = $this->resolveActiveWallet($request);
+        return Inertia::render('swap', [
+            'walletAddress' => $walletAddress,
+        ]);
+    }
+    public function swapCustom(Request $request): Response
+    {
+        $walletAddress = $this->resolveActiveWallet($request);
+        return Inertia::render('swap-custom', [
+            'walletAddress' => $walletAddress,
+        ]);
+    }
     private function resolveActiveWallet(Request $request): ?string
     {
         $sessionData = (array) $request->session()->get('proxy_session', []);
         $wallet = $sessionData['active_wallet'] ?? null;
-
         return is_string($wallet) && $wallet !== '' ? strtolower($wallet) : null;
     }
-
     /**
      * @return array{positionsByChain: array<string, mixed>|null, donator: array{isDonator: bool, discountPercent: int|float, type: string|null}, error: string|null}
      */
@@ -65,24 +69,19 @@ class HomeController extends Controller
             $payload = [
                 'walletAddress' => $walletAddress,
             ];
-
             if ($this->shouldForceRefresh($request)) {
                 $payload['force'] = true;
             }
-
             $response = $this->engineProxyClient->send('POST', 'aave/v3/positions', $payload, [
                 'requestId' => (string) ($request->attributes->get('request_id') ?? 'unknown'),
                 'sessionId' => $request->session()->getId(),
             ]);
-
             if (! $response->successful()) {
                 return $this->makePositionsPayloadError($this->getPublicPositionsErrorMessage($response->status()));
             }
-
             $data = $response->json();
             $donator = data_get($data, '_meta.donator', []);
             unset($data['_meta']);
-
             return [
                 'positionsByChain' => is_array($data) ? $data : [],
                 'donator' => [
@@ -97,11 +96,9 @@ class HomeController extends Controller
                 'wallet' => $walletAddress,
                 'message' => $exception->getMessage(),
             ]);
-
             return $this->makePositionsPayloadError($this->getPublicPositionsErrorMessage());
         }
     }
-
     /**
      * @return array{positionsByChain: null, donator: array{isDonator: bool, discountPercent: int|float, type: string|null}, error: string}
      */
@@ -117,7 +114,6 @@ class HomeController extends Controller
             'error' => $message,
         ];
     }
-
     /**
      * @return array{transactions: array<int, array<string, mixed>>, hasMore: bool, offset: int, lastSyncTime: int|null, error: string|null}
      */
@@ -127,7 +123,6 @@ class HomeController extends Controller
             $offset = max(0, (int) $request->header('X-History-Offset', 0));
             $limit = max(1, min((int) $request->header('X-History-Limit', 20), 100));
             $history = $this->transactionHistoryService->fetch($walletAddress, $limit, $offset);
-
             return [
                 'transactions' => $history['transactions'],
                 'hasMore' => $history['hasMore'],
@@ -140,7 +135,6 @@ class HomeController extends Controller
                 'wallet' => $walletAddress,
                 'message' => $exception->getMessage(),
             ]);
-
             return [
                 'transactions' => [],
                 'hasMore' => false,
@@ -150,7 +144,6 @@ class HomeController extends Controller
             ];
         }
     }
-
     private function getPublicPositionsErrorMessage(?int $status = null): string
     {
         return match ($status) {
@@ -159,23 +152,18 @@ class HomeController extends Controller
             default => 'Unable to load positions right now. Please try again.',
         };
     }
-
     private function getPublicHistoryErrorMessage(): string
     {
         return 'Unable to load recent activity right now. Please try again.';
     }
-
     private function shouldForceRefresh(Request $request): bool
     {
         if (filter_var($request->header('X-Positions-Force', false), FILTER_VALIDATE_BOOL)) {
             return true;
         }
-
         $expiresAt = (int) $request->session()->get('positions_force_refresh_until', 0);
-
         return $expiresAt > now()->getTimestamp();
     }
-
     private function shouldLoadHistory(Request $request): bool
     {
         return filter_var($request->header('X-History-Load', false), FILTER_VALIDATE_BOOL);

@@ -36,6 +36,7 @@ const isProtectedProxyEndpoint = (url?: string | null) => {
 
     return (
         normalized.startsWith('/aave/') ||
+        normalized.startsWith('/spot/') ||
         normalized.startsWith('/rpc/') ||
         normalized.startsWith('/transactions/') ||
         normalized.startsWith('/limit-orders') ||
@@ -739,6 +740,105 @@ export const getUserPosition = async (walletAddress: string, marketKey?: string,
     }
 };
 
+// --- Spot Swap API Methods ---
+
+export const getSpotNetworks = async () => {
+    try {
+        const response = await apiClient.get('/spot/networks');
+        return response.data;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching spot networks');
+        throw new Error(errorMessage);
+    }
+};
+
+export const getSpotSpender = async (chainId: number) => {
+    try {
+        const response = await apiClient.get(`/spot/spender/${chainId}`);
+        return response.data as { chainId: number; address: string };
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching spender address');
+        throw new Error(errorMessage);
+    }
+};
+
+export const getSpotBalance = async (params: {
+    chainId: number;
+    tokenAddress: string | null; // null for native
+    walletAddress: string;
+}) => {
+    try {
+        const response = await apiClient.post('/spot/balance', params);
+        return response.data as { balance: string };
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching balance');
+        throw new Error(errorMessage);
+    }
+};
+
+export const getSpotAllowance = async (params: {
+    chainId: number;
+    tokenAddress: string;
+    owner: string;
+    spender: string;
+}) => {
+    try {
+        const response = await apiClient.post('/spot/allowance', params);
+        return response.data as { allowance: string };
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching allowance');
+        throw new Error(errorMessage);
+    }
+};
+
+export const getSpotTokens = async (chainId: number, signal?: AbortSignal) => {
+    try {
+        const response = await apiClient.post('/spot/tokens', { chainId }, { signal });
+        return response.data;
+    } catch (error: any) {
+        if (axios.isCancel(error)) throw error;
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching spot tokens');
+        throw new Error(errorMessage);
+    }
+};
+
+export const getSpotQuote = async (params: {
+    chainId: number;
+    fromToken: { address: string; decimals: number; symbol: string };
+    toToken: { address: string; decimals: number; symbol: string };
+    fromAmount: string;
+    userAddress?: string;
+    slippageBps?: number;
+}, signal?: AbortSignal) => {
+    try {
+        const response = await apiClient.post('/spot/quote', params, { signal });
+        return response.data;
+    } catch (error: any) {
+        if (axios.isCancel(error)) throw error;
+        const errorMessage = getPublicApiErrorMessage(error, 'Error fetching quote');
+        throw new Error(errorMessage);
+    }
+};
+
+export const buildSpotSwapTx = async (params: {
+    chainId: number;
+    fromToken: { address: string; decimals: number; symbol: string };
+    toToken: { address: string; decimals: number; symbol: string };
+    fromAmount: string;
+    toAmount: string;
+    userAddress: string;
+    slippageBps?: number;
+    priceRoute?: any;
+}) => {
+    try {
+        const response = await apiClient.post('/spot/build', params);
+        return response.data;
+    } catch (error: any) {
+        const errorMessage = getPublicApiErrorMessage(error, 'Error building transaction');
+        throw new Error(errorMessage);
+    }
+};
+
 export const getCollateralQuote = async (params: any, signal?: AbortSignal) => {
     try {
         const response = await apiClient.post('/aave/v3/quote/collateral', params, { signal });
@@ -885,5 +985,12 @@ export default {
     bootstrapProxySession,
     disconnectProxySession,
     revalidateSession,
-    syncInternalState
+    syncInternalState,
+    getSpotNetworks,
+    getSpotSpender,
+    getSpotBalance,
+    getSpotAllowance,
+    getSpotTokens,
+    getSpotQuote,
+    buildSpotSwapTx,
 };

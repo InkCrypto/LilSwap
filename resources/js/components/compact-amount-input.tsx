@@ -1,4 +1,4 @@
-import { ChevronDown, X, ArrowUpDown, RefreshCw } from 'lucide-react';
+﻿import { ChevronDown, X, ArrowUpDown, RefreshCw } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
 import { formatCompactNumber } from '../utils/formatters';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
@@ -31,6 +31,8 @@ interface CompactAmountInputProps {
     isLoading?: boolean;
     loadingLabel?: string;
     showQuickActions?: boolean;
+    networkIcon?: string;
+    networkLabel?: string;
 }
 
 /**
@@ -60,6 +62,8 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
     isLoading = false,
     loadingLabel = 'Loading...',
     showQuickActions = true,
+    networkIcon,
+    networkLabel,
 }) => {
     const [popoverOpen, setPopoverOpen] = useState(false);
     const popoverRef = useRef<HTMLDivElement>(null);
@@ -67,7 +71,10 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
 
     useEffect(() => {
         const handleClickOutside = (event: MouseEvent) => {
-            if (popoverRef.current && !popoverRef.current.contains(event.target as Node)) {
+            if (
+                popoverRef.current &&
+                !popoverRef.current.contains(event.target as Node)
+            ) {
                 setPopoverOpen(false);
             }
         };
@@ -80,8 +87,6 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
             document.removeEventListener('mousedown', handleClickOutside);
         };
     }, [popoverOpen]);
-
-
 
     const handleApplyPct = (pct: number) => {
         if (onApplyPct) {
@@ -112,17 +117,25 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
     };
 
     return (
-        <div className="bg-slate-100 dark:bg-slate-800 border border-border-light dark:border-slate-700 rounded-xl p-1 px-2.5 group transition-colors focus-within:border-purple-500/50">
+        <div className="group rounded-xl border border-border-light bg-slate-100 p-1 px-2.5 transition-colors focus-within:border-purple-500/50 dark:border-slate-700 dark:bg-slate-800">
             {/* Top row: input and token badge */}
             <div className="flex items-center gap-2 sm:gap-3">
-                <div className="flex-1 relative overflow-hidden flex items-center pl-0.5 focus-within:z-10">
+                <div className="relative flex flex-1 items-center overflow-hidden pl-0.5 focus-within:z-10">
                     {isLoading ? (
-                        <div className="flex items-center gap-2 text-purple-400 py-0.5 min-h-8">
-                            <RefreshCw className="w-4 h-4 animate-spin text-primary" />
-                            <span className="text-sm font-medium">{loadingLabel}</span>
+                        <div className="flex min-h-8 items-center gap-2 py-0.5 text-purple-400">
+                            <RefreshCw className="h-4 w-4 animate-spin text-primary" />
+                            <span className="text-sm font-medium">
+                                {loadingLabel}
+                            </span>
                         </div>
-                    ) : isUSDMode && (
-                        <span className={`text-2xl font-mono font-bold mr-0.5 select-none transition-colors ${isError ? 'text-rose-500' : (value && value !== '0' ? 'text-slate-900 dark:text-white' : 'text-muted-foreground')}`}>$</span>
+                    ) : (
+                        isUSDMode && (
+                            <span
+                                className={`mr-0.5 font-mono text-2xl font-bold transition-colors select-none ${isError ? 'text-rose-500' : value && value !== '0' ? 'text-slate-900 dark:text-white' : 'text-muted-foreground'}`}
+                            >
+                                $
+                            </span>
+                        )
                     )}
                     {!isLoading && (
                         <input
@@ -133,56 +146,86 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                                 onChange(normalizeDecimalInput(e.target.value));
                             }}
                             onPaste={(e) => {
-                                const pastedText = e.clipboardData?.getData('text') || '';
+                                const pastedText =
+                                    e.clipboardData?.getData('text') || '';
                                 e.preventDefault();
                                 onChange(normalizeDecimalInput(pastedText));
                             }}
                             placeholder={placeholder}
                             disabled={disabled || readOnly}
-                            className={`w-full bg-transparent text-2xl font-mono font-bold text-left focus:outline-none disabled:opacity-50 py-0.5 pr-6 text-ellipsis overflow-hidden ${isError ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}
+                            className={`w-full overflow-hidden bg-transparent py-0.5 pr-6 text-left font-mono text-2xl font-bold text-ellipsis focus:outline-none disabled:opacity-50 ${isError ? 'text-rose-500' : 'text-slate-900 dark:text-white'}`}
                         />
                     )}
                     {/* Clear button (X) - shows when there's a value */}
-                    {value && value !== '0' && value !== '0.' && !readOnly && !isLoading && (
-                        <button
-                            type="button"
-                            onClick={() => onChange('')}
-                            disabled={disabled}
-                            className="absolute right-0.5 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                            title="Clear"
-                        >
-                            <X className="w-2.5 h-2.5" />
-                        </button>
-                    )}
+                    {value &&
+                        value !== '0' &&
+                        value !== '0.' &&
+                        !readOnly &&
+                        !isLoading && (
+                            <button
+                                type="button"
+                                onClick={() => onChange('')}
+                                disabled={disabled}
+                                className="absolute top-1/2 right-0.5 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full bg-slate-200 text-slate-500 transition-all hover:bg-slate-300 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-slate-700 dark:text-slate-400 dark:hover:bg-slate-600 dark:hover:text-slate-200"
+                                title="Clear"
+                            >
+                                <X className="h-2.5 w-2.5" />
+                            </button>
+                        )}
                 </div>
                 {/* Token badge */}
                 <button
                     type="button"
                     onClick={onTokenSelect}
                     disabled={disabled}
-                    className={`flex items-center gap-1.5 py-1 px-1 hover:opacity-75 transition-opacity ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`flex items-center gap-1.5 px-1 py-1 transition-opacity hover:opacity-75 ${disabled ? 'cursor-not-allowed opacity-50' : ''}`}
                 >
                     {token?.symbol ? (
-                        <div className="w-7 h-7 rounded-full bg-slate-100 dark:bg-slate-700/50 flex items-center justify-center overflow-hidden border border-border-light dark:border-slate-600/30">
-                            <img
-                                src={getTokenLogo(token.symbol)}
-                                alt={token.symbol}
-                                className="w-full h-full object-cover"
-                                onError={onTokenImgError(token.symbol)}
-                            />
+                        <div className="relative h-7 w-7 shrink-0">
+                            <div className="flex h-7 w-7 items-center justify-center overflow-hidden rounded-full border border-border-light bg-slate-100 dark:border-slate-600/30 dark:bg-slate-700/50">
+                                <img
+                                    src={getTokenLogo(token.symbol)}
+                                    alt={token.symbol}
+                                    className="h-full w-full object-cover"
+                                    onError={onTokenImgError(token.symbol)}
+                                />
+                            </div>
+                            {networkLabel && (
+                                <span
+                                    className="absolute -right-0.5 -bottom-0.5 flex h-3.5 w-3.5 items-center justify-center overflow-hidden rounded-full border-2 border-slate-100 bg-slate-200 text-[7px] font-bold text-slate-600 dark:border-slate-800 dark:bg-slate-700 dark:text-slate-200"
+                                    title={networkLabel}
+                                >
+                                    {networkIcon ? (
+                                        <img
+                                            src={networkIcon}
+                                            alt={networkLabel}
+                                            className="h-full w-full object-cover"
+                                            onError={(event) => {
+                                                (
+                                                    event.currentTarget as HTMLImageElement
+                                                ).style.display = 'none';
+                                            }}
+                                        />
+                                    ) : (
+                                        networkLabel.charAt(0)
+                                    )}
+                                </span>
+                            )}
                         </div>
                     ) : (
-                        <span className="text-xs font-bold text-slate-400">?</span>
+                        <span className="text-xs font-bold text-slate-400">
+                            ?
+                        </span>
                     )}
-                    <span className="text-lg font-bold text-slate-900 dark:text-white leading-none">
+                    <span className="text-lg leading-none font-bold text-slate-900 dark:text-white">
                         {displaySymbol || token?.symbol || 'Select'}
                     </span>
-                    <ChevronDown className="w-5 h-5 text-slate-400" />
+                    <ChevronDown className="h-5 w-5 text-slate-400" />
                 </button>
             </div>
 
             {/* Single bottom row: $USD left | Balance % MAX right */}
-            <div className="flex items-center justify-between mt-0 pl-0.5">
+            <div className="mt-0 flex items-center justify-between pl-0.5">
                 {/* Secondary value (USD or Token) - Toggle at the START */}
                 <button
                     type="button"
@@ -192,23 +235,30 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                         focusPrimaryInput();
                     }}
                     disabled={disabled || !onToggleUSDMode}
-                    className="flex items-center gap-1 min-h-5 text-left group/label p-0 bg-transparent border-none appearance-none cursor-pointer disabled:cursor-not-allowed"
-                    title={isUSDMode ? "Switch to Token" : "Switch to USD"}
+                    className="group/label flex min-h-5 cursor-pointer appearance-none items-center gap-1 border-none bg-transparent p-0 text-left disabled:cursor-not-allowed"
+                    title={isUSDMode ? 'Switch to Token' : 'Switch to USD'}
                 >
                     {onToggleUSDMode && token && (
-                        <div className="p-1 rounded-md group-hover/label:bg-slate-200 dark:group-hover/label:bg-slate-700 text-slate-400 group-hover/label:text-slate-600 dark:group-hover/label:text-slate-200 transition-all group-hover:opacity-100 opacity-60 -ml-1">
-                            <ArrowUpDown className="w-2.5 h-2.5" />
+                        <div className="-ml-1 rounded-md p-1 text-slate-400 opacity-60 transition-all group-hover:opacity-100 group-hover/label:bg-slate-200 group-hover/label:text-slate-600 dark:group-hover/label:bg-slate-700 dark:group-hover/label:text-slate-200">
+                            <ArrowUpDown className="h-2.5 w-2.5" />
                         </div>
                     )}
-                    <span className={`text-xs font-medium transition-colors ${isError ? 'text-rose-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                    <span
+                        className={`text-xs font-medium transition-colors ${isError ? 'text-rose-400' : 'text-slate-700 dark:text-slate-300'}`}
+                    >
                         {secondaryValue || ''}
                     </span>
                 </button>
 
-                {/* Balance + optional % popover + MAX — hidden for read-only inputs */}
+                {/* Balance + optional % popover + MAX â€” hidden for read-only inputs */}
                 {!readOnly && (
                     <div className="flex items-center gap-2 text-xs text-slate-400">
-                        <span className="text-slate-500 font-medium whitespace-nowrap">{balanceLabel} {formattedBalance ? formatCompactNumber(formattedBalance) : '0'}</span>
+                        <span className="font-medium whitespace-nowrap text-slate-500">
+                            {balanceLabel}{' '}
+                            {formattedBalance
+                                ? formatCompactNumber(formattedBalance)
+                                : '0'}
+                        </span>
 
                         {/* % button + custom popover */}
                         {showQuickActions && (
@@ -216,21 +266,29 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                                 <div className="relative" ref={popoverRef}>
                                     <button
                                         type="button"
-                                        className="text-xs text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors disabled:opacity-50"
-                                        disabled={disabled || !maxAmount || maxAmount === BigInt(0)}
-                                        onClick={() => setPopoverOpen(!popoverOpen)}
+                                        className="m-0 cursor-pointer border-none bg-transparent p-0 text-xs text-slate-500 transition-colors hover:text-slate-900 disabled:opacity-50 dark:text-slate-400 dark:hover:text-white"
+                                        disabled={
+                                            disabled ||
+                                            !maxAmount ||
+                                            maxAmount === BigInt(0)
+                                        }
+                                        onClick={() =>
+                                            setPopoverOpen(!popoverOpen)
+                                        }
                                     >
                                         %
                                     </button>
 
                                     {popoverOpen && (
-                                        <div className="absolute bottom-full right-0 mb-2 p-1.5 flex gap-1.5 w-auto rounded-lg border bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 shadow-xl z-50 animate-in slide-in-from-bottom-2 duration-150">
+                                        <div className="absolute right-0 bottom-full z-50 mb-2 flex w-auto animate-in gap-1.5 rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl duration-150 slide-in-from-bottom-2 dark:border-slate-700 dark:bg-slate-900">
                                             {[25, 50, 75].map((pct) => (
                                                 <button
                                                     key={pct}
                                                     type="button"
-                                                    onClick={() => handleApplyPct(pct)}
-                                                    className="px-3 py-1.5 text-xs font-bold rounded-md bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-purple-100 dark:hover:bg-purple-600 hover:text-purple-600 dark:hover:text-white transition-colors"
+                                                    onClick={() =>
+                                                        handleApplyPct(pct)
+                                                    }
+                                                    className="rounded-md bg-slate-100 px-3 py-1.5 text-xs font-bold text-slate-600 transition-colors hover:bg-purple-100 hover:text-purple-600 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-purple-600 dark:hover:text-white"
                                                 >
                                                     {pct}%
                                                 </button>
@@ -241,9 +299,13 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
 
                                 <button
                                     type="button"
-                                    className="text-xs font-bold text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white bg-transparent border-none p-0 m-0 cursor-pointer transition-colors disabled:opacity-50"
+                                    className="m-0 cursor-pointer border-none bg-transparent p-0 text-xs font-bold text-slate-500 transition-colors hover:text-slate-900 disabled:opacity-50 dark:text-slate-400 dark:hover:text-white"
                                     onClick={handleApplyMax}
-                                    disabled={disabled || !maxAmount || maxAmount === BigInt(0)}
+                                    disabled={
+                                        disabled ||
+                                        !maxAmount ||
+                                        maxAmount === BigInt(0)
+                                    }
                                 >
                                     MAX
                                 </button>

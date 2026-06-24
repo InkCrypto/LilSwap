@@ -74,7 +74,7 @@ const getOfficialAddressBook = (marketKey: string) => {
 };
 
 const AUGUSTUS_ADDRESSES = {
-    V6_2: normalizeAddress('0x6a000f200059e1213d2a795f0f087e561e4c2026')!,
+    V6_2: normalizeAddress('0x6a000f20005980200259b80c5102003040001068')!,
     V5: normalizeAddress('0xDEF171Fe48CF0115B1d80b88dc8eAB59176FEe57')!,
     V5_BASE: normalizeAddress('0x59C7C832e96D2568bea6db468C1aAdcbbDa08A52')!,
 };
