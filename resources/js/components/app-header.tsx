@@ -1,4 +1,4 @@
-import { Wallet, LogOut, ChevronDown, History, Eye, EyeOff } from 'lucide-react';
+import { Wallet, LogOut, ChevronDown, History, Eye, EyeOff, Landmark, ArrowRightLeft } from 'lucide-react';
 import React from 'react';
 import { Link } from '@inertiajs/react';
 import { InfoTooltip } from '@/components/info-tooltip';
@@ -27,6 +27,7 @@ export function AppHeader({
     const isDarkMode = resolvedAppearance === 'dark';
     const toggleDarkMode = () => updateAppearance(isDarkMode ? 'light' : 'dark');
     const [isScrolled, setIsScrolled] = React.useState(false);
+    const [isMenuOpen, setIsMenuOpen] = React.useState(false);
     const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/';
     const isSwapActive = currentPath === '/swap/widget' || currentPath === '/spot';
     const isHomeActive = currentPath === '/';
@@ -42,6 +43,57 @@ export function AppHeader({
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
+    const logoContentMobile = (
+        <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
+            <PopoverTrigger asChild>
+                <button 
+                    className="flex items-center gap-1.5 text-slate-900 dark:text-white select-none active:scale-[0.98] transition-all hover:opacity-85"
+                >
+                    <LilLogo className="w-8 h-8 shrink-0" />
+                    <h1 className="text-xl font-extrabold tracking-tight text-nowrap">
+                        LilSwap
+                    </h1>
+                    <ChevronDown 
+                        className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform duration-300 ${isMenuOpen ? 'rotate-180 text-primary dark:text-purple-400' : ''}`} 
+                    />
+                </button>
+            </PopoverTrigger>
+            <PopoverContent
+                align="start"
+                sideOffset={6}
+                className="w-40 p-1 bg-white/95 dark:bg-slate-900/95 border border-slate-200 dark:border-slate-800 backdrop-blur-md shadow-xl rounded-xl"
+            >
+                <div className="flex flex-col gap-0.5 font-sans">
+                    <Link
+                        href="/"
+                        onClick={() => setIsMenuOpen(false)}
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${
+                            isHomeActive || isAaveActive
+                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                                : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <Landmark className="w-4 h-4 shrink-0" strokeWidth={2.2} />
+                        <span>Aave v3</span>
+                    </Link>
+
+                    <Link
+                        href="/spot"
+                        onClick={() => setIsMenuOpen(false)}
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${
+                            isSwapActive
+                                ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
+                                : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
+                        }`}
+                    >
+                        <ArrowRightLeft className="w-4 h-4 shrink-0" strokeWidth={2.2} />
+                        <span>Swap</span>
+                    </Link>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+
     return (
         <header
             className={`sticky top-0 z-40 transition-all duration-300 ${isScrolled
@@ -51,28 +103,36 @@ export function AppHeader({
         >
             <div className="max-w-480 mx-auto px-4 md:px-6 pt-6 md:pt-4 pb-6 md:pb-4 flex items-center justify-between gap-3 md:gap-2">
                 <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
-                    {(() => {
-                        const logoContent = (
-                            <>
-                                <LilLogo className="w-10 h-10 md:w-12 md:h-12 shrink-0" />
-                                <div className="min-w-0 flex flex-col justify-start">
-                                    <div className="flex items-center gap-1.5 sm:gap-2 leading-none">
-                                        <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight text-nowrap">
-                                            LilSwap
-                                        </h1>
-                                        <span className="px-1 py-0 rounded text-primary text-[8px] font-bold border-2 border-primary/30 mt-0.5 shrink-0">
-                                            BETA
-                                        </span>
+                    {/* Mobile Logo Menu */}
+                    <div className="block sm:hidden">
+                        {logoContentMobile}
+                    </div>
+
+                    {/* Desktop Logo */}
+                    <div className="hidden sm:flex items-center gap-3 sm:gap-4 min-w-0">
+                        {(() => {
+                            const logoContent = (
+                                <>
+                                    <LilLogo className="w-10 h-10 md:w-12 md:h-12 shrink-0" />
+                                    <div className="min-w-0 flex flex-col justify-start">
+                                        <div className="flex items-center gap-1.5 sm:gap-2 leading-none">
+                                            <h1 className="text-2xl md:text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight text-nowrap">
+                                                LilSwap
+                                            </h1>
+                                            <span className="px-1 py-0 rounded text-primary text-[8px] font-bold border-2 border-primary/30 mt-0.5 shrink-0">
+                                                BETA
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                            </>
-                        );
-                        return isHomeActive ? logoContent : <Link href="/" className="flex items-center gap-3 sm:gap-4">{logoContent}</Link>;
-                    })()}
-                    <nav className="hidden sm:flex items-center gap-8 ml-8">
+                                </>
+                            );
+                            return isHomeActive ? logoContent : <Link href="/" className="flex items-center gap-2 sm:gap-2.5">{logoContent}</Link>;
+                        })()}
+
+                        <nav className="hidden sm:flex items-center gap-8 ml-8">
                         <Link
                             href="/"
-                            className={`relative text-xl font-bold transition-colors ${isHomeActive
+                            className={`relative text-xl font-medium transition-colors ${isHomeActive
                                 ? 'text-purple-600 dark:text-purple-400'
                                 : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
                                 }`}
@@ -84,7 +144,7 @@ export function AppHeader({
                         </Link>
                         <Link
                             href="/spot"
-                            className={`relative text-xl font-bold transition-colors ${isSwapActive
+                            className={`relative text-xl font-medium transition-colors ${isSwapActive
                                 ? 'text-purple-600 dark:text-purple-400'
                                 : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
                                 }`}
@@ -96,6 +156,7 @@ export function AppHeader({
                         </Link>
                     </nav>
                 </div>
+            </div>
 
                 <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                     <InfoTooltip message={isDarkMode ? 'Turn lights on' : 'Turn lights off'} disableClick={true}>

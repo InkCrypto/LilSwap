@@ -36,8 +36,8 @@ const DEV = (import.meta as any).env?.DEV;
 
 export const getTokenLogo = (symbol: string): string => {
     if (!symbol) {
-return '';
-}
+        return '';
+    }
 
     const key = ALIAS[symbol.toUpperCase().replace(/-/g, '_')] ?? symbol.toLowerCase();
 
@@ -51,8 +51,8 @@ export const onTokenImgError = (symbol: string) => (e: React.SyntheticEvent<HTML
 
     if (key && !src.includes('app.aave.com')) {
         if (DEV) {
-console.warn(`[token-icons] Local icon missing for "${symbol}" — trying Aave CDN`);
-}
+            console.warn(`[token-icons] Local icon missing for "${symbol}" — trying Aave CDN`);
+        }
 
         target.src = `https://app.aave.com/icons/tokens/${key}.svg`;
 
@@ -61,8 +61,8 @@ console.warn(`[token-icons] Local icon missing for "${symbol}" — trying Aave C
 
     if (key && src.includes('app.aave.com')) {
         if (DEV) {
-console.warn(`[token-icons] No icon found for "${symbol}" — falling back to text label`);
-}
+            console.warn(`[token-icons] No icon found for "${symbol}" — falling back to text label`);
+        }
 
         target.style.display = 'none';
 

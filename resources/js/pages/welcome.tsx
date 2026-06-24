@@ -103,7 +103,7 @@ export default function Welcome() {
                 onOpenHistory={() => setSheetOpen(true)}
             />
 
-            <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-24 w-full pt-2 md:pt-12">
+            <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-16 md:pb-24 w-full pt-2 md:pt-12">
                 {account ? (
                     <div className="relative">
                         {showDonatorTag && (
@@ -217,7 +217,7 @@ export default function Welcome() {
                     setTimeout(() => setIsDonateOpen(true), 150);
                 }}
             />
-            <AppFooter />
+            <AppFooter activeCount={activeCount} onOpenActivity={() => setSheetOpen(true)} />
         </div>
     );
 }

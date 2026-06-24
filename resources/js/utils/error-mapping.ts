@@ -142,6 +142,10 @@ export const mapErrorToUserFriendly = (technicalMessage: string | null | undefin
     // Fallback logic for common phrases
     const lowerMessage = technicalMessage.toLowerCase();
 
+    if (lowerMessage.includes('chainmismatcherror') || lowerMessage.includes('does not match the target chain') || lowerMessage.includes('current chain of the wallet')) {
+        return 'Your wallet is on the wrong network. Switch to the selected network and try again.';
+    }
+
     if (lowerMessage.includes('user rejected')) {
         return 'Transaction cancelled by user.';
     }
@@ -161,3 +165,4 @@ export const mapErrorToUserFriendly = (technicalMessage: string | null | undefin
     // If no mapping found and message is short, return original message
     return technicalMessage;
 };
+

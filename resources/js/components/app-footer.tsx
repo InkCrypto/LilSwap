@@ -7,7 +7,12 @@ import { VerifyDonationModal } from './verify-donation-modal';
 const APP_VERSION = __APP_VERSION__;
 
 
-const AppFooter: React.FC = () => {
+type AppFooterProps = {
+    activeCount?: number;
+    onOpenActivity?: () => void;
+};
+
+const AppFooter: React.FC<AppFooterProps> = ({ activeCount = 0, onOpenActivity }) => {
     const { apiVersion } = useApiMeta();
     const [isDonateOpen, setIsDonateOpen] = useState(false);
     const [isVerifyOpen, setIsVerifyOpen] = useState(false);
@@ -24,7 +29,7 @@ const AppFooter: React.FC = () => {
             <div className="max-w-480 mx-auto px-6 py-2 text-slate-500">
                 <div className="hidden md:grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-sm">
                     <div className="flex items-center gap-5">
-                        <span className="whitespace-nowrap">© {new Date().getFullYear()} InkCrypto</span>
+                        <span className="whitespace-nowrap">&copy; {new Date().getFullYear()} InkCrypto</span>
                         <div className="flex items-center gap-4">
                             <a
                                 href="https://lilswap.xyz/"
@@ -90,8 +95,8 @@ const AppFooter: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="flex md:hidden items-center justify-center gap-x-2 text-[13px] py-2 whitespace-nowrap">
-                    <span className="opacity-80">© {new Date().getFullYear()} InkCrypto</span>
+                <div className="flex md:hidden items-center justify-center gap-x-2 text-[13px] pt-2 pb-6 whitespace-nowrap">
+                    <span className="opacity-80">&copy; {new Date().getFullYear()} InkCrypto</span>
                     <span className="opacity-20">|</span>
                     <button
                         onClick={() => setIsDonateOpen(true)}

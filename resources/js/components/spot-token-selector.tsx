@@ -25,7 +25,7 @@ const POPULAR_SYMBOLS: Record<number, string[]> = {
     130: ['ETH', 'USDC', 'USDT', 'WETH'],
     137: ['POL', 'USDC', 'USDT', 'DAI', 'WETH', 'WBTC', 'WMATIC'],
     146: ['S', 'USDC', 'USDT', 'WETH'],
-    8453: ['ETH', 'USDC', 'DAI', 'CBETH', 'WETH'],
+    8453: ['ETH', 'USDC', 'DAI', 'CBETH', 'CBBTC', 'WETH'],
     42161: ['ETH', 'USDC', 'USDT', 'DAI', 'WBTC', 'ARB', 'WETH'],
     43114: ['AVAX', 'USDC', 'USDT', 'DAI', 'BTC.B', 'ETH', 'WAVAX'],
 };
@@ -39,7 +39,7 @@ export interface NetworkInfo {
 }
 export const SPOT_NETWORKS: NetworkInfo[] = [
     { chainId: 1, label: 'Ethereum', icon: '/icons/networks/ethereum.svg' },
-    { chainId: 56, label: 'BNB', icon: '/icons/networks/binance.svg' },
+    { chainId: 56, label: 'BSC', icon: '/icons/networks/binance.svg' },
     { chainId: 137, label: 'Polygon', icon: '/icons/networks/polygon.svg' },
     { chainId: 8453, label: 'Base', icon: '/icons/networks/base.svg' },
     { chainId: 42161, label: 'Arbitrum', icon: '/icons/networks/arbitrum.svg' },
@@ -51,7 +51,7 @@ export const SPOT_NETWORKS: NetworkInfo[] = [
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-interface SpotToken {
+export interface SpotToken {
     symbol: string;
     name?: string;
     address?: string;
@@ -71,6 +71,8 @@ export interface SpotTokenSelectorProps {
     chainId: number;
     /** Network name shown in the dialog subtitle */
     networkLabel?: string;
+    /** Called when the user types in the search field (empty string = cleared) */
+    onSearchChange?: (query: string) => void;
 }
 // ---------------------------------------------------------------------------
 // Helpers
@@ -95,6 +97,7 @@ export const SpotTokenSelector: React.FC<SpotTokenSelectorProps> = ({
     tokensLoading,
     chainId,
     networkLabel,
+    onSearchChange,
 }) => {
     const [search, setSearch] = useState('');
     const [scrollTop, setScrollTop] = useState(0);
@@ -104,6 +107,10 @@ export const SpotTokenSelector: React.FC<SpotTokenSelectorProps> = ({
         const next = scrollContainerRef.current?.clientHeight;
         if (next) setViewportHeight(next);
     }, []);
+    const handleSearchChange = useCallback((value: string) => {
+        setSearch(value);
+        onSearchChange?.(value);
+    }, [onSearchChange]);
     useEffect(() => {
         if (isOpen) {
             setSearch('');
@@ -167,7 +174,7 @@ export const SpotTokenSelector: React.FC<SpotTokenSelectorProps> = ({
                         <Input
                             placeholder="Search by name or address"
                             value={search}
-                            onChange={(e) => setSearch(e.target.value)}
+                            onChange={(e) => handleSearchChange(e.target.value)}
                             className="border-slate-200/60 bg-slate-50 pl-9 transition-colors focus:border-purple-500/50 dark:border-slate-800/60 dark:bg-slate-900/50"
                         />
                     </div>
@@ -261,3 +268,4 @@ export const SpotTokenSelector: React.FC<SpotTokenSelectorProps> = ({
         </Dialog>
     );
 };
+

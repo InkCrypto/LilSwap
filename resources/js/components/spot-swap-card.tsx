@@ -5,7 +5,7 @@
 
 import {
     AlertCircle,
-    ArrowDownUp,
+    ArrowRightLeft,
     ArrowUpDown,
     ChevronDown,
     ChevronUp,
@@ -23,7 +23,9 @@ import React, {
 } from 'react';
 import { formatUnits, parseUnits } from 'viem';
 import type { Hex } from 'viem';
-import { useWeb3 } from '@/contexts/web3-context';
+import { getConnectorClient } from 'wagmi/actions';
+import { sendTransaction, writeContract } from 'viem/actions';
+import { useWeb3, wagmiConfig } from '@/contexts/web3-context';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
 import { buildSpotSwapTx, getSpotAllowance, getSpotBalance, getSpotQuote, getSpotSpender, getSpotTokens } from '@/services/api';
 import { Button } from '@/components/ui/button';
@@ -45,6 +47,90 @@ const DEFAULT_SLIPPAGE_BPS = 50;
 const MIN_SLIPPAGE_BPS = 10;
 const MAX_SLIPPAGE_BPS = 500;
 const QUOTE_REFRESH_SECONDS = 30;
+
+// Hardcoded common tokens per chain — shown instantly, zero API calls
+const COMMON_TOKENS: Record<number, SpotToken[]> = {
+    1: [
+        { address: '0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0xdac17f958d2ee523a2206206994597c13d831ec7', decimals: 6, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0x6b175474e89094c44da98b954eedeac495271d0f', decimals: 18, symbol: 'DAI', name: 'Dai Stablecoin', logo: null },
+        { address: '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599', decimals: 8, symbol: 'WBTC', name: 'Wrapped BTC', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'ETH', name: 'Ether', logo: null },
+    ],
+    10: [
+        { address: '0x4200000000000000000000000000000000000006', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0x0b2c639c533813f4aa9d7837caf62653d097ff85', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0x94b008aa00579c1307b0ef2c499ad98a8ce58e58', decimals: 6, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1', decimals: 18, symbol: 'DAI', name: 'Dai Stablecoin', logo: null },
+        { address: '0x4200000000000000000000000000000000000042', decimals: 18, symbol: 'OP', name: 'Optimism', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'ETH', name: 'Ether', logo: null },
+    ],
+    56: [
+        { address: '0xbb4cdb9cbd36b01bd1cbaebf2de08d9173bc095c', decimals: 18, symbol: 'WBNB', name: 'Wrapped BNB', logo: null },
+        { address: '0x8ac76a51cc950d9822d68b83fe1ad97b32cd580d', decimals: 18, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0x55d398326f99059ff775485246999027b3197955', decimals: 18, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0x1af3f329e8be154074d8769d1ffa4ee058b1dbc3', decimals: 18, symbol: 'DAI', name: 'Dai Stablecoin', logo: null },
+        { address: '0x7130d2a12b9bcbfae4f2634d864a1ee1ce3ead9c', decimals: 18, symbol: 'BTCB', name: 'Bitcoin BEP2', logo: null },
+        { address: '0x2170ed0880ac9a755fd29b2688956bd959f933f8', decimals: 18, symbol: 'ETH', name: 'Ether', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'BNB', name: 'BNB', logo: null },
+    ],
+    100: [
+        { address: '0xe91d153e0b41518a2ce8dd3d7944fa863463a97d', decimals: 18, symbol: 'WXDAI', name: 'Wrapped XDAI', logo: null },
+        { address: '0xddafbb505ad214d7b80b1f830fccc89b60fb7a83', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0x4ecaba5870353805a9f068101a40e0f32ed605c6', decimals: 6, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0x6b175474e89094c44da98b954eedeac495271d0f', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'XDAI', name: 'xDAI', logo: null },
+    ],
+    130: [
+        { address: '0x4200000000000000000000000000000000000006', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0x078d782b760474a361dda0af3839290b0ef57ad6', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0x176211869ca2b568f2a7d4ee941e073a542ee242', decimals: 6, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'ETH', name: 'Ether', logo: null },
+    ],
+    137: [
+        { address: '0x0d500b1d8e8ef31e21c99d1db9a6444d3adf1270', decimals: 18, symbol: 'WPOL', name: 'Wrapped POL', logo: null },
+        { address: '0x3c499c542cef5e3811e1192ce70d8cc03d5c3359', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0xc2132d05d31c914a87c6611c10748aeb04b58e8f', decimals: 6, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0x8f3cf7ad23cd3cadbd9735aff958023239c6a063', decimals: 18, symbol: 'DAI', name: 'Dai Stablecoin', logo: null },
+        { address: '0x7ceb23fd6bc0add59e62ac25578270cff1b9f619', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0x1bfd67037b42cf73acf2047067bd4f2c47d9bfd6', decimals: 8, symbol: 'WBTC', name: 'Wrapped BTC', logo: null },
+        { address: '0x0000000000000000000000000000000000001010', decimals: 18, symbol: 'POL', name: 'POL', logo: null },
+    ],
+    146: [
+        { address: '0x039e2fb66102314ce7b64ce5ce3e5183bc94ad38', decimals: 18, symbol: 'WS', name: 'Wrapped Sonic', logo: null },
+        { address: '0x29219dd400f2bf60e5a23d13be72b486d4038894', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0xe05d4b473c1acb02b9810999e5cb9a37fa7c693c', decimals: 6, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0x50c42deacd8fc9779823ad65ffd550b4552e36b3', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'S', name: 'Sonic', logo: null },
+    ],
+    8453: [
+        { address: '0x4200000000000000000000000000000000000006', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0x833589fcd6edb6e08f4c7c32d4f71b54bda02913', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0x50c5725949a6f0c72e6c4a641f24049a917db0cb', decimals: 18, symbol: 'DAI', name: 'Dai Stablecoin', logo: null },
+        { address: '0x2ae3f1ec7f1f5012cfeab0185bfc7aa3cf0dec22', decimals: 18, symbol: 'CBETH', name: 'Coinbase Wrapped Staked ETH', logo: null },
+        { address: '0xcbb7c0000ab88b473b1f5afd9ef808440eed33bf', decimals: 8, symbol: 'CBBTC', name: 'Coinbase Wrapped BTC', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'ETH', name: 'Ether', logo: null },
+    ],
+    42161: [
+        { address: '0x82af49447d8a07e3bd95bd0d56f35241523fbab1', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0xaf88d065e77c8cc2239327c5edb3a432268e5831', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9', decimals: 6, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0xda10009cbd5d07dd0cecc66161fc93d7c9000da1', decimals: 18, symbol: 'DAI', name: 'Dai Stablecoin', logo: null },
+        { address: '0x2f2a2543b76a4166549f7aab2e75bef0aefc5b0f', decimals: 8, symbol: 'WBTC', name: 'Wrapped BTC', logo: null },
+        { address: '0x912ce59144191c1204e64559fe8253a0e49e6548', decimals: 18, symbol: 'ARB', name: 'Arbitrum', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'ETH', name: 'Ether', logo: null },
+    ],
+    43114: [
+        { address: '0xb31f66aa3c1e785363f0875a1b74e27b85fd66c7', decimals: 18, symbol: 'WAVAX', name: 'Wrapped AVAX', logo: null },
+        { address: '0xb97ef9ef8734c71904d8002f8b6bc66dd9c48a6e', decimals: 6, symbol: 'USDC', name: 'USD Coin', logo: null },
+        { address: '0x9702230a8ea53601f5cd2dc00fdbc13d4df4a8c7', decimals: 6, symbol: 'USDT', name: 'Tether', logo: null },
+        { address: '0xd586e7f844cea2f87f50152665bcbc2c279d8d70', decimals: 18, symbol: 'DAI', name: 'Dai Stablecoin', logo: null },
+        { address: '0x152b9d0fdc40c096757f570a51e494bd4b30e10c', decimals: 8, symbol: 'BTC.B', name: 'Bitcoin', logo: null },
+        { address: '0x49d5c2bdffac6ce2bfdb6640f4f80f226bc10bab', decimals: 18, symbol: 'WETH', name: 'Wrapped Ether', logo: null },
+        { address: '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', decimals: 18, symbol: 'AVAX', name: 'AVAX', logo: null },
+    ],
+};
 
 const ERC20_ABI = [
     { type: 'function' as const, name: 'allowance', inputs: [{ type: 'address', name: 'owner' }, { type: 'address', name: 'spender' }], outputs: [{ type: 'uint256' }], stateMutability: 'view' },
@@ -135,6 +221,17 @@ const formatGasCost = (q: SpotQuote | null): string => {
         return Number.isFinite(native) && native > 0 ? `${formatCompactNumber(native)} native` : '-';
     } catch { return '-'; }
 };
+const quoteSideDecimals = (q: SpotQuote | null, side: 'src' | 'dest', fallback?: number): number => {
+    const raw = q?.raw ?? q;
+    const value = side === 'src'
+        ? raw?.srcDecimals ?? raw?.priceRoute?.srcDecimals
+        : raw?.destDecimals ?? raw?.priceRoute?.destDecimals;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) && parsed >= 0 ? parsed : (fallback ?? 18);
+};
+
+const formatQuoteUnits = (amount: string | bigint, q: SpotQuote | null, side: 'src' | 'dest', fallbackDecimals?: number): string =>
+    formatUnits(BigInt(amount), quoteSideDecimals(q, side, fallbackDecimals));
 const getSpotTokenLogoSrc = (token: SpotToken | null): string => {
     if (!token) return '';
     const uri = String(token.logo || '');
@@ -285,7 +382,7 @@ const ChainDropdown: React.FC<ChainDropdownProps> = ({ selectedChainId, onChange
 // ---------------------------------------------------------------------------
 
 export function SpotSwapCard() {
-    const { account, chainId, isConnected, connectWallet, walletClient, publicClient } = useWeb3();
+    const { account, chainId, isConnected, isSettlingAccount, connectWallet, walletClient, publicClient } = useWeb3();
     const { addTransaction } = useTransactionTracker();
 
     const [selectedChainId, setSelectedChainId] = useState<number>(() =>
@@ -294,8 +391,8 @@ export function SpotSwapCard() {
     const [fromToken, setFromToken] = useState<SpotToken | null>(null);
     const [toToken, setToToken] = useState<SpotToken | null>(null);
     const [fromAmount, setFromAmount] = useState('');
-    const [tokensByChain, setTokensByChain] = useState<Record<number, SpotToken[]>>({});
-    const [tokensLoading, setTokensLoading] = useState(false);
+    const [veloraTokens, setVeloraTokens] = useState<SpotToken[] | null>(null);
+    const [veloraLoading, setVeloraLoading] = useState(false);
     const [selectorOpen, setSelectorOpen] = useState(false);
     const [selectorMode, setSelectorMode] = useState<'from' | 'to'>('from');
     const [isUSDMode, setIsUSDMode] = useState(false);
@@ -304,6 +401,7 @@ export function SpotSwapCard() {
     const [toBalance, setToBalance] = useState<bigint>(0n);
     const [balanceLoading, setBalanceLoading] = useState(false);
     const [quote, setQuote] = useState<SpotQuote | null>(null);
+    const [quoteChainId, setQuoteChainId] = useState<number | null>(null);
     const [quoteLoading, setQuoteLoading] = useState(false);
     const [quoteError, setQuoteError] = useState<string | null>(null);
     const [nextRefreshIn, setNextRefreshIn] = useState(QUOTE_REFRESH_SECONDS);
@@ -318,20 +416,59 @@ export function SpotSwapCard() {
     const [allowanceNonce, setAllowanceNonce] = useState(0);
     const [buildLoading, setBuildLoading] = useState(false);
     const [spender, setSpender] = useState<string | null>(null);
+    const [spenderChainId, setSpenderChainId] = useState<number | null>(null);
     const [txPending, setTxPending] = useState(false);
     const [switchingNetwork, setSwitchingNetwork] = useState(false);
     const [pctMenuOpen, setPctMenuOpen] = useState(false);
+    const [walletResetting, setWalletResetting] = useState(false);
 
     const abortRef = useRef<AbortController | null>(null);
     const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const quoteLockedRef = useRef(false);
     const slippageMenuRef = useRef<HTMLDivElement>(null);
     const pctMenuRef = useRef<HTMLDivElement>(null);
+    const lastWalletKeyRef = useRef<string | null>(account?.toLowerCase() ?? null);
+
+    // Tokens shown in the selector: hardcoded common list by default, Velora results when searching
+    const selectorTokens = veloraTokens ?? (COMMON_TOKENS[selectedChainId] ?? []);
+    const selectorLoading = veloraLoading && veloraTokens === null;
 
     const activeNetwork = SPOT_NETWORKS.find((n) => n.chainId === selectedChainId);
     const walletOnSelectedChain = !isConnected || chainId === selectedChainId;
-    const executionBusy = approvalPending || buildLoading || txPending;
+    const walletKey = account?.toLowerCase() ?? null;
+    const walletChanging = isSettlingAccount || walletResetting || lastWalletKeyRef.current !== walletKey;
+    const activeSpender = spenderChainId === selectedChainId ? spender : null;
+    const activeQuote = quoteChainId === selectedChainId ? quote : null;
+    const executionBusy = approvalPending || buildLoading || txPending || walletChanging;
 
+    useEffect(() => {
+        if (lastWalletKeyRef.current === walletKey) return;
+
+        abortRef.current?.abort();
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        quoteLockedRef.current = false;
+        lastWalletKeyRef.current = walletKey;
+
+        setWalletResetting(true);
+        setFromAmount('');
+        setQuote(null);
+        setQuoteChainId(null);
+        setQuoteError(null);
+        setFromBalance(0n);
+        setToBalance(0n);
+        setBalanceLoading(false);
+        setApprovalRequired(false);
+        setApprovalPending(false);
+        setBuildLoading(false);
+        setTxPending(false);
+        setPctMenuOpen(false);
+        setShowCostsBreakdown(false);
+        setNextRefreshIn(QUOTE_REFRESH_SECONDS);
+        setAllowanceNonce((current) => current + 1);
+
+        const timeout = setTimeout(() => setWalletResetting(false), 600);
+        return () => clearTimeout(timeout);
+    }, [walletKey]);
     // USD prices
     const fromTokenPrice = useMemo(() => {
         if (!fromToken) return 0;
@@ -364,42 +501,41 @@ export function SpotSwapCard() {
 
     const hasInsufficientBalance = Boolean(isConnected && fromToken && fromAmountWei > fromBalance);
 
-    // Fetch tokens for all chains once
-    useEffect(() => {
-        let cancelled = false;
-        const run = async () => {
-            setTokensLoading(true);
-            const results: Record<number, SpotToken[]> = {};
-            await Promise.all(SPOT_NETWORKS.map(async (net) => {
-                try {
-                    const data = await getSpotTokens(net.chainId);
-                    results[net.chainId] = (data.tokens ?? []).map((t: any) => ({
-                        address: t.address?.toLowerCase() ?? '',
-                        decimals: t.decimals ?? 18,
-                        symbol: t.symbol ?? '',
-                        name: t.name ?? '',
-                        logo: t.logo ?? null,
-                    }));
-                } catch { results[net.chainId] = []; }
+    // Fetch Velora tokens when user searches in the token selector
+    const handleSearchChange = useCallback(async (query: string) => {
+        if (!query.trim()) {
+            setVeloraTokens(null);
+            return;
+        }
+        setVeloraLoading(true);
+        try {
+            const data = await getSpotTokens(selectedChainId);
+            const mapped = (data.tokens ?? []).map((t: any) => ({
+                address: t.address?.toLowerCase() ?? '',
+                decimals: t.decimals ?? 18,
+                symbol: t.symbol ?? '',
+                name: t.name ?? '',
+                logo: t.logo ?? null,
             }));
-            if (!cancelled) { setTokensByChain(results); setTokensLoading(false); }
-        };
-        void run();
-        return () => { cancelled = true; };
-    }, []);
+            setVeloraTokens(mapped);
+        } catch {
+            setVeloraTokens([]);
+        } finally {
+            setVeloraLoading(false);
+        }
+    }, [selectedChainId]);
 
-    // Default USDC on load
+    // Default USDC on load (from hardcoded common tokens — no API call)
     useEffect(() => {
-        if (fromToken || toToken || tokensLoading) return;
-        const targetChain = selectedChainId;
-        const chainTokens = tokensByChain[targetChain] ?? [];
-        if (!chainTokens.length) return;
-        const usdc = chainTokens.find((t) => t.symbol.toUpperCase() === 'USDC')
-            ?? chainTokens.find((t) => t.symbol.toUpperCase() === 'USDC.E')
-            ?? chainTokens.find((t) => t.symbol.toUpperCase().includes('USDC'));
+        if (fromToken || toToken) return;
+        const common = COMMON_TOKENS[selectedChainId] ?? [];
+        if (!common.length) return;
+        const usdc = common.find((t) => t.symbol.toUpperCase() === 'USDC')
+            ?? common.find((t) => t.symbol.toUpperCase() === 'USDC.E')
+            ?? common.find((t) => t.symbol.toUpperCase().includes('USDC'));
         if (!usdc) return;
         setFromToken(usdc);
-    }, [fromToken, selectedChainId, toToken, tokensByChain, tokensLoading]);
+    }, [fromToken, selectedChainId, toToken]);
 
     // From balance — fetches via engine API (uses premium RPCs)
     useEffect(() => {
@@ -444,11 +580,11 @@ export function SpotSwapCard() {
             const srcUsd = getQuoteUsdValue(q, 'src');
             const destUsd = getQuoteUsdValue(q, 'dest');
             if (fromToken && srcUsd && BigInt(q.srcAmount) > 0n) {
-                const h = parseFloat(formatUnits(BigInt(q.srcAmount), fromToken.decimals ?? 18));
+                const h = parseFloat(formatQuoteUnits(q.srcAmount, q, 'src', fromToken.decimals ?? 18));
                 if (h > 0) updates[`${selectedChainId}:${getTokenAddress(fromToken)}`] = srcUsd / h;
             }
             if (toToken && destUsd && BigInt(q.destAmount) > 0n) {
-                const h = parseFloat(formatUnits(BigInt(q.destAmount), toToken.decimals ?? 18));
+                const h = parseFloat(formatQuoteUnits(q.destAmount, q, 'dest', toToken.decimals ?? 18));
                 if (h > 0) updates[`${selectedChainId}:${getTokenAddress(toToken)}`] = destUsd / h;
             }
         } catch { return; }
@@ -459,10 +595,10 @@ export function SpotSwapCard() {
     const fetchQuote = useCallback(async (force = false) => {
         if (quoteLockedRef.current && !force) return;
         if (!fromToken || !toToken || fromAmountWei <= 0n) {
-            setQuote(null); setQuoteLoading(false); setQuoteError(null); return;
+            setQuote(null); setQuoteChainId(null); setQuoteLoading(false); setQuoteError(null); return;
         }
         if (getTokenAddress(fromToken) === getTokenAddress(toToken)) {
-            setQuote(null); setQuoteError('Choose two different tokens.'); return;
+            setQuote(null); setQuoteChainId(null); setQuoteError('Choose two different tokens.'); return;
         }
         abortRef.current?.abort();
         const ctrl = new AbortController();
@@ -479,12 +615,13 @@ export function SpotSwapCard() {
             }, ctrl.signal);
             if (ctrl.signal.aborted) return;
             const q = data.quote ?? data;
-            setQuote(q); setQuoteLoading(false); setNextRefreshIn(QUOTE_REFRESH_SECONDS);
+            setQuote(q); setQuoteChainId(selectedChainId); setQuoteLoading(false); setNextRefreshIn(QUOTE_REFRESH_SECONDS);
             updatePricesFromQuote(q);
         } catch (err: any) {
             if (err?.name === 'CanceledError' || err?.name === 'AbortError') return;
             if (!ctrl.signal.aborted) {
                 setQuote(null);
+                setQuoteChainId(null);
                 setQuoteError(mapErrorToUserFriendly(err?.message) || err?.message || 'Failed to fetch quote');
                 setQuoteLoading(false);
             }
@@ -501,29 +638,31 @@ export function SpotSwapCard() {
             debounceRef.current = setTimeout(() => void fetchQuoteRef.current(true), 500);
         } else {
             setQuote(null);
+            setQuoteChainId(null);
             setQuoteError(null);
         }
         return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
     }, [fromToken, toToken, fromAmountWei]);
 
     useEffect(() => {
-        if (!quote || quoteLoading || executionBusy) return;
+        if (!activeQuote || quoteLoading || executionBusy) return;
         const t = setInterval(() => setNextRefreshIn((c) => { if (c <= 1) { void fetchQuoteRef.current(true); return QUOTE_REFRESH_SECONDS; } return c - 1; }), 1000);
         return () => clearInterval(t);
-    }, [quote, quoteLoading, executionBusy]);
+    }, [activeQuote, quoteLoading, executionBusy]);
 
     useEffect(() => { quoteLockedRef.current = executionBusy; }, [executionBusy]);
     // Fetch spender address dynamically from the engine when chain changes
     useEffect(() => {
         let cancelled = false;
         setSpender(null);
+        setSpenderChainId(null);
         (async () => {
             try {
                 const { address } = await getSpotSpender(selectedChainId);
-                if (!cancelled) setSpender(address);
+                if (!cancelled) { setSpender(address); setSpenderChainId(selectedChainId); }
             } catch (err) {
                 logger.warn('[SpotSwap] Failed to fetch spender address', err);
-                if (!cancelled) setSpender(null);
+                if (!cancelled) { setSpender(null); setSpenderChainId(null); }
             }
         })();
         return () => { cancelled = true; };
@@ -533,7 +672,7 @@ export function SpotSwapCard() {
 
     // Allowance check — uses premium RPCs via backend proxy
     useEffect(() => {
-        if (!fromToken || !account || !spender || isNativeToken(fromToken) || chainId !== selectedChainId || fromAmountWei <= 0n || !fromToken.address) {
+        if (!fromToken || !account || !activeSpender || isNativeToken(fromToken) || chainId !== selectedChainId || fromAmountWei <= 0n || !fromToken.address) {
             setApprovalRequired(false); return;
         }
         let cancelled = false;
@@ -543,13 +682,13 @@ export function SpotSwapCard() {
                     chainId: selectedChainId,
                     tokenAddress: fromToken.address!,
                     owner: account,
-                    spender,
+                    spender: activeSpender,
                 });
                 if (!cancelled) setApprovalRequired(BigInt(allowance) < fromAmountWei);
             } catch { if (!cancelled) setApprovalRequired(false); }
         })();
         return () => { cancelled = true; };
-    }, [fromToken, account, fromAmountWei, chainId, selectedChainId, allowanceNonce, spender]);
+    }, [fromToken, account, fromAmountWei, chainId, selectedChainId, allowanceNonce, activeSpender]);
 
     // Click-outside for slippage menu
     useEffect(() => {
@@ -577,10 +716,26 @@ export function SpotSwapCard() {
 
     const resetForNetwork = (id: number) => {
         setSelectedChainId(id); setFromToken(null); setToToken(null);
-        setFromAmount(''); setQuote(null); setQuoteError(null);
+        setFromAmount(''); setQuote(null); setQuoteChainId(null); setQuoteError(null);
         setApprovalRequired(false); setFromBalance(0n); setToBalance(0n);
     };
-    const handleNetworkChange = (id: number) => { if (id !== selectedChainId) resetForNetwork(id); };
+    const handleNetworkChange = async (id: number) => {
+        if (id === selectedChainId) return;
+        resetForNetwork(id);
+        // Auto-switch wallet to the selected chain if connected + not already there
+        if (isConnected && walletClient && id !== chainId) {
+            setSwitchingNetwork(true);
+            try {
+                if (typeof walletClient.switchChain === 'function') {
+                    await walletClient.switchChain({ id });
+                }
+            } catch (err: any) {
+                setQuoteError(mapErrorToUserFriendly(err?.message) || err?.message || 'Unable to switch network');
+            } finally {
+                setSwitchingNetwork(false);
+            }
+        }
+    };
     const openSelector = (mode: 'from' | 'to') => { setSelectorMode(mode); setSelectorOpen(true); };
 
     const handleTokenSelect = (selected: SpotToken, tokenChainId: number) => {
@@ -598,11 +753,6 @@ export function SpotSwapCard() {
         setSelectorOpen(false);
     };
 
-    const switchTokens = () => {
-        if (!fromToken || !toToken) return;
-        setFromToken(toToken); setToToken(fromToken);
-        setQuote(null); setQuoteError(null);
-    };
     const applyAmount = (amount: bigint) => {
         if (!fromToken) return;
         if (isUSDMode) {
@@ -625,25 +775,72 @@ export function SpotSwapCard() {
         if (Number.isFinite(p)) setSlippageBps(clampSlippage(p * 100));
     };
 
+    const readWalletChainId = useCallback(async (): Promise<number | null> => {
+        if (!walletClient) return chainId ?? null;
+        try {
+            if (typeof walletClient.getChainId === 'function') {
+                return Number(await walletClient.getChainId());
+            }
+            if (typeof walletClient.request === 'function') {
+                const raw = await walletClient.request({ method: 'eth_chainId' });
+                return typeof raw === 'string' ? Number.parseInt(raw, 16) : Number(raw);
+            }
+        } catch {
+            return chainId ?? null;
+        }
+        return chainId ?? null;
+    }, [chainId, walletClient]);
+
+    const ensureWalletOnSelectedChain = useCallback(async () => {
+        if (!walletClient) throw new Error('Connect your wallet to continue.');
+
+        const targetChainId = selectedChainId;
+        const targetLabel = activeNetwork?.label ?? 'the selected network';
+        let currentChainId = await readWalletChainId();
+        if (currentChainId === targetChainId) return;
+
+        if (typeof walletClient.switchChain !== 'function') {
+            throw new Error(`Please switch your wallet to ${targetLabel} to continue.`);
+        }
+
+        await walletClient.switchChain({ id: targetChainId });
+
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+            await new Promise((resolve) => setTimeout(resolve, 250));
+            currentChainId = await readWalletChainId();
+            if (currentChainId === targetChainId) return;
+        }
+
+        throw new Error(`Please switch your wallet to ${targetLabel} to continue.`);
+    }, [activeNetwork?.label, readWalletChainId, selectedChainId, walletClient]);
+
+    const getActiveWalletClient = useCallback(async () => {
+        if (!account) throw new Error('Connect your wallet to continue.');
+        await ensureWalletOnSelectedChain();
+        return getConnectorClient(wagmiConfig, {
+            account: account as Hex,
+            chainId: selectedChainId as any,
+        });
+    }, [account, ensureWalletOnSelectedChain, selectedChainId]);
     const handleSwitchWalletNetwork = async () => {
         if (!walletClient || chainId === selectedChainId) return;
         setSwitchingNetwork(true);
         try {
-            if (typeof walletClient.switchChain === 'function') await walletClient.switchChain({ id: selectedChainId });
-            else throw new Error('Open your wallet and switch network manually.');
+            await ensureWalletOnSelectedChain();
         } catch (err: any) {
             setQuoteError(mapErrorToUserFriendly(err?.message) || err?.message || 'Unable to switch network');
         } finally { setSwitchingNetwork(false); }
     };
 
     const handleApprove = async () => {
-        if (!account || !fromToken || !walletClient || !spender || fromAmountWei <= 0n) return;
+        if (!account || !fromToken || !walletClient || !activeSpender || fromAmountWei <= 0n) return;
         setApprovalPending(true); setQuoteError(null);
         try {
-            const hash = await walletClient.writeContract({
+            const activeWalletClient = await getActiveWalletClient();
+            const hash = await writeContract(activeWalletClient, {
                 address: fromToken.address as Hex, abi: ERC20_ABI, functionName: 'approve',
-                args: [spender as Hex, calcApprovalAmount(fromAmountWei, APPROVAL_BUFFER_BPS)],
-                account: account as Hex, chainId: selectedChainId,
+                args: [activeSpender as Hex, calcApprovalAmount(fromAmountWei, APPROVAL_BUFFER_BPS)],
+                account: account as Hex,
             });
             const mKey = CHAIN_TO_MARKET_KEY[selectedChainId];
             if (mKey) addTransaction({ hash, chainId: selectedChainId, description: `Approve ${fromToken.symbol}`, marketKey: mKey, fromTokenSymbol: fromToken.symbol, suppressPositionRefresh: true });
@@ -657,22 +854,23 @@ export function SpotSwapCard() {
     };
 
     const handleSwap = async () => {
-        if (!account || !fromToken || !toToken || !quote || !walletClient || fromAmountWei <= 0n) return;
+        if (!account || !fromToken || !toToken || !activeQuote || !walletClient || fromAmountWei <= 0n) return;
         setBuildLoading(true); setQuoteError(null); quoteLockedRef.current = true;
         try {
+            const activeWalletClient = await getActiveWalletClient();
             const data = await buildSpotSwapTx({
                 chainId: selectedChainId,
                 fromToken: { address: getTokenAddress(fromToken), decimals: fromToken.decimals ?? 18, symbol: fromToken.symbol },
                 toToken: { address: getTokenAddress(toToken), decimals: toToken.decimals ?? 18, symbol: toToken.symbol },
-                fromAmount: fromAmountWei.toString(), toAmount: quote.destAmount,
-                userAddress: account, slippageBps, priceRoute: quote.raw ?? quote,
+                fromAmount: fromAmountWei.toString(), toAmount: activeQuote.destAmount,
+                userAddress: account, slippageBps, priceRoute: activeQuote.raw ?? activeQuote,
             });
             const { to, data: txData, value } = data.tx ?? data;
             setBuildLoading(false); setTxPending(true);
-            const hash = await walletClient.sendTransaction({ to: to as Hex, data: txData as Hex, value: value ? BigInt(value) : 0n, account: account as Hex, chainId: selectedChainId });
+            const hash = await sendTransaction(activeWalletClient, { to: to as Hex, data: txData as Hex, value: value ? BigInt(value) : 0n, account: account as Hex, chainId: selectedChainId });
             const mKey = CHAIN_TO_MARKET_KEY[selectedChainId];
             if (mKey) addTransaction({ hash, chainId: selectedChainId, description: `Swap ${fromToken.symbol} to ${toToken.symbol}`, marketKey: mKey, fromTokenSymbol: fromToken.symbol, toTokenSymbol: toToken.symbol });
-            setFromAmount(''); setQuote(null); setAllowanceNonce((c) => c + 1);
+            setFromAmount(''); setQuote(null); setQuoteChainId(null); setAllowanceNonce((c) => c + 1);
             logger.info('[SpotSwap] Transaction sent', { hash });
         } catch (err: any) {
             logger.error('[SpotSwap] Swap failed', err);
@@ -682,20 +880,13 @@ export function SpotSwapCard() {
 
     // Single-click swap: auto-switches network, approves if needed, then sends swap
     const handleSwapWithAutoApprove = useCallback(async () => {
-        if (!account || !fromToken || !toToken || !quote || !walletClient || !publicClient || !spender || fromAmountWei <= 0n) return;
+        if (!account || !fromToken || !toToken || !activeQuote || !walletClient || !publicClient || !activeSpender || fromAmountWei <= 0n) return;
         setQuoteError(null);
         quoteLockedRef.current = true;
 
         try {
-            // Step 0: Auto-switch network if wallet is on the wrong chain
-            if (chainId !== selectedChainId && typeof walletClient.switchChain === 'function') {
-                try {
-                    await walletClient.switchChain({ id: selectedChainId });
-                } catch {
-                    // User rejected the switch or it failed — abort
-                    throw new Error(`Please switch your wallet to ${activeNetwork?.label ?? 'the selected network'} to continue.`);
-                }
-            }
+            // Step 0: Make sure the provider itself is on the target chain before approve/swap.
+            const activeWalletClient = await getActiveWalletClient();
 
             // Step 1: Check allowance via premium RPCs (don't rely on stale approvalRequired state)
             const needsApproval = !isNativeToken(fromToken) && fromToken.address && (async () => {
@@ -704,7 +895,7 @@ export function SpotSwapCard() {
                         chainId: selectedChainId,
                         tokenAddress: fromToken.address!,
                         owner: account,
-                        spender,
+                        spender: activeSpender,
                     });
                     return BigInt(allowance) < fromAmountWei;
                 } catch {
@@ -715,10 +906,10 @@ export function SpotSwapCard() {
             if (await needsApproval) {
                 setApprovalPending(true);
                 logger.info('[SpotSwap] Auto-approving before swap');
-                const hash = await walletClient.writeContract({
+                const hash = await writeContract(activeWalletClient, {
                     address: fromToken.address as Hex, abi: ERC20_ABI, functionName: 'approve',
-                    args: [spender as Hex, calcApprovalAmount(fromAmountWei, APPROVAL_BUFFER_BPS)],
-                    account: account as Hex, chainId: selectedChainId,
+                    args: [activeSpender as Hex, calcApprovalAmount(fromAmountWei, APPROVAL_BUFFER_BPS)],
+                    account: account as Hex,
                 });
                 const mKey = CHAIN_TO_MARKET_KEY[selectedChainId];
                 if (mKey) addTransaction({ hash, chainId: selectedChainId, description: `Approve ${fromToken.symbol}`, marketKey: mKey, fromTokenSymbol: fromToken.symbol, suppressPositionRefresh: true });
@@ -734,39 +925,42 @@ export function SpotSwapCard() {
                 chainId: selectedChainId,
                 fromToken: { address: getTokenAddress(fromToken), decimals: fromToken.decimals ?? 18, symbol: fromToken.symbol },
                 toToken: { address: getTokenAddress(toToken), decimals: toToken.decimals ?? 18, symbol: toToken.symbol },
-                fromAmount: fromAmountWei.toString(), toAmount: quote.destAmount,
-                userAddress: account, slippageBps, priceRoute: quote.raw ?? quote,
+                fromAmount: fromAmountWei.toString(), toAmount: activeQuote.destAmount,
+                userAddress: account, slippageBps, priceRoute: activeQuote.raw ?? activeQuote,
             });
             const { to, data: txData, value } = data.tx ?? data;
             setBuildLoading(false); setTxPending(true);
-            const swapHash = await walletClient.sendTransaction({ to: to as Hex, data: txData as Hex, value: value ? BigInt(value) : 0n, account: account as Hex, chainId: selectedChainId });
+            const swapHash = await sendTransaction(activeWalletClient, { to: to as Hex, data: txData as Hex, value: value ? BigInt(value) : 0n, account: account as Hex, chainId: selectedChainId });
             const swapMKey = CHAIN_TO_MARKET_KEY[selectedChainId];
             if (swapMKey) addTransaction({ hash: swapHash, chainId: selectedChainId, description: `Swap ${fromToken.symbol} to ${toToken.symbol}`, marketKey: swapMKey, fromTokenSymbol: fromToken.symbol, toTokenSymbol: toToken.symbol });
-            setFromAmount(''); setQuote(null); setAllowanceNonce((c) => c + 1);
+            setFromAmount(''); setQuote(null); setQuoteChainId(null); setAllowanceNonce((c) => c + 1);
             logger.info('[SpotSwap] Swap sent', { hash: swapHash });
         } catch (err: any) {
             logger.error('[SpotSwap] Swap failed', err);
             setQuoteError(mapErrorToUserFriendly(err?.message) || err?.message || 'Transaction failed');
         } finally { setApprovalPending(false); setBuildLoading(false); setTxPending(false); quoteLockedRef.current = false; }
-    }, [account, fromToken, toToken, quote, walletClient, publicClient, spender, fromAmountWei, selectedChainId, slippageBps, chainId, activeNetwork?.label]);
+    }, [account, fromToken, toToken, activeQuote, walletClient, publicClient, activeSpender, fromAmountWei, selectedChainId, slippageBps, getActiveWalletClient]);
 
     // -----------------------------------------------------------------------
     // Derived display values
     // -----------------------------------------------------------------------
 
     const minAmountOut = useMemo(() =>
-        quote?.destAmount && toToken ? calcMinAmountOut(quote.destAmount, slippageBps) : null,
-        [quote?.destAmount, slippageBps, toToken]);
+        activeQuote?.destAmount && toToken ? calcMinAmountOut(activeQuote.destAmount, slippageBps) : null,
+        [activeQuote?.destAmount, slippageBps, toToken]);
+
+    const quoteSrcDecimals = activeQuote && fromToken ? quoteSideDecimals(activeQuote, 'src', fromToken.decimals ?? 18) : (fromToken?.decimals ?? 18);
+    const quoteDestDecimals = activeQuote && toToken ? quoteSideDecimals(activeQuote, 'dest', toToken.decimals ?? 18) : (toToken?.decimals ?? 18);
 
     const outputValue = useMemo(() => {
-        if (!quote?.destAmount || !toToken) return '';
+        if (!activeQuote?.destAmount || !toToken) return '';
         if (isUSDMode) {
-            const amt = parseFloat(formatUnits(BigInt(quote.destAmount), toToken.decimals ?? 18));
+            const amt = parseFloat(formatQuoteUnits(activeQuote.destAmount, activeQuote, 'dest', toToken.decimals ?? 18));
             const num = toTokenPrice > 0 ? numberToDecimalInput(amt * toTokenPrice, 2) : '';
             return num ? `$${num}` : '';
         }
-        return amountToInputValue(BigInt(quote.destAmount), toToken.decimals ?? 18, 8);
-    }, [quote?.destAmount, toToken, isUSDMode, toTokenPrice]);
+        return amountToInputValue(BigInt(activeQuote.destAmount), quoteDestDecimals, 8);
+    }, [activeQuote?.destAmount, quoteDestDecimals, toToken, isUSDMode, toTokenPrice]);
 
     const fromSecondaryValue = useMemo(() => {
         if (!fromToken) return null;
@@ -776,44 +970,45 @@ export function SpotSwapCard() {
 
     const toSecondaryValue = useMemo(() => {
         if (!toToken) return null;
-        if (!quote?.destAmount) return isUSDMode ? `0 ${toToken.symbol}` : null;
-        if (isUSDMode) return formatCompactToken(amountToInputValue(BigInt(quote.destAmount), toToken.decimals ?? 18, 8), toToken.symbol);
-        const amt = parseFloat(formatUnits(BigInt(quote.destAmount), toToken.decimals ?? 18));
+        if (!activeQuote?.destAmount) return isUSDMode ? `0 ${toToken.symbol}` : null;
+        if (isUSDMode) return formatCompactToken(amountToInputValue(BigInt(activeQuote.destAmount), quoteDestDecimals, 8), toToken.symbol);
+        const amt = parseFloat(formatQuoteUnits(activeQuote.destAmount, activeQuote, 'dest', toToken.decimals ?? 18));
         return toTokenPrice > 0 ? formatUSD(amt * toTokenPrice) : null;
-    }, [toToken, quote?.destAmount, toTokenPrice, isUSDMode]);
+    }, [toToken, activeQuote?.destAmount, quoteDestDecimals, toTokenPrice, isUSDMode]);
 
-    const rateText = useMemo(() => {
-        if (!quote || !fromToken || !toToken) return '-';
+    const ratePreview = useMemo(() => {
+        if (!activeQuote || !fromToken || !toToken) return null;
         try {
-            const src = parseFloat(formatUnits(BigInt(quote.srcAmount), fromToken.decimals ?? 18));
-            const dest = parseFloat(formatUnits(BigInt(quote.destAmount), toToken.decimals ?? 18));
-            if (src <= 0 || dest <= 0) return '-';
+            const src = parseFloat(formatQuoteUnits(activeQuote.srcAmount, activeQuote, 'src', fromToken.decimals ?? 18));
+            const dest = parseFloat(formatQuoteUnits(activeQuote.destAmount, activeQuote, 'dest', toToken.decimals ?? 18));
+            if (src <= 0 || dest <= 0) return null;
+
             return invertRate
-                ? `1 ${toToken.symbol} = ${formatCompactNumber(src / dest)} ${fromToken.symbol}`
-                : `1 ${fromToken.symbol} = ${formatCompactNumber(dest / src)} ${toToken.symbol}`;
-        } catch { return '-'; }
-    }, [quote, fromToken, toToken, invertRate]);
+                ? { base: `1 ${toToken.symbol}`, quote: `${formatCompactNumber(src / dest)} ${fromToken.symbol}` }
+                : { base: `1 ${fromToken.symbol}`, quote: `${formatCompactNumber(dest / src)} ${toToken.symbol}` };
+        } catch { return null; }
+    }, [activeQuote, fromToken, toToken, invertRate, quoteSrcDecimals, quoteDestDecimals]);
 
     const outputPreview = useMemo(() => {
-        if (!quote?.destAmount || !toToken) return null;
-        const est = parseFloat(formatUnits(BigInt(quote.destAmount), toToken.decimals ?? 18));
-        const min = minAmountOut ? parseFloat(formatUnits(minAmountOut, toToken.decimals ?? 18)) : est;
+        if (!activeQuote?.destAmount || !toToken) return null;
+        const est = parseFloat(formatQuoteUnits(activeQuote.destAmount, activeQuote, 'dest', toToken.decimals ?? 18));
+        const min = minAmountOut ? parseFloat(formatUnits(minAmountOut, quoteDestDecimals)) : est;
         return { estimated: est, minimum: min, estimatedUsd: toTokenPrice > 0 ? est * toTokenPrice : null, minimumUsd: toTokenPrice > 0 ? min * toTokenPrice : null };
-    }, [quote?.destAmount, minAmountOut, toToken, toTokenPrice]);
+    }, [activeQuote?.destAmount, minAmountOut, quoteDestDecimals, toToken, toTokenPrice]);
 
     const totalCostsUsd = useMemo(() => {
-        const gasUsd = parseFloat(String(quote?.raw?.gasCostUSD ?? quote?.raw?.gasUSD ?? quote?.raw?.priceRoute?.gasCostUSD ?? ''));
+        const gasUsd = parseFloat(String(activeQuote?.raw?.gasCostUSD ?? activeQuote?.raw?.gasUSD ?? activeQuote?.raw?.priceRoute?.gasCostUSD ?? ''));
         let total = Number.isFinite(gasUsd) && gasUsd > 0 ? gasUsd : 0;
 
         // Add platform fee estimate
-        const feeBps = quote?.feeBps || 0;
-        if (feeBps > 0 && quote?.destAmount && toToken) {
-            const grossAmount = parseFloat(formatUnits(BigInt(quote.destAmount), toToken.decimals ?? 18));
+        const feeBps = activeQuote?.feeBps || 0;
+        if (feeBps > 0 && activeQuote?.destAmount && toToken) {
+            const grossAmount = parseFloat(formatQuoteUnits(activeQuote.destAmount, activeQuote, 'dest', toToken.decimals ?? 18));
             total += grossAmount * (feeBps / 10000) * toTokenPrice;
         }
 
         return total > 0 ? total : null;
-    }, [quote, toToken, toTokenPrice]);
+    }, [activeQuote, quoteDestDecimals, toToken, toTokenPrice]);
 
     const formattedFromBalance = fromToken ? formatCompactNumber(formatUnits(fromBalance, fromToken.decimals ?? 18)) : '0';
     const formattedToBalance = toToken && toBalance > 0n ? formatCompactNumber(formatUnits(toBalance, toToken.decimals ?? 18)) : null;
@@ -825,17 +1020,20 @@ export function SpotSwapCard() {
         if (!fromAmount || fromAmountWei <= 0n) return { label: 'Enter an amount', disabled: true, onClick: undefined };
         if (isUSDMode && fromTokenPrice <= 0) return { label: 'USD price unavailable', disabled: true, onClick: undefined };
         if (hasInsufficientBalance) return { label: 'Insufficient balance', disabled: true, onClick: undefined };
+        if (walletChanging) return { label: 'Updating wallet...', disabled: true, onClick: undefined };
+        if (!walletOnSelectedChain) return { label: switchingNetwork ? 'Switching network...' : 'Switch to ' + (activeNetwork?.label ?? 'selected network'), disabled: switchingNetwork, onClick: handleSwitchWalletNetwork };
         if (quoteLoading) return { label: 'Getting quote...', disabled: true, onClick: undefined };
+        if (!isNativeToken(fromToken) && !activeSpender) return { label: 'Preparing swap...', disabled: true, onClick: undefined };
         if (approvalPending) return { label: 'Approving...', disabled: true, onClick: undefined };
         if (buildLoading) return { label: 'Building transaction...', disabled: true, onClick: undefined };
         if (txPending) return { label: 'Confirming swap...', disabled: true, onClick: undefined };
-        if (!quote) return { label: 'Enter an amount', disabled: true, onClick: undefined };
+        if (!activeQuote) return { label: 'Enter an amount', disabled: true, onClick: undefined };
         return { label: approvalRequired ? 'Approve & Swap' : 'Swap', disabled: false, onClick: handleSwapWithAutoApprove };
     }, [
         approvalPending, approvalRequired, buildLoading, connectWallet,
         fromAmount, fromAmountWei, fromToken, fromTokenPrice, handleSwapWithAutoApprove,
         hasInsufficientBalance, isConnected, isUSDMode,
-        quote, quoteLoading, toToken, txPending,
+        activeNetwork?.label, activeQuote, activeSpender, quoteLoading, switchingNetwork, toToken, txPending, walletChanging, walletOnSelectedChain,
     ]);
 
     // -----------------------------------------------------------------------
@@ -843,24 +1041,35 @@ export function SpotSwapCard() {
     // -----------------------------------------------------------------------
 
     return (
-        <div className="mx-auto w-full max-w-lg">
-            <div className="rounded-2xl border border-border-light bg-white shadow-xl dark:border-slate-800 dark:bg-[#1b2030]">
+        <div className="mx-auto w-full max-w-125 rounded-[22px] bg-slate-950 p-3 shadow-2xl shadow-slate-950/25">
+            <div className="relative rounded-2xl border border-border-light bg-white shadow-xl dark:border-slate-700 dark:bg-[#1b2030]">
+                {walletChanging && (
+                    <div className="absolute inset-0 z-40 flex items-center justify-center rounded-2xl bg-slate-950/50 backdrop-blur-[1px]">
+                        <div className="inline-flex items-center gap-2 rounded-full border border-slate-700/70 bg-slate-950/90 px-3 py-2 text-xs font-medium text-slate-300 shadow-xl">
+                            <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                            <span>Updating wallet data...</span>
+                        </div>
+                    </div>
+                )}
 
                 {/* Header */}
-                <div className="flex items-center justify-between gap-3 px-5 pt-5 pb-4">
-                    <h2 className="text-xl font-bold text-slate-900 dark:text-white">Swap</h2>
-                    <div className="flex items-center gap-1">
+                <div className="px-4 pt-4 pb-2">
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Swap</h2>
+                    <div className="mt-3 flex min-h-7 items-center justify-between gap-3">
                         <ChainDropdown selectedChainId={selectedChainId} onChange={handleNetworkChange} disabled={executionBusy} />
 
-                        <div className="relative">
+                        <div className="relative flex items-center justify-end">
                             <button
                                 type="button"
                                 data-spot-slippage-toggle="true"
                                 onClick={() => setShowSlippageSettings((v) => !v)}
-                                className="inline-flex items-center gap-1 rounded-full py-1 px-2 text-sm font-bold text-slate-600 transition-all hover:opacity-75 dark:text-slate-300"
+                                className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 transition-all hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                             >
-                                <Settings className="h-4 w-4 text-slate-400" />
-                                {(slippageBps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%
+                                <span className="font-medium">Auto Slippage</span>
+                                <span className="text-slate-800 dark:text-white">
+                                    {(slippageBps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%
+                                </span>
+                                <Settings className="h-3.5 w-3.5 text-slate-400" />
                             </button>
                             {showSlippageSettings && (
                                 <div ref={slippageMenuRef} className="absolute top-full right-0 z-50 mt-2 w-56 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
@@ -880,10 +1089,10 @@ export function SpotSwapCard() {
                 </div>
 
                 {/* Inputs */}
-                <div className="space-y-1 px-4 pb-4">
+                <div className="space-y-1 px-3 pb-3">
 
                     {/* FROM */}
-                    <div className="rounded-xl border border-border-light bg-slate-100 p-3 transition-colors focus-within:border-purple-500/50 dark:border-slate-700 dark:bg-slate-800">
+                    <div className="rounded-xl border border-border-light bg-slate-100 p-2.5 transition-colors focus-within:border-purple-500/50 dark:border-slate-700 dark:bg-slate-800">
                         <div className="flex items-center gap-2">
                             <div className="relative flex flex-1 items-center overflow-hidden">
                                 {isUSDMode && (
@@ -932,19 +1141,34 @@ export function SpotSwapCard() {
                         </div>
                     </div>
 
-                    {/* Switch — divider with centered button */}
-                    <div className="relative flex items-center px-3 py-0">
-                        <div className="flex-1 border-t border-border-light dark:border-slate-700" />
-                        <button type="button" onClick={switchTokens} disabled={!fromToken || !toToken || executionBusy}
-                            className="z-10 mx-2 flex h-8 w-8 items-center justify-center rounded-xl border border-border-light bg-white text-primary shadow-xs transition-all hover:border-primary/30 hover:bg-primary/5 hover:text-primary active:scale-90 disabled:opacity-30 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-primary/40 dark:hover:bg-primary/10"
-                            title="Switch tokens">
-                            <ArrowDownUp className="h-4 w-4" />
-                        </button>
-                        <div className="flex-1 border-t border-border-light dark:border-slate-700" />
+                    {/* Quote refresh + countdown */}
+                    <div className="relative flex min-h-5 items-center justify-center">
+                        <div className="flex items-center gap-2 text-xs text-slate-500">
+                            {fromAmount ? (
+                                <>
+                                    <button
+                                        type="button"
+                                        onClick={() => void fetchQuote(true)}
+                                        disabled={quoteLoading || executionBusy}
+                                        className="text-slate-500 hover:text-slate-700 dark:hover:text-slate-300 transition-colors disabled:opacity-50"
+                                        title="Refresh quote"
+                                    >
+                                        <RefreshCw className={`h-3 w-3 ${quoteLoading ? 'animate-spin text-primary' : ''}`} />
+                                    </button>
+                                    {quoteLoading || !quote ? (
+                                        <span className="text-purple-400">Loading quote&hellip;</span>
+                                    ) : (
+                                        <span>Auto refresh in {nextRefreshIn}s</span>
+                                    )}
+                                </>
+                            ) : (
+                                <span className="text-slate-400/60">Enter an amount</span>
+                            )}
+                        </div>
                     </div>
 
                     {/* TO */}
-                    <div className="rounded-xl border border-border-light bg-slate-100 p-3 dark:border-slate-700 dark:bg-slate-800">
+                    <div className="rounded-xl border border-border-light bg-slate-100 p-2.5 dark:border-slate-700 dark:bg-slate-800">
                         <div className="flex items-center gap-2">
                             <div className="flex-1 overflow-hidden pl-0.5">
                                 {quoteLoading ? (
@@ -968,123 +1192,122 @@ export function SpotSwapCard() {
                             )}
                         </div>
                     </div>
-
-                    {/* Rate — centered below TO input */}
-                    {quote && fromToken && toToken && (
-                        <button type="button" onClick={() => setInvertRate((v) => !v)} className="flex w-full items-center justify-center gap-1 px-0.5 py-1 text-xs text-center">
-                            <span className="font-medium text-slate-500 dark:text-slate-400">{rateText}</span>
-                            <ArrowDownUp className="h-3 w-3 text-slate-400 shrink-0" />
-                        </button>
+                    {/* Exchange Rate Indicator */}
+                    {ratePreview && (
+                        <div className="mt-1 flex flex-col items-center space-y-2">
+                            <button
+                                type="button"
+                                onClick={() => setInvertRate((v) => !v)}
+                                className="group flex cursor-pointer items-center gap-2 text-xs font-bold text-slate-500 transition-colors hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-300"
+                                title="Invert rate"
+                            >
+                                <span>{ratePreview.base}</span>
+                                <ArrowRightLeft className="h-3 w-3 text-slate-400 group-hover:text-slate-600 dark:text-slate-500 dark:group-hover:text-slate-400" />
+                                <span>{ratePreview.quote}</span>
+                            </button>
+                        </div>
                     )}
                 </div>
 
                 {/* Transaction Overview */}
-                {quote && fromToken && toToken && (
-                    <div className="border-t border-border-light px-4 pb-4 pt-3 dark:border-slate-700/60">
+                {activeQuote && fromToken && toToken && (
+                    <div className="px-3 pb-3 pt-0">
                         <div className="text-sm font-bold text-slate-600 dark:text-slate-400 mb-0.5 px-1">Transaction overview</div>
-
-                        {/* Costs & Fees Collapsible Header */}
-                        <button
-                            type="button"
-                            onClick={() => setShowCostsBreakdown((v) => !v)}
-                            className="w-full flex items-center justify-between px-1 py-1 transition-colors"
-                        >
-                            <div className="flex items-center gap-2">
-                                <span className="font-medium text-[13px] text-slate-600 dark:text-slate-300">Costs & Fees</span>
-                                {(quote?.discountPercent ?? 0) > 0 && (
-                                    <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold whitespace-nowrap">
-                                        Discount Applied
-                                    </span>
-                                )}
-                            </div>
-                            <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
-                                <span className="font-medium">{totalCostsUsd !== null ? formatUSD(totalCostsUsd) : '-'}</span>
-                                {showCostsBreakdown ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
-                            </div>
-                        </button>
-
-                        {showCostsBreakdown && (
-                            <div className="relative ml-4 pl-4 pr-3 pb-1 pt-2 space-y-3 text-xs border-l border-dashed border-slate-300 dark:border-slate-700/50">
-                                {/* Network Costs */}
-                                <div className="flex justify-between items-center group">
-                                    <div className="flex items-center gap-1.5 text-slate-500">
-                                        <span>Network costs</span>
-                                        <InfoTooltip content="Estimated network gas cost." size={12} />
-                                    </div>
-                                    <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
-                                        <span>{formatGasCost(quote)}</span>
-                                    </div>
-                                </div>
-                                {/* Platform Fee */}
-                                <div className="flex justify-between items-center group">
-                                    <div className="flex items-center gap-1.5 text-slate-500">
-                                        <span>
-                                            {(() => {
-                                                const feeBps = quote?.feeBps;
-                                                if (feeBps == null || !Number.isFinite(feeBps)) return 'Service Fee (--)';
-                                                return `Service Fee (${(feeBps / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}%)`;
-                                            })()}
+                        <div className="transition-all">
+                            {/* Costs & Fees Collapsible Header */}
+                            <button
+                                type="button"
+                                onClick={() => setShowCostsBreakdown((v) => !v)}
+                                className="w-full flex items-center justify-between px-1 py-1 transition-colors"
+                            >
+                                <div className="flex items-center gap-2">
+                                    <span className="font-medium text-[13px] text-slate-600 dark:text-slate-300">Costs & Fees</span>
+                                    {(activeQuote?.discountPercent ?? 0) > 0 && (
+                                        <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold whitespace-nowrap">
+                                            Discount Applied
                                         </span>
-                                        {(quote?.discountPercent ?? 0) > 0 && (
-                                            <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
-                                                {quote.discountPercent}% OFF
+                                    )}
+                                </div>
+                                <div className="flex items-center gap-2 text-[13px] text-slate-600 dark:text-slate-300">
+                                    <span className="font-medium">{totalCostsUsd !== null ? formatUSD(totalCostsUsd) : '-'}</span>
+                                    {showCostsBreakdown ? <ChevronUp className="h-4 w-4 text-slate-400" /> : <ChevronDown className="h-4 w-4 text-slate-400" />}
+                                </div>
+                            </button>
+
+                            {showCostsBreakdown && (
+                                <div className="relative pl-3 pr-3 pb-1 pt-2 space-y-3 text-xs border-l border-dashed border-slate-300 dark:border-slate-700/50">
+                                    {/* Network Costs */}
+                                    <div className="flex justify-between items-center group">
+                                        <div className="flex items-center gap-1.5 text-slate-500">
+                                            <span>Network costs</span>
+                                            <InfoTooltip content="Estimated network gas cost." size={12} />
+                                        </div>
+                                        <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+                                            <span>{formatGasCost(activeQuote)}</span>
+                                        </div>
+                                    </div>
+                                    {/* Platform Fee */}
+                                    <div className="flex justify-between items-center group">
+                                        <div className="flex items-center gap-1.5 text-slate-500">
+                                            <span>
+                                                {(() => {
+                                                    const feeBps = activeQuote?.feeBps;
+                                                    if (feeBps == null || !Number.isFinite(feeBps)) return 'Service Fee (--)';
+                                                    return `Service Fee (${(feeBps / 100).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 4 })}%)`;
+                                                })()}
                                             </span>
-                                        )}
+                                            {(activeQuote?.discountPercent ?? 0) > 0 && (
+                                                <span className="px-1.5 py-0.5 rounded bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold uppercase tracking-wider whitespace-nowrap">
+                                                    {activeQuote.discountPercent}% OFF
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
+                                            {toToken && (
+                                                <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
+                                                    <img src={getTokenLogo(toToken.symbol)} className="w-full h-full object-cover" alt="" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
+                                                </div>
+                                            )}
+                                            <span>
+                                                {(() => {
+                                                    const feeBps = activeQuote?.feeBps;
+                                                    if (feeBps == null || !Number.isFinite(feeBps)) return '--';
+                                                    if (feeBps === 0) return 'Free';
+                                                    const grossAmount = parseFloat(formatQuoteUnits(activeQuote.destAmount, activeQuote, 'dest', toToken.decimals ?? 18));
+                                                    const fee = grossAmount * (feeBps / 10000);
+                                                    return fee < 0.00001 ? '< 0.00001' : fee.toLocaleString('en-US', { maximumFractionDigits: 6 });
+                                                })()}
+                                            </span>
+                                        </div>
                                     </div>
-                                    <div className="flex items-center gap-1 font-medium text-slate-600 dark:text-slate-300">
-                                        {toToken && (
-                                            <div className="w-3.5 h-3.5 rounded-full overflow-hidden shrink-0">
-                                                <img src={getTokenLogo(toToken.symbol)} className="w-full h-full object-cover" alt="" onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }} />
-                                            </div>
-                                        )}
-                                        <span>
-                                            {(() => {
-                                                const feeBps = quote?.feeBps;
-                                                if (feeBps == null || !Number.isFinite(feeBps)) return '--';
-                                                if (feeBps === 0) return 'Free';
-                                                const grossAmount = parseFloat(formatUnits(BigInt(quote.destAmount), toToken.decimals ?? 18));
-                                                const fee = grossAmount * (feeBps / 10000);
-                                                return fee < 0.00001 ? '< 0.00001' : fee.toLocaleString('en-US', { maximumFractionDigits: 6 });
-                                            })()}
+                                </div>
+                            )}
+
+                            {/* Persistent Rows */}
+                            {showOverview && (
+                                <div className="px-1 pb-1 pt-1 space-y-2">
+                                    <div className="flex items-center justify-between gap-3 text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                                        <span className="flex items-center gap-1">Price impact <InfoTooltip content="Estimated impact of this trade on the market price." size={12} /></span>
+                                        <span className={Number(activeQuote.priceImpact) > 0.02 ? 'font-medium text-amber-500' : 'font-medium text-slate-900 dark:text-slate-100'}>
+                                            {formatPercent(Number(activeQuote.priceImpact))}
                                         </span>
                                     </div>
-                                </div>
-                            </div>
-                        )}
-
-                        {/* Persistent Rows */}
-                        {showOverview && (
-                            <div className="mt-2 space-y-2.5 text-sm">
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="flex items-center gap-1 text-muted-foreground">Price impact <InfoTooltip content="Estimated impact of this trade on the market price." size={12} /></span>
-                                    <span className={Number(quote.priceImpact) > 0.02 ? 'font-medium text-amber-500' : 'font-medium text-slate-900 dark:text-white'}>
-                                        {formatPercent(Number(quote.priceImpact))}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between gap-3">
-                                    <span className="flex items-center gap-1 text-muted-foreground">
-                                        Minimum received
-                                        <InfoTooltip content={`Protected by ${(slippageBps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}% max slippage.`} size={12} />
-                                    </span>
-                                    <span className="text-right font-medium text-slate-900 dark:text-white">
-                                        {minAmountOut ? formatCompactToken(formatUnits(minAmountOut, toToken.decimals ?? 18), toToken.symbol) : '-'}
-                                        {outputPreview?.minimumUsd ? <span className="ml-1 font-normal text-slate-400">({formatUSD(outputPreview.minimumUsd)})</span> : null}
-                                    </span>
-                                </div>
-                                <div className="flex items-center justify-between gap-3 border-t border-slate-200 pt-2 text-xs dark:border-slate-700">
-                                    <span className="text-slate-500 dark:text-slate-400">
-                                        {quoteLoading ? 'Refreshing quote…' : `Auto refresh in ${nextRefreshIn}s`}
-                                    </span>
-                                    <div className="flex items-center gap-3">
+                                    <div className="flex items-center justify-between gap-3 text-[13px] font-medium text-slate-600 dark:text-slate-300">
+                                        <span className="flex items-center gap-1">
+                                            Minimum received
+                                            <InfoTooltip content={`Protected by ${(slippageBps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}% max slippage.`} size={12} />
+                                        </span>
+                                        <span className="text-right font-medium text-slate-900 dark:text-slate-100">
+                                            {minAmountOut ? formatCompactToken(formatUnits(minAmountOut, quoteDestDecimals), toToken.symbol) : '-'}
+                                            {outputPreview?.minimumUsd ? <span className="ml-1 font-normal text-slate-400">({formatUSD(outputPreview.minimumUsd)})</span> : null}
+                                        </span>
+                                    </div>
+                                    <div className="flex items-center justify-end gap-3 border-t border-slate-200 pt-2 text-xs dark:border-slate-700">
                                         <span className="text-slate-400 dark:text-slate-500">via Velora</span>
-                                        <button type="button" onClick={() => void fetchQuote(true)} disabled={quoteLoading || executionBusy} className="inline-flex items-center gap-1 font-bold text-primary transition-opacity disabled:opacity-50">
-                                            <RefreshCw className={`h-3.5 w-3.5 ${quoteLoading ? 'animate-spin' : ''}`} />
-                                            Refresh
-                                        </button>
                                     </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
+                        </div>
                     </div>
                 )}
 
@@ -1106,9 +1329,13 @@ export function SpotSwapCard() {
                 )}
 
                 {/* Action button */}
-                <div className="px-4 pb-5">
-                    <Button type="button" onClick={action.onClick} disabled={action.disabled} className="h-12 w-full rounded-xl text-base font-bold" size="lg">
-                        {(quoteLoading || approvalPending || buildLoading || txPending) && <Loader2 className="h-4 w-4 animate-spin" />}
+                <div className="px-3 pb-4">
+                    <Button type="button" onClick={action.onClick} disabled={action.disabled} className="group h-12 w-full rounded-xl text-base font-bold" size="lg">
+                        {(quoteLoading || approvalPending || buildLoading || txPending || walletChanging) ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                        ) : action.label.includes('Swap') ? (
+                            <ArrowRightLeft className="h-4 w-4 transition-transform duration-500 group-hover:rotate-180" />
+                        ) : null}
                         {action.label}
                     </Button>
                 </div>
@@ -1119,11 +1346,23 @@ export function SpotSwapCard() {
                 isOpen={selectorOpen}
                 onClose={() => setSelectorOpen(false)}
                 onSelect={handleTokenSelect}
-                tokens={tokensByChain[selectedChainId] ?? []}
-                tokensLoading={tokensLoading}
+                tokens={selectorTokens}
+                tokensLoading={selectorLoading}
                 chainId={selectedChainId}
                 networkLabel={activeNetwork?.label}
+                onSearchChange={handleSearchChange}
             />
         </div>
     );
 }
+
+
+
+
+
+
+
+
+
+
+
