@@ -78,11 +78,8 @@ export default function Welcome() {
         </span>
     );
 
-    const now = Date.now();
-    const isBlackBeltWeekend = now >= 1780023600000 && now <= 1780282799000;
-
     const donatorTagSuffix = donator.type?.toLowerCase().includes('partner') ? 'Partner' : 'Donator';
-    const appTagLabel = isBlackBeltWeekend ? "Black Belt 🥋 Weekend" : (donator.isDonator ? `Lil'${donatorTagSuffix}` : 'Get 10% Fee Discount');
+    const appTagLabel = donator.isDonator ? `Lil'${donatorTagSuffix}` : 'Get 10% Fee Discount';
     const desktopTagClassName = 'pointer-events-auto inline-flex h-6 items-center rounded-md border border-primary/35 bg-white px-2.5 text-[9px] font-black uppercase tracking-[0.16em] text-primary shadow-[0_0_10px_rgba(168,85,247,0.12)] dark:border-cyan-400/35 dark:bg-cyan-500/14 dark:text-cyan-300 dark:shadow-[0_0_12px_rgba(34,211,238,0.16)]';
     const mobileTagClassName = 'pointer-events-auto inline-flex h-5 items-center rounded-md border border-primary/35 bg-white px-2 text-[8px] font-black uppercase tracking-[0.16em] text-primary shadow-[0_0_10px_rgba(168,85,247,0.12)] dark:border-cyan-400/35 dark:bg-cyan-500/14 dark:text-cyan-300 dark:shadow-[0_0_12px_rgba(34,211,238,0.16)]';
     const showDonatorTag = positionsByChain !== null;
@@ -111,31 +108,11 @@ export default function Welcome() {
                     <div className="relative">
                         {showDonatorTag && (
                             <>
-                                <div className="pointer-events-none absolute left-1/2 top-0 z-45 -translate-x-1/2 -translate-y-[92%] sm:hidden">
-                                    {donator.isDonator || isBlackBeltWeekend ? (
+                                <div className="pointer-events-none absolute left-1/2 top-0 z-45 -translate-x-1/2 translate-y-[-92%] sm:hidden">
+                                    {donator.isDonator ? (
                                         <InfoTooltip
-                                            interactive={isBlackBeltWeekend}
-                                            maxWidth={isBlackBeltWeekend ? "280px" : "250px"}
-                                            message={
-                                                isBlackBeltWeekend ? (
-                                                    <span>
-                                                        You are enjoying a 100% discount during this weekend
-                                                        <br />
-                                                        supported by{' '}
-                                                        <a
-                                                            href="https://t.me/BitNada"
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-primary hover:underline font-bold"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                        >
-                                                            Black Belts Community
-                                                        </a>
-                                                    </span>
-                                                ) : (
-                                                    `You are enjoying a ${donator.discountPercent}% discount. Thank you for supporting LilSwap!`
-                                                )
-                                            }
+                                            maxWidth="250px"
+                                            message={`You are enjoying a ${donator.discountPercent}% discount. Thank you for supporting LilSwap!`}
                                         >
                                             <span className={`${mobileTagClassName} cursor-help`}>
                                                 {appTagLabel}
@@ -153,31 +130,11 @@ export default function Welcome() {
                                     )}
                                 </div>
 
-                                <div className="pointer-events-none absolute left-1/2 top-0 z-45 hidden -translate-x-1/2 -translate-y-[118%] sm:block">
-                                    {donator.isDonator || isBlackBeltWeekend ? (
+                                <div className="pointer-events-none absolute left-1/2 top-0 z-45 hidden -translate-x-1/2 translate-y-[-118%] sm:block">
+                                    {donator.isDonator ? (
                                         <InfoTooltip
-                                            interactive={isBlackBeltWeekend}
-                                            maxWidth={isBlackBeltWeekend ? "280px" : "250px"}
-                                            message={
-                                                isBlackBeltWeekend ? (
-                                                    <span>
-                                                        You are enjoying a 100% discount during this weekend
-                                                        <br />
-                                                        supported by{' '}
-                                                        <a
-                                                            href="https://t.me/BitNada"
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-primary hover:underline font-bold"
-                                                            onClick={(e) => e.stopPropagation()}
-                                                        >
-                                                            Black Belts Community
-                                                        </a>
-                                                    </span>
-                                                ) : (
-                                                    `You are enjoying a ${donator.discountPercent}% discount. Thank you for supporting LilSwap!`
-                                                )
-                                            }
+                                            maxWidth="250px"
+                                            message={`You are enjoying a ${donator.discountPercent}% discount. Thank you for supporting LilSwap!`}
                                         >
                                             <span className={`${desktopTagClassName} cursor-help`}>
                                                 {appTagLabel}

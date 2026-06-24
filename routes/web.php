@@ -6,6 +6,9 @@ use App\Http\Controllers\LogController;
 use App\Http\Controllers\TransactionController;
 
 Route::get('/', [HomeController::class, 'index'])->name('home');
+Route::get('/spot', [HomeController::class, 'swapCustom'])->name('spot');
+Route::get('/swap/widget', [HomeController::class, 'swap'])->name('swap.widget');
+Route::get('/aave', [HomeController::class, 'index'])->name('aave');
 
 Route::post('/session/bootstrap', [\App\Http\Controllers\ProxySessionController::class, 'bootstrap'])
     ->middleware(['throttle:rpc']);
@@ -26,6 +29,11 @@ Route::post('/transactions/history', [TransactionController::class, 'history'])
 // API Proxy Route (Rate Limited)
 Route::match(['get', 'post', 'put', 'delete'], '/aave/{path}', function (\Illuminate\Http\Request $request, $path) {
     return app(\App\Http\Controllers\ApiController::class)->proxy($request, "aave/$path");
+})->middleware(['throttle:rpc', 'soft.abuse', 'proxy.auth'])->where('path', '.*');
+
+// Spot Swap Proxy Route
+Route::match(['get', 'post', 'put', 'delete'], '/spot/{path}', function (\Illuminate\Http\Request $request, $path) {
+    return app(\App\Http\Controllers\ApiController::class)->proxy($request, "spot/$path");
 })->middleware(['throttle:rpc', 'soft.abuse', 'proxy.auth'])->where('path', '.*');
 
 // Transactions API Proxy Route
