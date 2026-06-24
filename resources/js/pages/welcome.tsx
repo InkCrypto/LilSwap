@@ -177,7 +177,7 @@ export default function Welcome() {
                             <LilLogo className="w-10 h-10 sm:w-12 sm:h-12 mb-6" />
 
                             <p className="text-slate-700 dark:text-slate-100 text-lg sm:text-2xl font-bold leading-tight mb-8">
-                                Swap Aave v3 positions with <br />
+                                Swap tokens & positions with <br />
                                 {flipPhrase}
                             </p>
 
