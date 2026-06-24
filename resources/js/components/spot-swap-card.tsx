@@ -37,6 +37,7 @@ import { mapErrorToUserFriendly } from '@/utils/error-mapping';
 import { getTokenLogo } from '@/utils/get-token-logo';
 import { normalizeDecimalInput } from '@/utils/normalize-decimal-input';
 import logger from '@/utils/logger';
+import { recordTransactionHash } from '@/services/transactions-api';
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -870,6 +871,9 @@ export function SpotSwapCard() {
             const hash = await sendTransaction(activeWalletClient, { to: to as Hex, data: txData as Hex, value: value ? BigInt(value) : 0n, account: account as Hex, chainId: selectedChainId });
             const mKey = CHAIN_TO_MARKET_KEY[selectedChainId];
             if (mKey) addTransaction({ hash, chainId: selectedChainId, description: `Swap ${fromToken.symbol} to ${toToken.symbol}`, marketKey: mKey, fromTokenSymbol: fromToken.symbol, toTokenSymbol: toToken.symbol });
+            if (data.transactionId) {
+                void recordTransactionHash(data.transactionId, hash, { walletAddress: account });
+            }
             setFromAmount(''); setQuote(null); setQuoteChainId(null); setAllowanceNonce((c) => c + 1);
             logger.info('[SpotSwap] Transaction sent', { hash });
         } catch (err: any) {
@@ -933,6 +937,9 @@ export function SpotSwapCard() {
             const swapHash = await sendTransaction(activeWalletClient, { to: to as Hex, data: txData as Hex, value: value ? BigInt(value) : 0n, account: account as Hex, chainId: selectedChainId });
             const swapMKey = CHAIN_TO_MARKET_KEY[selectedChainId];
             if (swapMKey) addTransaction({ hash: swapHash, chainId: selectedChainId, description: `Swap ${fromToken.symbol} to ${toToken.symbol}`, marketKey: swapMKey, fromTokenSymbol: fromToken.symbol, toTokenSymbol: toToken.symbol });
+            if (data.transactionId) {
+                void recordTransactionHash(data.transactionId, swapHash, { walletAddress: account });
+            }
             setFromAmount(''); setQuote(null); setQuoteChainId(null); setAllowanceNonce((c) => c + 1);
             logger.info('[SpotSwap] Swap sent', { hash: swapHash });
         } catch (err: any) {

@@ -46,15 +46,15 @@ export function AppHeader({
     const logoContentMobile = (
         <Popover open={isMenuOpen} onOpenChange={setIsMenuOpen}>
             <PopoverTrigger asChild>
-                <button 
+                <button
                     className="flex items-center gap-1.5 text-slate-900 dark:text-white select-none active:scale-[0.98] transition-all hover:opacity-85"
                 >
                     <LilLogo className="w-8 h-8 shrink-0" />
                     <h1 className="text-xl font-extrabold tracking-tight text-nowrap">
                         LilSwap
                     </h1>
-                    <ChevronDown 
-                        className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform duration-300 ${isMenuOpen ? 'rotate-180 text-primary dark:text-purple-400' : ''}`} 
+                    <ChevronDown
+                        className={`w-3.5 h-3.5 text-slate-400 dark:text-slate-500 transition-transform duration-300 ${isMenuOpen ? 'rotate-180 text-primary dark:text-purple-400' : ''}`}
                     />
                 </button>
             </PopoverTrigger>
@@ -67,11 +67,10 @@ export function AppHeader({
                     <Link
                         href="/"
                         onClick={() => setIsMenuOpen(false)}
-                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${
-                            isHomeActive || isAaveActive
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${isHomeActive || isAaveActive
                                 ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
                                 : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
-                        }`}
+                            }`}
                     >
                         <Landmark className="w-4 h-4 shrink-0" strokeWidth={2.2} />
                         <span>Aave v3</span>
@@ -80,11 +79,10 @@ export function AppHeader({
                     <Link
                         href="/spot"
                         onClick={() => setIsMenuOpen(false)}
-                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${
-                            isSwapActive
+                        className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-bold transition-colors ${isSwapActive
                                 ? 'bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300'
                                 : 'text-slate-700 hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-800'
-                        }`}
+                            }`}
                     >
                         <ArrowRightLeft className="w-4 h-4 shrink-0" strokeWidth={2.2} />
                         <span>Swap</span>
@@ -103,9 +101,27 @@ export function AppHeader({
         >
             <div className="max-w-480 mx-auto px-4 md:px-6 pt-6 md:pt-4 pb-6 md:pb-4 flex items-center justify-between gap-3 md:gap-2">
                 <div className="flex items-center gap-3 sm:gap-4 min-w-0 flex-1">
-                    {/* Mobile Logo Menu */}
+                    {/* Mobile Logo Menu or Static Logo */}
                     <div className="block sm:hidden">
-                        {logoContentMobile}
+                        {account ? (
+                            logoContentMobile
+                        ) : (
+                            isHomeActive ? (
+                                <div className="flex items-center gap-2 pr-3 select-none">
+                                    <LilLogo className="w-8 h-8 shrink-0" />
+                                    <h1 className="text-xl font-extrabold tracking-tight text-nowrap">
+                                        LilSwap
+                                    </h1>
+                                </div>
+                            ) : (
+                                <Link href="/" className="flex items-center gap-2 pr-3 select-none">
+                                    <LilLogo className="w-8 h-8 shrink-0" />
+                                    <h1 className="text-xl font-extrabold tracking-tight text-nowrap">
+                                        LilSwap
+                                    </h1>
+                                </Link>
+                            )
+                        )}
                     </div>
 
                     {/* Desktop Logo */}
@@ -129,34 +145,36 @@ export function AppHeader({
                             return isHomeActive ? logoContent : <Link href="/" className="flex items-center gap-2 sm:gap-2.5">{logoContent}</Link>;
                         })()}
 
-                        <nav className="hidden sm:flex items-center gap-8 ml-8">
-                        <Link
-                            href="/"
-                            className={`relative text-xl font-medium transition-colors ${isHomeActive
-                                ? 'text-purple-600 dark:text-purple-400'
-                                : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
-                                }`}
-                        >
-                            Aave
-                            {isHomeActive && (
-                                <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-purple-600 dark:bg-purple-400" />
-                            )}
-                        </Link>
-                        <Link
-                            href="/spot"
-                            className={`relative text-xl font-medium transition-colors ${isSwapActive
-                                ? 'text-purple-600 dark:text-purple-400'
-                                : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
-                                }`}
-                        >
-                            Swap
-                            {isSwapActive && (
-                                <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-purple-600 dark:bg-purple-400" />
-                            )}
-                        </Link>
-                    </nav>
+                        {account && (
+                            <nav className="hidden sm:flex items-center gap-8 ml-8">
+                                <Link
+                                    href="/"
+                                    className={`relative text-xl font-medium transition-colors ${isHomeActive
+                                        ? 'text-purple-600 dark:text-purple-400'
+                                        : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
+                                        }`}
+                                >
+                                    Aave
+                                    {isHomeActive && (
+                                        <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-purple-600 dark:bg-purple-400" />
+                                    )}
+                                </Link>
+                                <Link
+                                    href="/spot"
+                                    className={`relative text-xl font-medium transition-colors ${isSwapActive
+                                        ? 'text-purple-600 dark:text-purple-400'
+                                        : 'text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300'
+                                        }`}
+                                >
+                                    Swap
+                                    {isSwapActive && (
+                                        <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full bg-purple-600 dark:bg-purple-400" />
+                                    )}
+                                </Link>
+                            </nav>
+                        )}
+                    </div>
                 </div>
-            </div>
 
                 <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                     <InfoTooltip message={isDarkMode ? 'Turn lights on' : 'Turn lights off'} disableClick={true}>
@@ -180,7 +198,7 @@ export function AppHeader({
                     {/* TODO: Add a notification badge showing the count of PENDING transactions (on-chain unconfirmed).
                        This should replace the current activeCount ping dot with a proper count badge
                        to give users clear feedback that the app is actively tracking their swaps. */}
-                    {account && (
+                    {account && !isSwapActive && (
                         <button
                             onClick={onOpenHistory}
                             className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer group relative rounded-full"
