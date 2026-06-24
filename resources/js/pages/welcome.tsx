@@ -1,6 +1,6 @@
 import { Heart, Wallet } from 'lucide-react';
 import React, { useState, Suspense, lazy } from 'react';
-import { AaveHistorySheet } from '@/components/aave-history-sheet';
+import { HistorySheet } from '@/components/history-sheet';
 import { AppHeader } from '@/components/app-header';
 import { InfoTooltip } from '@/components/info-tooltip';
 import { useTransactionTracker } from '@/contexts/transaction-tracker-context';
@@ -144,7 +144,7 @@ export default function Welcome() {
                 )}
             </main>
 
-            <AaveHistorySheet />
+            <HistorySheet />
             <DonateModal
                 isOpen={isDonateOpen}
                 onClose={() => setIsDonateOpen(false)}

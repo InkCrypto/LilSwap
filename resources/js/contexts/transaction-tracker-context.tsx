@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import type { Hex } from 'viem';
 import { getMarketByKey } from '../constants/networks';
 import { createRpcProvider } from '../helpers/rpc-helper';
+import type { ActivityType } from '../types/activity';
 import logger from '../utils/logger';
 import { schedulePositionRefresh } from '../utils/schedule-position-refresh';
 import { useToast } from './toast-context';
@@ -20,6 +21,8 @@ export interface PendingTransaction {
     revertReason?: string;
     txStatus?: string;
     suppressPositionRefresh?: boolean;
+    /** Categorizes this transaction for the history sheet filter. Omit to hide from sheet. */
+    activityType?: ActivityType;
 }
 
 interface TransactionTrackerContextType {

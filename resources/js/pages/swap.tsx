@@ -1,6 +1,7 @@
 import React from 'react';
 import { AppHeader } from '@/components/app-header';
 import AppFooter from '../components/app-footer';
+import { HistorySheet } from '@/components/history-sheet';
 import { SpotSwapCard } from '../components/spot-swap-card';
 import { useFlipPhrase } from '../components/flip-phrase';
 import { useWeb3 } from '@/contexts/web3-context';
@@ -53,6 +54,7 @@ export default function Swap() {
                 )}
             </main>
 
+            <HistorySheet />
             <AppFooter activeCount={activeCount} onOpenActivity={() => setSheetOpen(true)} />
         </div>
     );

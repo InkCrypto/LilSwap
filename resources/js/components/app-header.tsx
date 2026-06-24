@@ -168,7 +168,7 @@ export function AppHeader({
                     {/* TODO: Add a notification badge showing the count of PENDING transactions (on-chain unconfirmed).
                        This should replace the current activeCount ping dot with a proper count badge
                        to give users clear feedback that the app is actively tracking their swaps. */}
-                    {account && !isSwapActive && (
+                    {account && (
                         <button
                             onClick={onOpenHistory}
                             className="flex items-center justify-center size-7 text-slate-400 hover:text-slate-600 dark:text-slate-500 dark:hover:text-slate-300 transition-colors cursor-pointer group relative rounded-full"

@@ -43,9 +43,19 @@ class HomeController extends Controller
     public function swap(Request $request): Response
     {
         $walletAddress = $this->resolveActiveWallet($request);
-        return Inertia::render('swap', [
+        $props = [
             'walletAddress' => $walletAddress,
-        ]);
+            'historyWallet' => $walletAddress,
+        ];
+
+        if ($walletAddress && $this->shouldLoadHistory($request)) {
+            $props['historyPayload'] = Inertia::defer(
+                fn() => $this->fetchHistoryPayload($request, $walletAddress),
+                'history'
+            );
+        }
+
+        return Inertia::render('swap', $props);
     }
     private function resolveActiveWallet(Request $request): ?string
     {

@@ -1,0 +1,461 @@
+import { router, usePage } from '@inertiajs/react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTransactionTracker } from '../contexts/transaction-tracker-context';
+import { useUserActivity } from '../contexts/user-activity-context';
+import { useWeb3 } from '../contexts/web3-context';
+import { bootstrapProxySession, getLimitOrders, type LimitOrderHistoryItem } from '../services/api';
+import type { ActivityItem, ActivityType } from '../types/activity';
+import logger from '../utils/logger';
+
+type PersistedHistoryItem = {
+    id: number | string;
+    tx_hash: string | null;
+    tx_status: string;
+    swap_type: string;
+    chain_id: number | string;
+    from_token_symbol?: string | null;
+    to_token_symbol?: string | null;
+    revert_reason?: string | null;
+    created_at: string;
+};
+
+type HistoryPayload = {
+    transactions: PersistedHistoryItem[];
+    hasMore: boolean;
+    offset: number;
+    lastSyncTime: number | null;
+    error?: string | null;
+};
+
+type HistoryPageProps = {
+    historyWallet?: string | null;
+    historyPayload?: HistoryPayload;
+    [key: string]: unknown;
+};
+
+const HISTORY_KEYS = ['historyWallet', 'historyPayload'];
+const HISTORY_KEY_SET = new Set(HISTORY_KEYS);
+
+const normalizeWallet = (walletAddress: string | null | undefined) =>
+    typeof walletAddress === 'string' && walletAddress !== '' ? walletAddress.toLowerCase() : null;
+
+const parseDbTimestampUtcToMillis = (raw: string): number => {
+    if (!raw) return Date.now();
+
+    const normalized = raw.includes('T') ? raw : raw.replace(' ', 'T');
+    const hasTimezone = /[zZ]$|[+-]\d{2}:\d{2}$/.test(normalized);
+    if (hasTimezone) {
+        const parsed = Date.parse(normalized);
+        if (!Number.isNaN(parsed)) return parsed;
+    }
+
+    const localParsed = Date.parse(normalized);
+    const utcParsed = Date.parse(`${normalized}Z`);
+
+    const localValid = !Number.isNaN(localParsed);
+    const utcValid = !Number.isNaN(utcParsed);
+
+    if (!localValid && !utcValid) {
+        const fallback = Date.parse(raw);
+        return Number.isNaN(fallback) ? Date.now() : fallback;
+    }
+
+    if (!localValid) return utcParsed;
+    if (!utcValid) return localParsed;
+
+    const now = Date.now();
+    const futureToleranceMs = 5 * 60 * 1000;
+
+    const localIsFuture = localParsed - now > futureToleranceMs;
+    const utcIsFuture = utcParsed - now > futureToleranceMs;
+
+    if (localIsFuture && !utcIsFuture) return utcParsed;
+    if (utcIsFuture && !localIsFuture) return localParsed;
+
+    return Math.abs(now - localParsed) <= Math.abs(now - utcParsed) ? localParsed : utcParsed;
+};
+
+/**
+ * Derive ActivityType from a DB swap_type string.
+ */
+function swapTypeToActivityType(swapType: string): ActivityType {
+    if (swapType === 'spot') return 'spot-swap';
+    // debt, collateral, withdraw-swap, repay-swap are all Aave operations
+    return 'aave-swap';
+}
+
+/**
+ * Derive a human-readable description from swap_type + token symbols.
+ */
+function swapTypeToDescription(swapType: string, fromSymbol?: string | null, toSymbol?: string | null): string {
+    switch (swapType) {
+        case 'debt':
+            return 'Debt Swap';
+        case 'collateral':
+            return 'Collateral Swap';
+        case 'withdraw-swap':
+            return 'Withdraw Swap';
+        case 'repay-swap':
+            return 'Repay Swap';
+        case 'spot':
+            return fromSymbol && toSymbol ? `Swap ${fromSymbol} to ${toSymbol}` : 'Spot Swap';
+        default:
+            return 'Swap';
+    }
+}
+
+export const useActivityHistory = (walletAddress: string | null, opts: { refreshIntervalMs?: number } = {}) => {
+    const page = usePage<HistoryPageProps>();
+    const { isProxyReady } = useWeb3();
+    const { isTabVisible, isUserActive } = useUserActivity();
+    const { isSheetOpen, transactions: localTransactions } = useTransactionTracker();
+
+    const normalizedWallet = normalizeWallet(walletAddress);
+    const historyWallet = normalizeWallet(page.props.historyWallet);
+    const isCurrentWalletPage = !!normalizedWallet && historyWallet === normalizedWallet;
+    const historyPayload = isCurrentWalletPage ? (page.props.historyPayload as HistoryPayload | undefined) : undefined;
+    const needsBootstrapReload = !!normalizedWallet && isProxyReady && historyWallet !== normalizedWallet;
+
+    const [persistedHistory, setPersistedHistory] = useState<PersistedHistoryItem[]>([]);
+    const [limitOrders, setLimitOrders] = useState<LimitOrderHistoryItem[]>([]);
+    const [hasMore, setHasMore] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
+    const [activeHistoryVisits, setActiveHistoryVisits] = useState(0);
+    const [historyLoadedForWallet, setHistoryLoadedForWallet] = useState<string | null>(null);
+    const [limitOrdersLoadedForWallet, setLimitOrdersLoadedForWallet] = useState<string | null>(null);
+    const requestedOffsetRef = useRef(0);
+    const activeWalletRef = useRef<string | null>(normalizedWallet);
+    const reloadArmedWalletRef = useRef<string | null>(normalizedWallet);
+
+    useEffect(() => {
+        if (activeWalletRef.current !== normalizedWallet) {
+            activeWalletRef.current = normalizedWallet;
+            reloadArmedWalletRef.current = null;
+            setPersistedHistory([]);
+            setLimitOrders([]);
+            setHasMore(false);
+            setError(null);
+            setLastSyncTime(null);
+            setHistoryLoadedForWallet(null);
+            setLimitOrdersLoadedForWallet(null);
+            requestedOffsetRef.current = 0;
+        }
+    }, [normalizedWallet]);
+
+    useEffect(() => {
+        if (!normalizedWallet) {
+            reloadArmedWalletRef.current = null;
+            return;
+        }
+
+        if (!isProxyReady) {
+            reloadArmedWalletRef.current = normalizedWallet;
+        }
+    }, [isProxyReady, normalizedWallet]);
+
+    useEffect(() => {
+        if (!normalizedWallet || !isCurrentWalletPage || historyPayload === undefined) {
+            return;
+        }
+
+        setError(historyPayload.error ?? null);
+        setHasMore(Boolean(historyPayload.hasMore));
+        setLastSyncTime(historyPayload.lastSyncTime ?? null);
+        setHistoryLoadedForWallet(normalizedWallet);
+
+        setPersistedHistory((prev) => {
+            if ((historyPayload.offset ?? 0) <= 0) {
+                return historyPayload.transactions || [];
+            }
+
+            const existingKeys = new Set(
+                prev.map((tx) => (tx.tx_hash || `backend-id-${tx.id}`).toLowerCase())
+            );
+            const appended = (historyPayload.transactions || []).filter((tx) => {
+                const key = (tx.tx_hash || `backend-id-${tx.id}`).toLowerCase();
+                return !existingKeys.has(key);
+            });
+
+            return [...prev, ...appended];
+        });
+    }, [historyPayload, isCurrentWalletPage, normalizedWallet]);
+
+    const reloadLimitOrders = useCallback(async () => {
+        if (!walletAddress || !isProxyReady) {
+            return;
+        }
+
+        const targetWallet = normalizeWallet(walletAddress);
+        if (!targetWallet) {
+            return;
+        }
+
+        const result = await getLimitOrders({
+            walletAddress: targetWallet,
+            limit: 50,
+            offset: 0,
+        });
+
+        setLimitOrders(result.orders || []);
+        setLimitOrdersLoadedForWallet(targetWallet);
+    }, [isProxyReady, walletAddress]);
+
+    const reloadHistory = useCallback((options?: { force?: boolean; includeWallet?: boolean; offset?: number; limit?: number }) => {
+        return new Promise<void>((resolve) => {
+            if (!walletAddress || !isProxyReady) {
+                resolve();
+                return;
+            }
+
+            const offset = options?.offset ?? 0;
+            const limit = options?.limit ?? 20;
+            const targetWallet = normalizeWallet(walletAddress);
+            const serverWallet = historyWallet;
+
+            if (!options?.includeWallet && targetWallet !== serverWallet) {
+                resolve();
+                return;
+            }
+
+            requestedOffsetRef.current = offset;
+            setError(null);
+            void reloadLimitOrders();
+
+            router.reload({
+                only: options?.includeWallet ? HISTORY_KEYS : ['historyPayload'],
+                reset: options?.includeWallet ? HISTORY_KEYS : [],
+                headers: {
+                    'X-History-Load': 'true',
+                    'X-History-Offset': String(offset),
+                    'X-History-Limit': String(limit),
+                    ...(options?.force ? { 'X-History-Force': 'true' } : {}),
+                    'X-Target-Wallet': targetWallet || '',
+                },
+                onFinish: () => resolve(),
+                onError: () => {
+                    setError('Failed to fetch history');
+                    resolve();
+                },
+            });
+        });
+    }, [historyWallet, isProxyReady, reloadLimitOrders, walletAddress]);
+
+    const refresh = useCallback((force = false) => {
+        return reloadHistory({ force, offset: 0, limit: Math.max(persistedHistory.length, 20) });
+    }, [persistedHistory.length, reloadHistory]);
+
+    const loadMore = useCallback(() => {
+        if (!hasMore || activeHistoryVisits > 0) {
+            return Promise.resolve();
+        }
+
+        return reloadHistory({
+            offset: persistedHistory.length,
+            limit: 20,
+        });
+    }, [activeHistoryVisits, hasMore, persistedHistory.length, reloadHistory]);
+
+    useEffect(() => {
+        if (
+            !isSheetOpen ||
+            !walletAddress ||
+            !isProxyReady ||
+            reloadArmedWalletRef.current !== normalizedWallet
+        ) {
+            return;
+        }
+
+        if (needsBootstrapReload) {
+            void (async () => {
+                await bootstrapProxySession({
+                    walletAddress,
+                });
+
+                await reloadHistory({ includeWallet: true, offset: 0, limit: 20 });
+            })();
+            return;
+        }
+
+        if (historyLoadedForWallet !== normalizedWallet) {
+            void reloadHistory({ offset: 0, limit: 20 });
+        }
+    }, [historyLoadedForWallet, isProxyReady, isSheetOpen, needsBootstrapReload, normalizedWallet, reloadHistory, walletAddress]);
+
+    useEffect(() => {
+        if (
+            !isSheetOpen ||
+            !walletAddress ||
+            !isProxyReady ||
+            limitOrdersLoadedForWallet === normalizedWallet
+        ) {
+            return;
+        }
+
+        void reloadLimitOrders();
+    }, [isProxyReady, isSheetOpen, limitOrdersLoadedForWallet, normalizedWallet, reloadLimitOrders, walletAddress]);
+
+    useEffect(() => {
+        const removeStart = router.on('start', (event) => {
+            const only = event.detail.visit.only || [];
+            const touchesHistory = only.length === 0 || only.some((key) => HISTORY_KEY_SET.has(key));
+
+            if (!touchesHistory) {
+                return;
+            }
+
+            setActiveHistoryVisits((count) => count + 1);
+        });
+
+        const removeFinish = router.on('finish', (event) => {
+            const only = event.detail.visit.only || [];
+            const touchesHistory = only.length === 0 || only.some((key) => HISTORY_KEY_SET.has(key));
+
+            if (!touchesHistory) {
+                return;
+            }
+
+            setActiveHistoryVisits((count) => Math.max(0, count - 1));
+        });
+
+        return () => {
+            removeStart();
+            removeFinish();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!isSheetOpen || !walletAddress) {
+            return;
+        }
+
+        const refreshInterval = opts.refreshIntervalMs || 10000;
+        const interval = window.setInterval(() => {
+            if (isTabVisible && isUserActive) {
+                void refresh(false);
+            }
+        }, refreshInterval);
+
+        return () => window.clearInterval(interval);
+    }, [isSheetOpen, isTabVisible, isUserActive, opts.refreshIntervalMs, refresh, walletAddress]);
+
+    useEffect(() => {
+        const handleRefresh = () => {
+            if (isSheetOpen && isTabVisible && isUserActive) {
+                logger.debug('[useActivityHistory] Global refresh event received, refreshing history');
+                void refresh(true);
+            }
+        };
+
+        window.addEventListener('lilswap:refresh-positions', handleRefresh);
+        return () => window.removeEventListener('lilswap:refresh-positions', handleRefresh);
+    }, [isSheetOpen, isTabVisible, isUserActive, refresh]);
+
+    const isLoadingInitial = isSheetOpen && !!walletAddress && (
+        !isProxyReady ||
+        needsBootstrapReload ||
+        (activeHistoryVisits > 0 && historyLoadedForWallet !== normalizedWallet) ||
+        (isCurrentWalletPage && historyPayload === undefined && historyLoadedForWallet !== normalizedWallet)
+    );
+    const isLoadingMore = activeHistoryVisits > 0 && requestedOffsetRef.current > 0;
+    const isSyncing = activeHistoryVisits > 0 && !isLoadingMore && !isLoadingInitial;
+
+    const combinedHistory: ActivityItem[] = useMemo(() => {
+        const localHashes = new Set(localTransactions.map((tx) => tx.hash?.toLowerCase()).filter(Boolean));
+
+        // Map persisted history items
+        const mappedPersistedHistory: ActivityItem[] = persistedHistory.map((tx) => {
+            let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
+            if (tx.tx_status === 'CONFIRMED') mappedStatus = 'success';
+            else if (['FAILED', 'REJECTED', 'EXPIRED'].includes(tx.tx_status)) mappedStatus = 'error';
+
+            const activityType = swapTypeToActivityType(tx.swap_type);
+            const description = swapTypeToDescription(tx.swap_type, tx.from_token_symbol, tx.to_token_symbol);
+
+            return {
+                hash: tx.tx_hash || `backend-id-${tx.id}`,
+                chainId: Number(tx.chain_id || 1),
+                description,
+                status: mappedStatus,
+                timestamp: parseDbTimestampUtcToMillis(tx.created_at),
+                activityType,
+                fromTokenSymbol: tx.from_token_symbol || undefined,
+                toTokenSymbol: tx.to_token_symbol || undefined,
+                isApi: true,
+                revertReason: tx.revert_reason || undefined,
+                txStatus: tx.tx_status,
+            };
+        });
+
+        const filteredPersistedHistory = mappedPersistedHistory.filter((tx) => {
+            const excludedStatuses = ['HASH_MISSING', 'REJECTED', 'EXPIRED', 'INITIATED'];
+            if (excludedStatuses.includes(tx.txStatus)) return false;
+
+            if (!tx.hash.startsWith('backend-id-')) {
+                return !localHashes.has(tx.hash.toLowerCase());
+            }
+
+            return true;
+        });
+
+        // Map local transactions — use activityType from PendingTransaction if provided
+        const mappedLocal: ActivityItem[] = localTransactions
+            .filter((tx) => tx.activityType) // Only show items with an activity type
+            .map((tx) => ({
+                hash: tx.hash,
+                chainId: tx.chainId,
+                description: tx.description,
+                status: tx.status,
+                timestamp: tx.timestamp,
+                activityType: tx.activityType!,
+                fromTokenSymbol: tx.fromTokenSymbol,
+                toTokenSymbol: tx.toTokenSymbol,
+                revertReason: tx.revertReason,
+                txStatus: tx.txStatus,
+            }));
+
+        // Map limit orders
+        const mappedLimitOrders: ActivityItem[] = limitOrders.map((order) => {
+            let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
+            const status = String(order.status || '').toUpperCase();
+            if (status === 'FULFILLED') mappedStatus = 'success';
+            else if (['EXPIRED', 'CANCELLED', 'INVALIDATED'].includes(status)) mappedStatus = 'error';
+
+            return {
+                hash: `limit-order-${order.order_uid}`,
+                chainId: Number(order.chain_id || 1),
+                description: 'Debt Limit Order',
+                status: mappedStatus,
+                timestamp: parseDbTimestampUtcToMillis(order.created_at),
+                activityType: 'limit-order',
+                fromTokenSymbol: order.from_token_symbol || undefined,
+                toTokenSymbol: order.to_token_symbol || undefined,
+                isApi: true,
+                txStatus: status,
+                orderUid: order.order_uid,
+                limitPrice: order.limit_price || undefined,
+                validTo: Number(order.valid_to || 0),
+                fromAmount: order.from_amount || undefined,
+                toAmount: order.to_amount || undefined,
+            };
+        });
+
+        return [...mappedLocal, ...filteredPersistedHistory, ...mappedLimitOrders].sort(
+            (a, b) => b.timestamp - a.timestamp
+        );
+    }, [localTransactions, persistedHistory, limitOrders]);
+
+    return {
+        combinedHistory,
+        isLoadingHistory: isLoadingInitial,
+        isSyncingHistory: isSyncing,
+        isLoadingMore,
+        hasMore,
+        error,
+        lastSyncTime,
+        refresh,
+        loadMore,
+    };
+};
+
+export default useActivityHistory;

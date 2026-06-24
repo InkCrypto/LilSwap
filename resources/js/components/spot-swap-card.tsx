@@ -870,7 +870,7 @@ export function SpotSwapCard() {
             setBuildLoading(false); setTxPending(true);
             const hash = await sendTransaction(activeWalletClient, { to: to as Hex, data: txData as Hex, value: value ? BigInt(value) : 0n, account: account as Hex, chainId: selectedChainId });
             const mKey = CHAIN_TO_MARKET_KEY[selectedChainId];
-            if (mKey) addTransaction({ hash, chainId: selectedChainId, description: `Swap ${fromToken.symbol} to ${toToken.symbol}`, marketKey: mKey, fromTokenSymbol: fromToken.symbol, toTokenSymbol: toToken.symbol });
+            if (mKey) addTransaction({ hash, chainId: selectedChainId, description: `Swap ${fromToken.symbol} to ${toToken.symbol}`, marketKey: mKey, fromTokenSymbol: fromToken.symbol, toTokenSymbol: toToken.symbol, activityType: 'spot-swap' });
             if (data.transactionId) {
                 void recordTransactionHash(data.transactionId, hash, { walletAddress: account });
             }
@@ -936,7 +936,7 @@ export function SpotSwapCard() {
             setBuildLoading(false); setTxPending(true);
             const swapHash = await sendTransaction(activeWalletClient, { to: to as Hex, data: txData as Hex, value: value ? BigInt(value) : 0n, account: account as Hex, chainId: selectedChainId });
             const swapMKey = CHAIN_TO_MARKET_KEY[selectedChainId];
-            if (swapMKey) addTransaction({ hash: swapHash, chainId: selectedChainId, description: `Swap ${fromToken.symbol} to ${toToken.symbol}`, marketKey: swapMKey, fromTokenSymbol: fromToken.symbol, toTokenSymbol: toToken.symbol });
+            if (swapMKey) addTransaction({ hash: swapHash, chainId: selectedChainId, description: `Swap ${fromToken.symbol} to ${toToken.symbol}`, marketKey: swapMKey, fromTokenSymbol: fromToken.symbol, toTokenSymbol: toToken.symbol, activityType: 'spot-swap' });
             if (data.transactionId) {
                 void recordTransactionHash(data.transactionId, swapHash, { walletAddress: account });
             }
