@@ -45,7 +45,7 @@ import { recordTransactionHash } from '@/services/transactions-api';
 const NATIVE_TOKEN_ADDRESS = '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 const APPROVAL_BUFFER_BPS = 10;
 const DEFAULT_SLIPPAGE_BPS = 50;
-const MIN_SLIPPAGE_BPS = 10;
+const MIN_SLIPPAGE_BPS = 1;
 const MAX_SLIPPAGE_BPS = 500;
 const QUOTE_REFRESH_SECONDS = 30;
 
@@ -169,6 +169,7 @@ interface SpotQuote {
     gasCost?: string | null;
     srcDecimals?: number;
     destDecimals?: number;
+    recommendedSlippageBps?: number;
     feeBps?: number;
     baseFeeBps?: number;
     discountPercent?: number;
@@ -407,7 +408,8 @@ export function SpotSwapCard() {
     const [quoteError, setQuoteError] = useState<string | null>(null);
     const [nextRefreshIn, setNextRefreshIn] = useState(QUOTE_REFRESH_SECONDS);
     const [slippageBps, setSlippageBps] = useState(DEFAULT_SLIPPAGE_BPS);
-    const [slippageInput, setSlippageInput] = useState((DEFAULT_SLIPPAGE_BPS / 100).toString());
+    const [isAutoSlippage, setIsAutoSlippage] = useState(true);
+    const [slippageInputValue, setSlippageInputValue] = useState('');
     const [showSlippageSettings, setShowSlippageSettings] = useState(false);
     const [showOverview, setShowOverview] = useState(true);
     const [showCostsBreakdown, setShowCostsBreakdown] = useState(false);
@@ -652,6 +654,29 @@ export function SpotSwapCard() {
     }, [activeQuote, quoteLoading, executionBusy]);
 
     useEffect(() => { quoteLockedRef.current = executionBusy; }, [executionBusy]);
+
+    // Auto-slippage sync: when in auto mode and quote has recommendedSlippageBps, follow it
+    useEffect(() => {
+        if (!isAutoSlippage) return;
+
+        const autoSlippageBps = activeQuote?.recommendedSlippageBps
+            ? clampSlippage(activeQuote.recommendedSlippageBps)
+            : DEFAULT_SLIPPAGE_BPS;
+
+        if (autoSlippageBps !== slippageBps) {
+            setSlippageBps(autoSlippageBps);
+        }
+    }, [isAutoSlippage, activeQuote?.recommendedSlippageBps, activeQuote?.destAmount, slippageBps]);
+
+    // Effective slippage: auto uses quote recommendation, falling back to the default, never the previous custom value.
+    const effectiveSlippageBps = useMemo(() => {
+        if (isAutoSlippage) {
+            return activeQuote?.recommendedSlippageBps
+                ? clampSlippage(activeQuote.recommendedSlippageBps)
+                : DEFAULT_SLIPPAGE_BPS;
+        }
+        return slippageBps;
+    }, [isAutoSlippage, activeQuote?.recommendedSlippageBps, slippageBps]);
     // Fetch spender address dynamically from the engine when chain changes
     useEffect(() => {
         let cancelled = false;
@@ -771,9 +796,16 @@ export function SpotSwapCard() {
         setIsUSDMode(true);
     };
     const updateSlippage = (v: string) => {
-        setSlippageInput(v);
-        const p = parseFloat(v || '0');
-        if (Number.isFinite(p)) setSlippageBps(clampSlippage(p * 100));
+        setSlippageInputValue(v);
+        if (v === '') {
+            setIsAutoSlippage(true);
+        } else {
+            setIsAutoSlippage(false);
+            const p = parseFloat(v);
+            if (Number.isFinite(p)) {
+                setSlippageBps(clampSlippage(p * 100));
+            }
+        }
     };
 
     const readWalletChainId = useCallback(async (): Promise<number | null> => {
@@ -864,7 +896,7 @@ export function SpotSwapCard() {
                 fromToken: { address: getTokenAddress(fromToken), decimals: fromToken.decimals ?? 18, symbol: fromToken.symbol },
                 toToken: { address: getTokenAddress(toToken), decimals: toToken.decimals ?? 18, symbol: toToken.symbol },
                 fromAmount: fromAmountWei.toString(), toAmount: activeQuote.destAmount,
-                userAddress: account, slippageBps, priceRoute: activeQuote.raw ?? activeQuote,
+                userAddress: account, slippageBps: effectiveSlippageBps, priceRoute: activeQuote.raw ?? activeQuote,
             });
             const { to, data: txData, value } = data.tx ?? data;
             setBuildLoading(false); setTxPending(true);
@@ -930,7 +962,7 @@ export function SpotSwapCard() {
                 fromToken: { address: getTokenAddress(fromToken), decimals: fromToken.decimals ?? 18, symbol: fromToken.symbol },
                 toToken: { address: getTokenAddress(toToken), decimals: toToken.decimals ?? 18, symbol: toToken.symbol },
                 fromAmount: fromAmountWei.toString(), toAmount: activeQuote.destAmount,
-                userAddress: account, slippageBps, priceRoute: activeQuote.raw ?? activeQuote,
+                userAddress: account, slippageBps: effectiveSlippageBps, priceRoute: activeQuote.raw ?? activeQuote,
             });
             const { to, data: txData, value } = data.tx ?? data;
             setBuildLoading(false); setTxPending(true);
@@ -946,15 +978,23 @@ export function SpotSwapCard() {
             logger.error('[SpotSwap] Swap failed', err);
             setQuoteError(mapErrorToUserFriendly(err?.message) || err?.message || 'Transaction failed');
         } finally { setApprovalPending(false); setBuildLoading(false); setTxPending(false); quoteLockedRef.current = false; }
-    }, [account, fromToken, toToken, activeQuote, walletClient, publicClient, activeSpender, fromAmountWei, selectedChainId, slippageBps, getActiveWalletClient]);
+    }, [account, fromToken, toToken, activeQuote, walletClient, publicClient, activeSpender, fromAmountWei, selectedChainId, effectiveSlippageBps, getActiveWalletClient]);
 
     // -----------------------------------------------------------------------
     // Derived display values
     // -----------------------------------------------------------------------
 
-    const minAmountOut = useMemo(() =>
-        activeQuote?.destAmount && toToken ? calcMinAmountOut(activeQuote.destAmount, slippageBps) : null,
-        [activeQuote?.destAmount, slippageBps, toToken]);
+    const minAmountOut = useMemo(() => {
+        if (!activeQuote?.destAmount || !toToken) return null;
+        const grossDest = BigInt(activeQuote.destAmount);
+        const feeBps = activeQuote.feeBps ?? 0;
+        // Fee is deducted first by Velora, then slippage applies on net amount
+        const netDest = feeBps > 0
+            ? grossDest - (grossDest * BigInt(feeBps)) / 10000n
+            : grossDest;
+        const retainedBps = BigInt(Math.max(0, 10000 - effectiveSlippageBps));
+        return (netDest * retainedBps) / 10000n;
+    }, [activeQuote?.destAmount, activeQuote?.feeBps, effectiveSlippageBps, toToken]);
 
     const quoteSrcDecimals = activeQuote && fromToken ? quoteSideDecimals(activeQuote, 'src', fromToken.decimals ?? 18) : (fromToken?.decimals ?? 18);
     const quoteDestDecimals = activeQuote && toToken ? quoteSideDecimals(activeQuote, 'dest', toToken.decimals ?? 18) : (toToken?.decimals ?? 18);
@@ -1048,7 +1088,7 @@ export function SpotSwapCard() {
     // -----------------------------------------------------------------------
 
     return (
-        <div className="mx-auto w-full max-w-125 rounded-[22px] bg-slate-950 p-3 shadow-2xl shadow-slate-950/25">
+        <div className="mx-auto w-full max-w-125">
             <div className="relative rounded-2xl border border-border-light bg-white shadow-xl dark:border-slate-700 dark:bg-[#1b2030]">
                 {walletChanging && (
                     <div className="absolute inset-0 z-40 flex items-center justify-center rounded-2xl bg-slate-950/50 backdrop-blur-[1px]">
@@ -1072,23 +1112,81 @@ export function SpotSwapCard() {
                                 onClick={() => setShowSlippageSettings((v) => !v)}
                                 className="inline-flex items-center gap-1 text-xs font-bold text-slate-500 transition-all hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200"
                             >
-                                <span className="font-medium">Auto Slippage</span>
+                                <span className="font-medium">
+                                    {isAutoSlippage ? 'Auto Slippage' : 'Custom Slippage'}
+                                </span>
                                 <span className="text-slate-800 dark:text-white">
-                                    {(slippageBps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%
+                                    {(effectiveSlippageBps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}%
                                 </span>
                                 <Settings className="h-3.5 w-3.5 text-slate-400" />
                             </button>
                             {showSlippageSettings && (
-                                <div ref={slippageMenuRef} className="absolute top-full right-0 z-50 mt-2 w-56 rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
-                                    <div className="mb-2.5 flex items-center justify-between">
+                                <div ref={slippageMenuRef} className="absolute top-full right-0 z-50 mt-2 w-fit rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl dark:border-slate-700 dark:bg-slate-800">
+                                    <div className="flex items-center justify-between mb-2.5 px-0.5">
                                         <span className="text-xs font-bold text-slate-500 dark:text-slate-400">Max slippage</span>
-                                        <button type="button" onClick={() => { setSlippageBps(DEFAULT_SLIPPAGE_BPS); setSlippageInput((DEFAULT_SLIPPAGE_BPS / 100).toString()); setShowSlippageSettings(false); }} className="text-xs font-bold text-primary hover:underline">Default</button>
                                     </div>
-                                    <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 dark:border-slate-700 dark:bg-slate-900/60">
-                                        <input type="text" value={slippageInput} onChange={(e) => updateSlippage(e.target.value.replace(/[^0-9.]/g, ''))} className="min-w-0 flex-1 bg-transparent text-sm font-bold text-slate-900 outline-none dark:text-white" />
-                                        <span className="text-sm font-bold text-slate-400">%</span>
+                                    <div className="inline-block p-1 bg-slate-100 dark:bg-slate-900/60 rounded-xl border border-slate-200/70 dark:border-slate-700/70">
+                                        <div className="flex items-center gap-1">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    setIsAutoSlippage(true);
+                                                    setSlippageInputValue('');
+                                                    setSlippageBps(activeQuote?.recommendedSlippageBps
+                                                        ? clampSlippage(activeQuote.recommendedSlippageBps)
+                                                        : DEFAULT_SLIPPAGE_BPS);
+                                                }}
+                                                className={`h-7 px-2.5 inline-flex items-center justify-center text-[10px] font-bold rounded-lg transition-all whitespace-nowrap tabular-nums ${isAutoSlippage
+                                                    ? 'bg-linear-to-r from-[#8b5cf6] via-[#8b5cf6] via-30% to-[#3b82f6] text-white shadow-sm'
+                                                    : 'text-slate-500 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/80 hover:text-slate-700 dark:hover:text-slate-200'
+                                                    }`}
+                                            >
+                                                Auto ({((activeQuote?.recommendedSlippageBps
+                                                    ? clampSlippage(activeQuote.recommendedSlippageBps)
+                                                    : DEFAULT_SLIPPAGE_BPS) / 100).toFixed(2)}%)
+                                            </button>
+                                            <div className="relative h-7 w-16 shrink-0">
+                                                <input
+                                                    type="text"
+                                                    inputMode="decimal"
+                                                    placeholder="Custom"
+                                                    value={isAutoSlippage ? '' : slippageInputValue}
+                                                    onChange={(e) => {
+                                                        const normalized = normalizeDecimalInput(e.target.value);
+                                                        setSlippageInputValue(normalized);
+                                                        if (normalized === '') {
+                                                            setIsAutoSlippage(true);
+                                                        } else {
+                                                            setIsAutoSlippage(false);
+                                                            const numericVal = parseFloat(normalized);
+                                                            if (!isNaN(numericVal)) {
+                                                                const bps = Math.max(0, Math.min(5000, Math.floor(numericVal * 100)));
+                                                                setSlippageBps(clampSlippage(bps));
+                                                            }
+                                                        }
+                                                    }}
+                                                    onPaste={(e) => {
+                                                        const pastedText = e.clipboardData?.getData('text') || '';
+                                                        e.preventDefault();
+                                                        const normalized = normalizeDecimalInput(pastedText);
+                                                        setSlippageInputValue(normalized);
+                                                        if (normalized === '') {
+                                                            setIsAutoSlippage(true);
+                                                        } else {
+                                                            setIsAutoSlippage(false);
+                                                            const numericVal = parseFloat(normalized);
+                                                            if (!isNaN(numericVal)) {
+                                                                const bps = Math.max(0, Math.min(5000, Math.floor(numericVal * 100)));
+                                                                setSlippageBps(clampSlippage(bps));
+                                                            }
+                                                        }
+                                                    }}
+                                                    className="h-7 w-full bg-white dark:bg-slate-900 border-none rounded-lg px-1.5 pr-4 text-[10px] font-bold text-slate-900 dark:text-white focus:outline-none placeholder:text-slate-400"
+                                                />
+                                                <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-slate-400 text-[10px] font-bold pointer-events-none">%</span>
+                                            </div>
+                                        </div>
                                     </div>
-                                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500 dark:text-slate-400">Very low values can cause swaps to revert.</p>
                                 </div>
                             )}
                         </div>
@@ -1302,7 +1400,7 @@ export function SpotSwapCard() {
                                     <div className="flex items-center justify-between gap-3 text-[13px] font-medium text-slate-600 dark:text-slate-300">
                                         <span className="flex items-center gap-1">
                                             Minimum received
-                                            <InfoTooltip content={`Protected by ${(slippageBps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}% max slippage.`} size={12} />
+                                            <InfoTooltip content={`Protected by ${(effectiveSlippageBps / 100).toLocaleString('en-US', { maximumFractionDigits: 2 })}% max slippage.`} size={12} />
                                         </span>
                                         <span className="text-right font-medium text-slate-900 dark:text-slate-100">
                                             {minAmountOut ? formatCompactToken(formatUnits(minAmountOut, quoteDestDecimals), toToken.symbol) : '-'}
