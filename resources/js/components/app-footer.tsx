@@ -25,7 +25,7 @@ const AppFooter: React.FC<AppFooterProps> = ({ activeCount = 0, onOpenActivity }
     };
 
     return (
-        <footer className="relative z-40 bg-background-light dark:bg-background-dark">
+        <footer className="relative z-40 hidden bg-background-light dark:bg-background-dark md:block">
             <div className="max-w-480 mx-auto px-6 py-2 text-slate-500">
                 <div className="hidden md:grid grid-cols-[1fr_auto_1fr] items-center gap-4 text-sm">
                     <div className="flex items-center gap-5">

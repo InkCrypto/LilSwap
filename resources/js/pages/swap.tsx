@@ -1,6 +1,7 @@
 import React from 'react';
 import { AppHeader } from '@/components/app-header';
 import AppFooter from '../components/app-footer';
+import MobileBottomNav from '../components/mobile-bottom-nav';
 import { HistorySheet } from '@/components/history-sheet';
 import { SpotSwapCard } from '../components/spot-swap-card';
 import { useFlipPhrase } from '../components/flip-phrase';
@@ -24,7 +25,7 @@ export default function Swap() {
                 onOpenHistory={() => setSheetOpen(true)}
             />
 
-            <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-16 md:pb-24 w-full pt-2 md:pt-12">
+            <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-32 md:pb-24 w-full pt-2 md:pt-12">
                 {account ? (
                     <SpotSwapCard />
                 ) : (
@@ -55,6 +56,7 @@ export default function Swap() {
             </main>
 
             <HistorySheet />
+            {account && <MobileBottomNav />}
             <AppFooter activeCount={activeCount} onOpenActivity={() => setSheetOpen(true)} />
         </div>
     );

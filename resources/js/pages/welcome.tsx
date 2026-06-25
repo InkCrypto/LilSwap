@@ -8,6 +8,7 @@ import { useWeb3 } from '@/contexts/web3-context';
 import { usePositions } from '@/hooks/use-positions';
 import { useFlipPhrase } from '../components/flip-phrase';
 import AppFooter from '../components/app-footer';
+import MobileBottomNav from '../components/mobile-bottom-nav';
 import { DonateModal } from '../components/donate-modal';
 import AppLogo from '@/components/app-logo';
 import { Button } from '../components/ui/button';
@@ -49,7 +50,7 @@ export default function Welcome() {
                 onOpenHistory={() => setSheetOpen(true)}
             />
 
-            <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-16 md:pb-24 w-full pt-2 md:pt-12">
+            <main className="flex-1 max-w-4xl mx-auto px-4 sm:px-6 pb-32 md:pb-24 w-full pt-2 md:pt-12">
                 {account ? (
                     <div className="relative">
                         {showDonatorTag && (
@@ -145,6 +146,7 @@ export default function Welcome() {
             </main>
 
             <HistorySheet />
+            {account && <MobileBottomNav onVerifiedDonation={() => refresh(true)} />}
             <DonateModal
                 isOpen={isDonateOpen}
                 onClose={() => setIsDonateOpen(false)}
