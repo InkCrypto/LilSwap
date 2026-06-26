@@ -51,7 +51,7 @@ const MobileBottomNav: React.FC<MobileBottomNavProps> = ({ onVerifiedDonation })
     return (
         <>
             <nav
-                className={`fixed inset-x-0 bottom-0 z-50 border-t border-border-light bg-white/95 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-border-dark dark:bg-slate-950/95 dark:shadow-[0_-10px_30px_rgba(0,0,0,0.5)] md:hidden ${
+                className={`fixed inset-x-0 bottom-0 z-50 border-t border-border-light bg-card/95 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur-xl dark:border-border-dark dark:shadow-[0_-10px_30px_rgba(0,0,0,0.5)] md:hidden ${
                     isWeb3Browser ? 'pb-0' : 'pb-[env(safe-area-inset-bottom,0px)]'
                 }`}
                 aria-label="Primary mobile navigation"
