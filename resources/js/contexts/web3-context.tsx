@@ -125,9 +125,9 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         // Only attempt to bootstrap when we have a settled connection state
         // We avoid bootstrapping while isConnecting or isReconnecting to prevent transient states
         const isSettled = isConnected && !!effectiveAddress && !!chainId && !isConnecting && !isReconnecting;
-        
-        const sessionIdentity = isSettled 
-            ? `${String(effectiveAddress).toLowerCase()}:${chainId}` 
+
+        const sessionIdentity = isSettled
+            ? `${String(effectiveAddress).toLowerCase()}:${chainId}`
             : (isConnected && !isConnecting && !isReconnecting ? null : lastSessionIdentity.current);
 
         // If we are disconnecting (isConnected became false), identity becomes null
@@ -190,7 +190,7 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     useEffect(() => {
         const handleVisibilityChange = async () => {
             const { isConnected: refSubConnected, connector: refSubConnector, effectiveAddress: refSubAddress, isProxyReady: refSubProxyReady } = stateRef.current;
-            
+
             if (document.visibilityState !== 'visible' || !refSubConnected || !refSubConnector) {
                 return;
             }

@@ -67,6 +67,7 @@
         "@types/react": "^19.2.17",
         "@types/react-dom": "^19.2.3",
         "@vitejs/plugin-react": "^5.2.0",
+        "@walletconnect/ethereum-provider": "2.23.10",
         "axios": "^1.17.0",
         "class-variance-authority": "^0.7.1",
         "clsx": "^2.1.1",
@@ -93,5 +94,10 @@
         "@tailwindcss/oxide-win32-x64-msvc": "^4.3.0",
         "lightningcss-linux-x64-gnu": "^1.32.0",
         "lightningcss-win32-x64-msvc": "^1.32.0"
+    },
+    "pnpm": {
+        "overrides": {
+            "@walletconnect/ethereum-provider": "2.23.10"
+        }
     }
 }
