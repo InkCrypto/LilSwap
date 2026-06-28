@@ -68,7 +68,13 @@ jobs:
 
             echo \"Deploying \$TAG to \$TARGET...\"
 
-            # 1. Clone
+            # 1. Clean up stale directory from previous failed attempt
+            if [ -d \"\$TARGET\" ]; then
+              echo \"Removing stale directory from previous attempt: \$TARGET\"
+              rm -rf \"\$TARGET\"
+            fi
+
+            # 2. Clone
             git clone --branch \$TAG --depth 1 https://x-access-token:\$TOKEN@github.com/\$REPO.git \$TARGET
 
             cd \$TARGET
