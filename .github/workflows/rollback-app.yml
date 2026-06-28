@@ -97,8 +97,8 @@ jobs:
             # Setup .env
             cp .env.example .env
             sed -i \"s|^VITE_REOWN_PROJECT_ID=.*|VITE_REOWN_PROJECT_ID=\$REOWN_ID|g\" .env
-            sed -i "s|^RPC_GATEWAY_AUTH_HEADER_NAME=.*|RPC_GATEWAY_AUTH_HEADER_NAME=\$GW_HEADER|g" .env
-            sed -i "s|^RPC_GATEWAY_AUTH_HEADER_VALUE=.*|RPC_GATEWAY_AUTH_HEADER_VALUE=\$GW_AUTH|g" .env
+            sed -i \"s|^RPC_GATEWAY_AUTH_HEADER_NAME=.*|RPC_GATEWAY_AUTH_HEADER_NAME=\$GW_HEADER|g\" .env
+            sed -i \"s|^RPC_GATEWAY_AUTH_HEADER_VALUE=.*|RPC_GATEWAY_AUTH_HEADER_VALUE=\$GW_AUTH|g\" .env
             sed -i \"s|^API_SECRET=.*|API_SECRET=\$API_SEC|g\" .env
 
             # DB Injection (MySQL)
