@@ -35,8 +35,24 @@ return [
         ],
     ],
 
-    'alchemy' => [
-        'key' => env('ALCHEMY_API_KEY'),
+    'rpc_gateway' => [
+        'base_url' => env('RPC_GATEWAY_BASE_URL'),
+        'path_template' => env('RPC_GATEWAY_PATH_TEMPLATE', '/queries/{network}'),
+        'auth_header' => env('RPC_GATEWAY_AUTH_HEADER_NAME', 'X-Nodecore-Key'),
+        'auth_value' => env('RPC_GATEWAY_AUTH_HEADER_VALUE'),
+        'timeout' => env('RPC_GATEWAY_TIMEOUT', 8),
+        'allowed_networks' => [
+            'ethereum',
+            'bsc',
+            'polygon',
+            'base',
+            'arbitrum',
+            'avalanche',
+            'optimism',
+            'gnosis',
+            'sonic',
+            'unichain',
+        ],
     ],
 
 ];

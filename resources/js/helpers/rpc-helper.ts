@@ -1,6 +1,6 @@
 import type { PublicClient } from 'viem';
 import { createPublicClient, http, fallback } from 'viem';
-import { SUPPORTED_CHAINS, getMarketByChainId } from '../constants/networks';
+import { SUPPORTED_CHAINS, getMarketByChainId, CHAIN_ID_TO_NETWORK } from '../constants/networks';
 import { bootstrapProxySession, getProxySessionIdentity, waitForProxySessionBootstrap } from '../services/api';
 import logger from '../utils/logger';
 
@@ -118,10 +118,10 @@ export async function createRpcProviderWithFallback(rpcUrls: string[], chainId: 
     // Simple chain lookup
     const chain = SUPPORTED_CHAINS.find(c => c.id === chainId) || SUPPORTED_CHAINS[0];
     const market = getMarketByChainId(chainId);
-    const slug = market?.alchemySlug;
+    const rpcNetwork = market?.rpcNetwork || CHAIN_ID_TO_NETWORK[chainId];
 
-    // Prepend local proxy URL to the list if we have a slug
-    const augmentedUrls = slug ? [`/rpc/${slug}`, ...rpcUrls] : rpcUrls;
+    // Prepend local proxy URL to the list if we have a network name
+    const augmentedUrls = rpcNetwork ? [`/rpc/${rpcNetwork}`, ...rpcUrls] : rpcUrls;
     const uniqueUrls = Array.from(new Set(augmentedUrls));
 
     const transports = uniqueUrls.map(url => http(url, buildTransportConfig(url)));
@@ -154,10 +154,10 @@ export function createRpcProvider(rpcUrls: string[], chainId: number): PublicCli
 
     const chain = SUPPORTED_CHAINS.find(c => c.id === chainId) || SUPPORTED_CHAINS[0];
     const market = getMarketByChainId(chainId);
-    const slug = market?.alchemySlug;
+    const rpcNetwork = market?.rpcNetwork || CHAIN_ID_TO_NETWORK[chainId];
 
-    // Prepend local proxy URL to the list if we have a slug
-    const augmentedUrls = slug ? [`/rpc/${slug}`, ...rpcUrls] : rpcUrls;
+    // Prepend local proxy URL to the list if we have a network name
+    const augmentedUrls = rpcNetwork ? [`/rpc/${rpcNetwork}`, ...rpcUrls] : rpcUrls;
     const uniqueUrls = Array.from(new Set(augmentedUrls));
 
     const transports = uniqueUrls.map(url => http(url, buildTransportConfig(url)));

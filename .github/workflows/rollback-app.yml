@@ -23,7 +23,8 @@ jobs:
 
       # Secrets exatamente como no arquivo enviado
       REOWN_PROJECT_ID: ${{ secrets.VITE_REOWN_PROJECT_ID }}
-      ALCHEMY_API_KEY: ${{ secrets.ALCHEMY_API_KEY }}
+      RPC_GATEWAY_AUTH_HEADER_NAME: ${{ secrets.RPC_GATEWAY_AUTH_HEADER_NAME }}
+      RPC_GATEWAY_AUTH_HEADER_VALUE: ${{ secrets.RPC_GATEWAY_AUTH_HEADER_VALUE }}
       API_SECRET: ${{ secrets.API_SECRET }}
 
       # Database Secrets (Matched with Engine)
@@ -68,7 +69,8 @@ jobs:
             TOKEN='$G_TOKEN'
 
             REOWN_ID='$REOWN_PROJECT_ID'
-            ALCHEMY_KEY='$ALCHEMY_API_KEY'
+            GW_HEADER='$RPC_GATEWAY_AUTH_HEADER_NAME'
+            GW_AUTH='$RPC_GATEWAY_AUTH_HEADER_VALUE'
             API_SEC='$API_SECRET'
 
             DB_HOST='$DB_HOST'
@@ -95,9 +97,10 @@ jobs:
             # Setup .env
             cp .env.example .env
             sed -i \"s|^VITE_REOWN_PROJECT_ID=.*|VITE_REOWN_PROJECT_ID=\$REOWN_ID|g\" .env
-            sed -i \"s|^ALCHEMY_API_KEY=.*|ALCHEMY_API_KEY=\$ALCHEMY_KEY|g\" .env
+            sed -i "s|^RPC_GATEWAY_AUTH_HEADER_NAME=.*|RPC_GATEWAY_AUTH_HEADER_NAME=\$GW_HEADER|g" .env
+            sed -i "s|^RPC_GATEWAY_AUTH_HEADER_VALUE=.*|RPC_GATEWAY_AUTH_HEADER_VALUE=\$GW_AUTH|g" .env
             sed -i \"s|^API_SECRET=.*|API_SECRET=\$API_SEC|g\" .env
-            
+
             # DB Injection (MySQL)
             sed -i \"s|^DB_HOST=.*|DB_HOST=\$DB_HOST|g\" .env
             sed -i \"s|^DB_PORT=.*|DB_PORT=\$DB_PORT|g\" .env

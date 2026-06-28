@@ -81,6 +81,32 @@ const AUGUSTUS_ADDRESSES = {
 
 export const getAlchemyRpcUrl = (slug: string) => `${window.location.origin}/rpc/${slug}`;
 
+/**
+ * Returns the RPC gateway URL for a given network name.
+ * Used by wagmi/viem transports to route through the Laravel proxy.
+ */
+export const getRpcGatewayUrl = (network: string) => `${window.location.origin}/rpc/${network}`;
+
+/**
+ * Central mapping: chainId → RPC gateway network name.
+ *
+ * ⚠️ Keep in sync with:
+ *   - engine/src/config/networks.js  →  CHAIN_NETWORK_MAP
+ *   - app/config/services.php        →  rpc_gateway.allowed_networks
+ */
+export const CHAIN_ID_TO_NETWORK: Record<number, string> = {
+    1: 'ethereum',
+    56: 'bsc',
+    137: 'polygon',
+    8453: 'base',
+    42161: 'arbitrum',
+    43114: 'avalanche',
+    10: 'optimism',
+    100: 'gnosis',
+    146: 'sonic',
+    130: 'unichain',
+};
+
 export interface MarketConfig {
     key: string;
     label: string;
@@ -89,6 +115,8 @@ export interface MarketConfig {
     hexChainId: string;
     icon: string;
     alchemySlug: string;
+    /** Network name used for RPC gateway routing (e.g. 'ethereum', 'base', 'arbitrum') */
+    rpcNetwork: string;
     explorer: string;
     rpcUrls: string[];
     addresses: {
@@ -125,6 +153,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0x1',
             icon: '/icons/networks/ethereum.svg',
             alchemySlug: 'eth-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[1],
             explorer: 'https://etherscan.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -160,6 +189,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0x1',
             icon: '/icons/networks/lido.svg',
             alchemySlug: 'eth-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[1],
             explorer: 'https://etherscan.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -194,6 +224,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0xa',
             icon: '/icons/networks/optimism.svg',
             alchemySlug: 'opt-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[10],
             explorer: 'https://optimistic.etherscan.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -229,6 +260,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0x38',
             icon: '/icons/networks/binance.svg',
             alchemySlug: 'bnb-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[56],
             explorer: 'https://bscscan.com',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -263,6 +295,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0x64',
             icon: '/icons/networks/gnosis.svg',
             alchemySlug: 'gnosis-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[100],
             explorer: 'https://gnosisscan.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -297,6 +330,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0x89',
             icon: '/icons/networks/polygon.svg',
             alchemySlug: 'polygon-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[137],
             explorer: 'https://polygonscan.com',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -331,6 +365,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0x92',
             icon: '/icons/networks/sonic.svg',
             alchemySlug: 'sonic-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[146],
             explorer: 'https://sonicscan.org',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -365,6 +400,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0x2105',
             icon: '/icons/networks/base.svg',
             alchemySlug: 'base-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[8453],
             explorer: 'https://basescan.org',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -399,6 +435,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0xa4b1',
             icon: '/icons/networks/arbitrum.svg',
             alchemySlug: 'arb-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[42161],
             explorer: 'https://arbiscan.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),
@@ -433,6 +470,7 @@ export const MARKETS: Record<string, MarketConfig> = {
             hexChainId: '0xa86a',
             icon: '/icons/networks/avalanche.svg',
             alchemySlug: 'avax-mainnet',
+            rpcNetwork: CHAIN_ID_TO_NETWORK[43114],
             explorer: 'https://snowtrace.io',
             rpcUrls: [
                 ...(alchemyUrl ? [alchemyUrl] : []),

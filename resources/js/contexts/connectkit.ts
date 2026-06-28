@@ -1,6 +1,6 @@
 import { getDefaultConfig } from 'connectkit';
 import { createConfig, http } from 'wagmi';
-import { SUPPORTED_CHAINS, getMarketByChainId, getAlchemyRpcUrl } from '../constants/networks';
+import { SUPPORTED_CHAINS, getMarketByChainId, getRpcGatewayUrl, CHAIN_ID_TO_NETWORK } from '../constants/networks';
 import { buildTransportConfig } from '../helpers/rpc-helper';
 
 const projectId = import.meta.env.VITE_REOWN_PROJECT_ID;
@@ -32,7 +32,11 @@ export const wagmiConfig = createConfig(
         transports: Object.fromEntries(
             SUPPORTED_CHAINS.map((chain) => {
                 const market = getMarketByChainId(chain.id);
-                const rpcUrl = market ? getAlchemyRpcUrl(market.alchemySlug) : undefined;
+                const rpcUrl = market
+                    ? getRpcGatewayUrl(market.rpcNetwork)
+                    : CHAIN_ID_TO_NETWORK[chain.id]
+                        ? getRpcGatewayUrl(CHAIN_ID_TO_NETWORK[chain.id])
+                        : undefined;
 
                 return [
                     chain.id,
