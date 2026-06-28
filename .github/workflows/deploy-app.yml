@@ -24,6 +24,7 @@ jobs:
       RPC_GATEWAY_AUTH_HEADER_NAME: ${{ secrets.RPC_GATEWAY_AUTH_HEADER_NAME }}
       RPC_GATEWAY_AUTH_HEADER_VALUE: ${{ secrets.RPC_GATEWAY_AUTH_HEADER_VALUE }}
       API_SECRET: ${{ secrets.API_SECRET }}
+      APP_KEY: ${{ secrets.APP_KEY }}
 
       # Database Secrets (Matched with Engine)
       DB_HOST: ${{ secrets.MYSQL_HOST || '127.0.0.1' }}
@@ -57,6 +58,7 @@ jobs:
             GW_HEADER='$RPC_GATEWAY_AUTH_HEADER_NAME'
             GW_AUTH='$RPC_GATEWAY_AUTH_HEADER_VALUE'
             API_SEC='$API_SECRET'
+            APP_KEY_VALUE='$APP_KEY'
 
             DB_HOST='$DB_HOST'
             DB_PORT='$DB_PORT'
@@ -95,6 +97,7 @@ jobs:
             sed -i \"s|^RPC_GATEWAY_AUTH_HEADER_NAME=.*|RPC_GATEWAY_AUTH_HEADER_NAME=\$GW_HEADER|g\" .env
             sed -i \"s|^RPC_GATEWAY_AUTH_HEADER_VALUE=.*|RPC_GATEWAY_AUTH_HEADER_VALUE=\$GW_AUTH|g\" .env
             sed -i \"s|^API_SECRET=.*|API_SECRET=\$API_SEC|g\" .env
+            sed -i \"s|^APP_KEY=.*|APP_KEY=\$APP_KEY_VALUE|g\" .env
 
             # DB Injection (MySQL)
             sed -i \"s|^DB_HOST=.*|DB_HOST=\$DB_HOST|g\" .env
@@ -109,7 +112,6 @@ jobs:
 
             # 5. Build
             composer install --no-dev --optimize-autoloader
-            php artisan key:generate --force
             php artisan migrate --force
             if ! \$NODE_BIN/corepack pnpm install --frozen-lockfile; then
               echo \"pnpm install failed; repairing the shared store and retrying...\"
