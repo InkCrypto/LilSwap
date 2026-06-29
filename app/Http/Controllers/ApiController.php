@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\EngineProxyClient;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 
@@ -10,8 +11,7 @@ class ApiController extends Controller
 {
     public function __construct(
         protected EngineProxyClient $engineProxyClient,
-    ) {
-    }
+    ) {}
 
     /**
      * Proxy requests to the external API with HMAC signing.
@@ -38,7 +38,9 @@ class ApiController extends Controller
         $isAuthorized = false;
         foreach ($allowedHosts as $host) {
             $host = trim((string) $host);
-            if (empty($host)) continue;
+            if (empty($host)) {
+                continue;
+            }
 
             if (($originHost && $originHost === $host) ||
                 ($refererHost && $refererHost === $host)
@@ -48,7 +50,7 @@ class ApiController extends Controller
             }
         }
 
-        if (!$isAuthorized) {
+        if (! $isAuthorized) {
             return response()->json([
                 'error' => 'Unordered or external request',
                 'reason_code' => 'APP_PROXY_ORIGIN_REJECTED',
@@ -83,18 +85,27 @@ class ApiController extends Controller
             }
 
             return $jsonResponse;
-        } catch (\Exception $e) {
-            Log::error("API Proxy Error: " . $e->getMessage(), [
+        } catch (ConnectionException $e) {
+            Log::warning('Engine proxy timed out', [
                 'path' => $path,
                 'request_id' => $requestId,
-                'exception' => $e
             ]);
 
             return response()->json([
-                'error' => 'Internal Server Error during API proxying',
+                'error' => 'The transaction engine did not respond in time.',
+                'reason_code' => 'APP_PROXY_TIMEOUT',
+            ], 504);
+        } catch (\Throwable $e) {
+            Log::error('API Proxy Error', [
+                'path' => $path,
+                'request_id' => $requestId,
+                'exception' => $e,
+            ]);
+
+            return response()->json([
+                'error' => 'The transaction engine is temporarily unavailable.',
                 'reason_code' => 'APP_PROXY_FORWARD_ERROR',
-                'message' => $e->getMessage(),
-            ], 500);
+            ], 502);
         }
     }
 }
