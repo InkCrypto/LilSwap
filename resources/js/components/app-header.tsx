@@ -8,6 +8,7 @@ import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover
 import { useWeb3 } from '@/contexts/web3-context';
 import { useAppearance } from '@/hooks/use-appearance';
 import { useUiPreferences } from '@/hooks/use-ui-preferences';
+import { useTelegramMiniAppContext } from '@/contexts/telegram-mini-app-context';
 
 type AppHeaderProps = {
     account?: string | null;
@@ -24,7 +25,9 @@ export function AppHeader({
     const isConnectBusy = isReconnecting || (isConnecting && isConnectModalOpen);
     const { resolvedAppearance, updateAppearance } = useAppearance();
     const { preferences, updatePreference } = useUiPreferences();
+    const telegram = useTelegramMiniAppContext();
     const isDarkMode = resolvedAppearance === 'dark';
+    const logoSubtitle = telegram.enabled ? (telegram.miniAppName ?? 'MINI') : undefined;
     const toggleDarkMode = () => updateAppearance(isDarkMode ? 'light' : 'dark');
     const [isScrolled, setIsScrolled] = React.useState(false);
     const currentPath = typeof window !== 'undefined' ? window.location.pathname : '/';
@@ -53,15 +56,15 @@ export function AppHeader({
                     {/* Mobile Logo Menu or Static Logo */}
                     <div className="block sm:hidden">
                         {isHomeActive ? (
-                            <AppLogo size="sm" className="pr-3" />
+                            <AppLogo size="sm" subtitle={logoSubtitle} className="pr-3" />
                         ) : (
-                            <AppLogo size="sm" href="/" className="pr-3" />
+                            <AppLogo size="sm" subtitle={logoSubtitle} href="/" className="pr-3" />
                         )}
                     </div>
 
                     {/* Desktop Logo */}
                     <div className="hidden sm:flex items-center gap-3 sm:gap-4 min-w-0">
-                        <AppLogo size="lg" showBeta href={isHomeActive ? undefined : '/'} />
+                        <AppLogo size="lg" showBeta subtitle={logoSubtitle} href={isHomeActive ? undefined : '/'} />
 
                         {account && (
                             <nav className="hidden sm:flex items-center gap-8 ml-8">

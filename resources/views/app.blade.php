@@ -59,6 +59,26 @@
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Outfit:wght@400;500;600;700;800;900&family=Roboto+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
         <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
 
+        @php
+            $miniAppHosts = config('miniapp.all_hosts', []);
+            $isMiniAppHost = in_array(request()->getHost(), $miniAppHosts, true);
+
+            if ($isMiniAppHost) {
+                logger('[MiniApp] Host detected: ' . request()->getHost(), [
+                    'hosts' => $miniAppHosts,
+                    'url' => request()->fullUrl(),
+                    'user_agent' => request()->userAgent(),
+                ]);
+            }
+        @endphp
+
+        <meta name="miniapp-hosts" content="{{ implode(',', $miniAppHosts) }}" />
+        <meta name="miniapp-name" content="{{ config('miniapp.name') }}" />
+
+        @if ($isMiniAppHost)
+            <script src="https://telegram.org/js/telegram-web-app.js?62"></script>
+        @endif
+
         @viteReactRefresh
         @vite(['resources/css/app.css', 'resources/js/app.tsx'])
         @inertiaHead
