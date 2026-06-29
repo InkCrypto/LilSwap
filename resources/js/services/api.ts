@@ -40,6 +40,7 @@ const isProtectedProxyEndpoint = (url?: string | null) => {
         normalized.startsWith('/rpc/') ||
         normalized.startsWith('/transactions/') ||
         normalized.startsWith('/limit-orders') ||
+        normalized.startsWith('/telegram/') ||
         normalized.startsWith('/api/')
     );
 };

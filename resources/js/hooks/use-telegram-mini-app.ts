@@ -15,6 +15,7 @@ export type TelegramMiniAppState = {
     viewportStableHeight: number | null;
     lastEvent: string | null;
     miniAppName: string | null;
+    allowsWriteToPm: boolean;
 };
 
 export type TelegramMiniAppApi = TelegramMiniAppState & {
@@ -22,6 +23,7 @@ export type TelegramMiniAppApi = TelegramMiniAppState & {
     showAlert: (message: string) => void;
     showConfirm: (message: string) => Promise<boolean>;
     requestWriteAccess: () => Promise<boolean>;
+    updateAllowsWriteToPm: (value: boolean) => void;
     hapticSuccess: () => void;
     hapticError: () => void;
     hapticSelection: () => void;
@@ -51,6 +53,7 @@ export function useTelegramMiniApp(): TelegramMiniAppApi {
         viewportStableHeight: webApp?.viewportStableHeight ?? null,
         lastEvent: null,
         miniAppName: getMiniAppName(),
+        allowsWriteToPm: !!webApp?.initDataUnsafe?.user?.allows_write_to_pm,
     });
 
     useEffect(() => {
@@ -156,12 +159,17 @@ export function useTelegramMiniApp(): TelegramMiniAppApi {
         webApp?.HapticFeedback?.selectionChanged?.();
     }, [webApp]);
 
+    const updateAllowsWriteToPm = useCallback((value: boolean) => {
+        setState((prev) => ({ ...prev, allowsWriteToPm: value }));
+    }, []);
+
     return {
         ...state,
         initData: webApp?.initData ?? null,
         showAlert,
         showConfirm,
         requestWriteAccess,
+        updateAllowsWriteToPm,
         hapticSuccess,
         hapticError,
         hapticSelection,

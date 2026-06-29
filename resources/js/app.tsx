@@ -7,7 +7,7 @@ import { TooltipProvider } from '@/components/ui/tooltip';
 import { ApiMetaProvider } from '@/contexts/api-meta-context';
 import { DonationVerificationProvider } from '@/contexts/donation-verification-context';
 import { TelegramMiniAppProvider } from '@/contexts/telegram-mini-app-context';
-import { TelegramDebugPanel } from '@/components/telegram-debug-panel';
+import { TelegramWriteAccessRequest } from '@/components/telegram-write-access';
 import { ToastProvider } from '@/contexts/toast-context';
 import { TransactionTrackerProvider } from '@/contexts/transaction-tracker-context';
 import { UserActivityProvider } from '@/contexts/user-activity-context';
@@ -42,7 +42,7 @@ createInertiaApp({
                                             <TooltipProvider delayDuration={120}>
                                                 <App {...props} />
                                             </TooltipProvider>
-                                            <TelegramDebugPanel />
+                                            <TelegramWriteAccessRequest />
                                         </TelegramMiniAppProvider>
                                     </TransactionTrackerProvider>
                                 </DonationVerificationProvider>

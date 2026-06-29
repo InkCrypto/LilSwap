@@ -1,10 +1,30 @@
-import React, { createContext, useContext } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { TelegramMiniAppApi, useTelegramMiniApp } from '@/hooks/use-telegram-mini-app';
+import { bootstrapTelegramMiniApp } from '@/services/telegram-api';
 
-const TelegramMiniAppContext = createContext<TelegramMiniAppApi | null>(null);
+const TelegramMiniAppContext = React.createContext<TelegramMiniAppApi | null>(null);
 
 export function TelegramMiniAppProvider({ children }: { children: React.ReactNode }) {
     const telegram = useTelegramMiniApp();
+    const bootstrappedRef = useRef(false);
+
+    useEffect(() => {
+        if (!telegram.enabled) return;
+        if (!telegram.initialized) return;
+        if (!telegram.initData) return;
+        if (bootstrappedRef.current) return;
+
+        bootstrappedRef.current = true;
+
+        bootstrapTelegramMiniApp({
+            initData: telegram.initData,
+            platform: telegram.platform,
+            version: telegram.version,
+            startParam: telegram.startParam,
+        }).catch(() => {
+            // Bootstrap failure is non-blocking — app continues to work
+        });
+    }, [telegram.enabled, telegram.initialized, telegram.initData, telegram.platform, telegram.version, telegram.startParam]);
 
     return (
         <TelegramMiniAppContext.Provider value={telegram}>
@@ -14,7 +34,7 @@ export function TelegramMiniAppProvider({ children }: { children: React.ReactNod
 }
 
 export function useTelegramMiniAppContext() {
-    const context = useContext(TelegramMiniAppContext);
+    const context = React.useContext(TelegramMiniAppContext);
 
     if (!context) {
         throw new Error('useTelegramMiniAppContext must be used within TelegramMiniAppProvider');

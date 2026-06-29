@@ -48,6 +48,11 @@ Route::match(['get', 'post', 'put', 'delete'], '/donations/{path}', function (\I
     return app(\App\Http\Controllers\ApiController::class)->proxy($request, "donations/$path");
 })->middleware(['throttle:rpc', 'soft.abuse', 'proxy.auth'])->where('path', '.*');
 
+// Telegram Mini App Proxy Route
+Route::match(['get', 'post', 'put', 'delete'], '/telegram/{path}', function (\Illuminate\Http\Request $request, $path) {
+    return app(\App\Http\Controllers\ApiController::class)->proxy($request, "telegram/$path");
+})->middleware(['throttle:rpc', 'soft.abuse', 'proxy.auth'])->where('path', '.*');
+
 // RPC Gateway Proxy Route (Rate Limited)
 Route::post('/rpc/{network}', [\App\Http\Controllers\RpcProxyController::class, 'proxy'])
     ->middleware(['throttle:rpc', 'soft.abuse', 'proxy.auth']);

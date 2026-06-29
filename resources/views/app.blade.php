@@ -62,14 +62,6 @@
         @php
             $miniAppHosts = config('miniapp.all_hosts', []);
             $isMiniAppHost = in_array(request()->getHost(), $miniAppHosts, true);
-
-            if ($isMiniAppHost) {
-                logger('[MiniApp] Host detected: ' . request()->getHost(), [
-                    'hosts' => $miniAppHosts,
-                    'url' => request()->fullUrl(),
-                    'user_agent' => request()->userAgent(),
-                ]);
-            }
         @endphp
 
         <meta name="miniapp-hosts" content="{{ implode(',', $miniAppHosts) }}" />
