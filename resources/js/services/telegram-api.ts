@@ -8,3 +8,8 @@ export async function bootstrapTelegramMiniApp(payload: {
 }) {
     return apiClient.post('/telegram/bootstrap', payload);
 }
+export async function checkTelegramWriteAccess() {
+    return apiClient.post<{ success: boolean; allowsWriteToPm: boolean; hasSession: boolean }>(
+        '/telegram/write-access-status',
+    );
+}

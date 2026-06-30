@@ -16,6 +16,7 @@ interface ModalProps {
     maxWidth?: string;
     headerBorder?: boolean;
     preventAutoFocus?: boolean;
+    showCloseButton?: boolean;
 }
 
 export const Modal: React.FC<ModalProps> = ({
@@ -26,10 +27,12 @@ export const Modal: React.FC<ModalProps> = ({
     maxWidth = '460px',
     headerBorder = true,
     preventAutoFocus = false,
+    showCloseButton = true,
 }) => {
     return (
         <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
             <DialogContent
+                showCloseButton={showCloseButton}
                 className="sm:max-w-[calc(100vw-2rem)] p-0 gap-0 overflow-hidden bg-white dark:bg-slate-900 border border-border-light dark:border-slate-700 rounded-2xl shadow-2xl animate-in zoom-in-95 fade-in duration-200 outline-none"
                 style={{ maxWidth }}
                 aria-describedby={undefined}
@@ -59,7 +62,7 @@ export const Modal: React.FC<ModalProps> = ({
                         </DialogTitle>
                     </DialogHeader>
                 )}
-                {!title && (
+                {!title && showCloseButton && (
                     <div className="absolute right-4 top-4 z-50">
                         <button
                             onClick={onClose}

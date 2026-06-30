@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getMiniAppName, shouldEnableTelegramIntegration } from '@/lib/runtime';
+import { checkTelegramWriteAccess } from '@/services/telegram-api';
 
 export type TelegramMiniAppState = {
     enabled: boolean;
@@ -24,6 +25,7 @@ export type TelegramMiniAppApi = TelegramMiniAppState & {
     showConfirm: (message: string) => Promise<boolean>;
     requestWriteAccess: () => Promise<boolean>;
     updateAllowsWriteToPm: (value: boolean) => void;
+    checkWriteAccess: () => Promise<void>;
     hapticSuccess: () => void;
     hapticError: () => void;
     hapticSelection: () => void;
@@ -97,17 +99,19 @@ export function useTelegramMiniApp(): TelegramMiniAppApi {
         webApp.onEvent('popupClosed', () => setState((prev) => ({ ...prev, lastEvent: 'popupClosed' })));
         webApp.onEvent('writeAccessRequested', () => setState((prev) => ({ ...prev, lastEvent: 'writeAccessRequested' })));
 
+        // Listen for write access changes reported by the API interceptor
+        const onWriteAccessChanged = (e: CustomEvent<{ allowsWriteToPm: boolean }>) => {
+            setState((prev) => ({ ...prev, allowsWriteToPm: e.detail.allowsWriteToPm }));
+        };
+
+        window.addEventListener('lilswap:telegram_write_access_changed', onWriteAccessChanged as EventListener);
+
         return () => {
             webApp.offEvent('activated', onActivated);
             webApp.offEvent('deactivated', onDeactivated);
             webApp.offEvent('themeChanged', onThemeChanged);
             webApp.offEvent('viewportChanged', onViewportChanged);
-            webApp.offEvent('fullscreenChanged', () => { });
-            webApp.offEvent('fullscreenFailed', () => { });
-            webApp.offEvent('backButtonClicked', () => { });
-            webApp.offEvent('settingsButtonClicked', () => { });
-            webApp.offEvent('popupClosed', () => { });
-            webApp.offEvent('writeAccessRequested', () => { });
+            window.removeEventListener('lilswap:telegram_write_access_changed', onWriteAccessChanged as EventListener);
         };
     }, [enabled, webApp]);
 
@@ -163,6 +167,16 @@ export function useTelegramMiniApp(): TelegramMiniAppApi {
         setState((prev) => ({ ...prev, allowsWriteToPm: value }));
     }, []);
 
+    const checkWriteAccess = useCallback(async () => {
+        try {
+            const res = await checkTelegramWriteAccess();
+            const allowed = res.data?.allowsWriteToPm === true;
+            setState((prev) => ({ ...prev, allowsWriteToPm: allowed }));
+        } catch {
+            // Non-blocking
+        }
+    }, []);
+
     return {
         ...state,
         initData: webApp?.initData ?? null,
@@ -170,6 +184,7 @@ export function useTelegramMiniApp(): TelegramMiniAppApi {
         showConfirm,
         requestWriteAccess,
         updateAllowsWriteToPm,
+        checkWriteAccess,
         hapticSuccess,
         hapticError,
         hapticSelection,

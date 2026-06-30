@@ -165,6 +165,12 @@ apiClient.interceptors.response.use(
             notifyApiStatus(true);
         }
 
+        const writeAccess = response.headers['x-telegram-write-access'] || response.headers['X-Telegram-Write-Access'];
+        if (writeAccess === 'false') {
+            // Notify app that permission was revoked — UI can re-prompt
+            window.dispatchEvent(new CustomEvent('lilswap:telegram_write_access_changed', { detail: { allowsWriteToPm: false } }));
+        }
+
         return response;
     },
     async (error) => {

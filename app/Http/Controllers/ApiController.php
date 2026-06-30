@@ -84,6 +84,10 @@ class ApiController extends Controller
                 $jsonResponse->header('X-Request-Id', $response->header('X-Request-Id'));
             }
 
+            if ($response->hasHeader('X-Telegram-Write-Access')) {
+                $jsonResponse->header('X-Telegram-Write-Access', $response->header('X-Telegram-Write-Access'));
+            }
+
             return $jsonResponse;
         } catch (ConnectionException $e) {
             Log::warning('Engine proxy timed out', [
