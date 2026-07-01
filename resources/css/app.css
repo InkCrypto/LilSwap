@@ -152,9 +152,11 @@
 }
 
 @layer base {
-    html {
-        scrollbar-gutter: stable both-edges;
-        overflow-y: scroll;
+    @media (min-width: 768px) {
+        html {
+            scrollbar-gutter: stable both-edges;
+            overflow-y: scroll;
+        }
     }
 
     * {
