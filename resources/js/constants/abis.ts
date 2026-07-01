@@ -119,7 +119,7 @@ export const ABIS = {
         "function depositETH(address pool, address onBehalfOf, uint16 referralCode) external payable",
         "function withdrawETH(address pool, uint256 amount, address to) external",
         "function borrowETH(address pool, uint256 amount, uint16 referralCode) external",
-        "function repayETH(address pool, uint256 amount, uint256 interestRateMode, address onBehalfOf) external payable"
+        "function repayETH(address pool, uint256 amount, address onBehalfOf) external payable"
     ],
     WITHDRAW_SWAP_ADAPTER: [
         {

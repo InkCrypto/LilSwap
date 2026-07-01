@@ -1475,7 +1475,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                     address: getAddress(gatewayAddress),
                     abi: parseAbi(ABIS.WETH_GATEWAY),
                     functionName: 'repayETH',
-                    args: [getAddress(poolAddress), amount, 2n, account],
+                    args: [getAddress(poolAddress), amount, account],
                     value: amount,
                 });
             } else {
