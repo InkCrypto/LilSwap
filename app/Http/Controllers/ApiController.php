@@ -22,18 +22,26 @@ class ApiController extends Controller
 
         // Simple Origin/Referer check to discourage direct API usage by 3rd parties
         $appUrl = config('app.url');
-        $allowedHosts = array_filter(explode(',', (string) env('APP_ALLOWED_ORIGINS', '')));
+        $allowedHosts = [
+            ...config('app.allowed_origins', []),
+            ...config('miniapp.all_hosts', []),
+        ];
 
         $appHost = parse_url((string) $appUrl, PHP_URL_HOST);
         if ($appHost) {
             $allowedHosts[] = $appHost;
         }
 
+        $allowedHosts = array_values(array_unique(array_map(
+            static fn($host) => strtolower(trim((string) $host)),
+            array_filter($allowedHosts),
+        )));
+
         $origin = $request->header('Origin');
         $referer = $request->header('Referer');
 
-        $originHost = $origin ? parse_url((string) $origin, PHP_URL_HOST) : null;
-        $refererHost = $referer ? parse_url((string) $referer, PHP_URL_HOST) : null;
+        $originHost = $origin ? strtolower((string) parse_url((string) $origin, PHP_URL_HOST)) : null;
+        $refererHost = $referer ? strtolower((string) parse_url((string) $referer, PHP_URL_HOST)) : null;
 
         $isAuthorized = false;
         foreach ($allowedHosts as $host) {
@@ -52,7 +60,7 @@ class ApiController extends Controller
 
         if (! $isAuthorized) {
             return response()->json([
-                'error' => 'Unordered or external request',
+                'error' => 'Unauthorized or external request',
                 'reason_code' => 'APP_PROXY_ORIGIN_REJECTED',
             ], 403);
         }

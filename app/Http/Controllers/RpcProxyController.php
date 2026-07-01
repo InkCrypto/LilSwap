@@ -32,7 +32,7 @@ class RpcProxyController extends Controller
         // ── Origin/Referer validation ──
         if (!$this->isValidOrigin($request)) {
             return response()->json([
-                'error' => 'Unordered or external request',
+                'error' => 'Unauthorized or external request',
                 'reason_code' => 'APP_RPC_ORIGIN_REJECTED',
             ], 403);
         }
@@ -129,41 +129,33 @@ class RpcProxyController extends Controller
      */
     private function isValidOrigin(Request $request): bool
     {
-        $appUrl = config('app.url');
-        $allowedOrigins = config('app.allowed_origins', []);
-        $origin = $request->header('Origin');
-        $referer = $request->header('Referer');
+        $allowedHosts = [
+            ...config('app.allowed_origins', []),
+            ...config('miniapp.all_hosts', []),
+        ];
 
-        $isValid = false;
-
-        // Check against primary APP_URL
-        $appHost = parse_url($appUrl, PHP_URL_HOST);
-        if ($origin && str_contains($origin, $appHost)) {
-            $isValid = true;
-        }
-        if ($referer && str_contains($referer, $appHost)) {
-            $isValid = true;
+        $appHost = parse_url((string) config('app.url'), PHP_URL_HOST);
+        if ($appHost) {
+            $allowedHosts[] = $appHost;
         }
 
-        // Check against additional allowed origins
-        if (!$isValid) {
-            foreach ($allowedOrigins as $allowed) {
-                if ($origin && str_contains($origin, $allowed)) {
-                    $isValid = true;
-                    break;
-                }
-                if ($referer && str_contains($referer, $allowed)) {
-                    $isValid = true;
-                    break;
-                }
-            }
-        }
+        $allowedHosts = array_values(array_unique(array_map(
+            static fn($host) => strtolower(trim((string) $host)),
+            array_filter($allowedHosts),
+        )));
 
-        // Allow requests without origin/referer only in local environment
-        if (!$isValid && config('app.env') === 'local') {
+        $originHost = $request->header('Origin')
+            ? strtolower((string) parse_url((string) $request->header('Origin'), PHP_URL_HOST))
+            : null;
+        $refererHost = $request->header('Referer')
+            ? strtolower((string) parse_url((string) $request->header('Referer'), PHP_URL_HOST))
+            : null;
+
+        if (($originHost && in_array($originHost, $allowedHosts, true))
+            || ($refererHost && in_array($refererHost, $allowedHosts, true))) {
             return true;
         }
 
-        return $isValid;
+        return config('app.env') === 'local' && !$originHost && !$refererHost;
     }
 }
