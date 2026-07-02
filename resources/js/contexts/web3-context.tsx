@@ -1,4 +1,3 @@
-import { ConnectKitProvider, useModal } from 'connectkit';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import React, { createContext, useContext, useCallback, useEffect, useMemo, useState } from 'react';
 import type { ReactNode } from 'react';
@@ -11,12 +10,14 @@ import {
     usePublicClient,
     useWalletClient,
 } from 'wagmi';
+import { useAppKit, useAppKitState } from '@reown/appkit/react';
 import type { MarketConfig } from '../constants/networks';
 import { DEFAULT_MARKET, MARKETS, getMarketByChainId } from '../constants/networks';
 import { bootstrapProxySession, disconnectProxySession, setProxySessionIdentity } from '../services/api';
 import { flushPendingTransactionHashes } from '../services/transactions-api';
 import logger from '../utils/logger';
-import { wagmiConfig } from './connectkit';
+import { wagmiConfig } from './wagmi-config';
+import { WalletProvider } from './wallet-provider';
 
 export { wagmiConfig };
 
@@ -56,9 +57,9 @@ export const Web3Provider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return (
         <WagmiProvider config={wagmiConfig}>
             <QueryClientProvider client={queryClient}>
-                <ConnectKitProvider theme="auto" mode="dark">
+                <WalletProvider>
                     <Web3InternalProvider>{children}</Web3InternalProvider>
-                </ConnectKitProvider>
+                </WalletProvider>
             </QueryClientProvider>
         </WagmiProvider>
     );
@@ -69,7 +70,8 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     const chainId = useChainId();
     const { switchChainAsync } = useSwitchChain();
     const { disconnectAsync } = useDisconnect();
-    const { open: isConnectModalOpen, setOpen: setConnectModalOpen } = useModal();
+    const { open } = useAppKit();
+    const { open: isConnectModalOpenState } = useAppKitState();
     const isDisconnectingRef = React.useRef(false);
 
     const handleDisconnect = useCallback(async () => {
@@ -228,8 +230,8 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     }, []);
 
     const connectWallet = useCallback(() => {
-        setConnectModalOpen(true);
-    }, [setConnectModalOpen]);
+        open({ view: 'Connect' });
+    }, [open]);
 
     const changeNetwork = useCallback(async (marketKey: string) => {
         const targetMarket = MARKETS[marketKey];
@@ -256,7 +258,7 @@ const Web3InternalProvider: React.FC<{ children: ReactNode }> = ({ children }) =
                 isConnected,
                 isConnecting,
                 isReconnecting,
-                isConnectModalOpen: Boolean(isConnectModalOpen),
+                isConnectModalOpen: Boolean(isConnectModalOpenState),
                 isSettlingAccount,
                 isProxyReady,
                 connectWallet,

@@ -62,6 +62,8 @@
         "@radix-ui/react-toggle": "^1.1.11",
         "@radix-ui/react-toggle-group": "^1.1.12",
         "@radix-ui/react-tooltip": "^1.2.9",
+        "@reown/appkit": "^1.8.21",
+        "@reown/appkit-adapter-wagmi": "^1.8.21",
         "@tailwindcss/vite": "^4.3.0",
         "@tanstack/react-query": "^5.101.0",
         "@types/react": "^19.2.17",
@@ -72,7 +74,6 @@
         "clsx": "^2.1.1",
         "cmdk": "^1.1.1",
         "concurrently": "^9.2.1",
-        "connectkit": "^1.9.2",
         "date-fns": "^4.4.0",
         "globals": "^16.5.0",
         "input-otp": "^1.4.2",
@@ -83,7 +84,7 @@
         "tailwind-merge": "^3.6.0",
         "tailwindcss": "^4.3.0",
         "tw-animate-css": "^1.4.0",
-        "viem": "^2.52.2",
+        "viem": "2.x",
         "wagmi": "^2.19.5"
     },
     "optionalDependencies": {
