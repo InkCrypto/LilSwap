@@ -269,6 +269,26 @@ export const buildDebtSwapTx = async (params: any) => {
     }
 };
 
+export interface EngineTransactionRequest {
+    to: `0x${string}`;
+    data: `0x${string}`;
+    value: string;
+    chainId: number;
+}
+
+export const finalizeSwapExecution = async (params: {
+    executionCapsule: string;
+    walletAddress: string;
+    chainId: number;
+    permit?: Record<string, unknown>;
+}) => {
+    try {
+        const response = await apiClient.post('/aave/v3/build/execution/finalize', params);
+        return response.data as { transactionId: number; transactionRequest: EngineTransactionRequest };
+    } catch (error: any) {
+        throw new Error(getPublicApiErrorMessage(error, 'Error finalizing transaction'));
+    }
+};
 // Debt Limit Swap Types
 
 export interface DebtLimitPrepareParams {

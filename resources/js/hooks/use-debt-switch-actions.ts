@@ -14,8 +14,9 @@ import { usePublicClient, useWalletClient } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
-import { buildDebtSwapTx } from '../services/api';
+import { buildDebtSwapTx, finalizeSwapExecution } from '../services/api';
 import logger from '../utils/logger';
+import { prepareEngineTransactionRequest } from '../utils/transaction-request';
 import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } from '../services/transactions-api';
 import { isUserRejectedError } from '../utils/logger';
 import { calcApprovalAmount } from '../utils/swap-math';
@@ -591,52 +592,30 @@ export const useDebtSwitchActions = ({
                 }
             }
 
-            const encodedParaswapData = encodeAbiParameters(
-                [{ type: 'bytes' }, { type: 'address' }],
-                [txResult.swapCallData as Hex, getAddress(txResult.augustus)]
-            );
-
-            const swapParams = {
-                debtAsset: getAddress(qFrom.address || qFrom.underlyingAsset),
-                debtRepayAmount: isMaxSwap ? maxUint256 : executionDebtRepayAmount,
-                debtRateMode: 2n,
-                newDebtAsset: getAddress(qTo.address || qTo.underlyingAsset),
-                maxNewDebtAmount: executionMaxNewDebt,
-                extraCollateralAsset: zeroAddress,
-                extraCollateralAmount: 0n,
-                offset: BigInt(txResult.dynamicOffset || 0),
-                paraswapData: encodedParaswapData,
-            };
-
-            const creditPermit = {
-                debtToken: permitParams.amount === 0n ? zeroAddress : getAddress(newDebtTokenAddr),
-                value: permitParams.amount,
-                deadline: BigInt(permitParams.deadline),
-                v: permitParams.v,
-                r: permitParams.r,
-                s: permitParams.s,
-            };
-
-            const collateralPermit = { aToken: zeroAddress, value: 0n, deadline: 0n, v: 0, r: zeroHash as Hex, s: zeroHash as Hex };
-
-            if (creditPermit.debtToken !== zeroAddress && creditPermit.value < executionMaxNewDebt) {
-                throw new Error(`Unable to refresh delegation for updated route requirement. Signed: ${creditPermit.value.toString()} Required: ${executionMaxNewDebt.toString()}`);
-            }
+            const finalized = await finalizeSwapExecution({
+                executionCapsule: txResult.executionCapsule,
+                walletAddress: account,
+                chainId,
+                permit: permitParams.amount > 0n ? {
+                    debtToken: getAddress(newDebtTokenAddr),
+                    value: permitParams.amount.toString(),
+                    deadline: permitParams.deadline.toString(),
+                    v: permitParams.v,
+                    r: permitParams.r,
+                    s: permitParams.s,
+                } : undefined,
+            });
+            const rawTransaction = prepareEngineTransactionRequest(finalized.transactionRequest, {
+                account,
+                chainId,
+                target: adapterAddress,
+            });
 
             simulationInProgress = true;
             addLog?.('Checking transaction...', 'info');
-            if (!publicClient) {
-                throw new Error('Unable to verify transaction before execution. Please reconnect and try again.');
-            }
-            await publicClient.simulateContract({
-                account: getAddress(account),
-                address: getAddress(adapterAddress),
-                abi: ABIS.ADAPTER,
-                functionName: 'swapDebt',
-                args: [swapParams, creditPermit, collateralPermit],
-                // BSC nodes can be unreliable with gas estimation for complex
-                // adapter calls. A fixed 3M gas ceiling prevents unnecessary
-                // simulateContract failures while staying well within block limits.
+            if (!publicClient) throw new Error('Unable to verify transaction before execution. Please reconnect and try again.');
+            await publicClient.call({
+                ...rawTransaction,
                 gas: 3_000_000n,
             });
             simulationInProgress = false;
@@ -644,12 +623,9 @@ export const useDebtSwitchActions = ({
 
             addLog?.('Confirm in your wallet...', 'warning');
             walletPromptOpened = true;
-            const hash = await walletClient.writeContract({
-                account: getAddress(account),
-                address: getAddress(adapterAddress),
-                abi: ABIS.ADAPTER,
-                functionName: 'swapDebt',
-                args: [swapParams, creditPermit, collateralPermit],
+            const hash = await walletClient.sendTransaction({
+                ...rawTransaction,
+                chain: null,
             });
             onSignatureCached?.(null);
 

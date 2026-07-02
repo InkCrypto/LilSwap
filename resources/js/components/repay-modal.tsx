@@ -6,14 +6,15 @@ import {
     RefreshCw,
 } from 'lucide-react';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { encodeAbiParameters, formatUnits, getAddress, parseAbi, parseUnits, parseSignature, Hex } from 'viem';
+import { formatUnits, getAddress, parseAbi, parseUnits, parseSignature, Hex } from 'viem';
 import { usePublicClient } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { getMarketByKey } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useWeb3 } from '../contexts/web3-context';
-import { buildRepaySwapTx, getRepaySwapQuote } from '../services/api';
+import { buildRepaySwapTx, finalizeSwapExecution, getRepaySwapQuote } from '../services/api';
 import { requireRecommendedSlippageBps } from '../utils/slippage';
+import { prepareEngineTransactionRequest } from '../utils/transaction-request';
 import {
     formatAPY,
     formatCompactNumber,
@@ -1642,6 +1643,7 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 chainId,
                 walletAddress,
                 marketKey,
+                isFullDebtRepay: debtBalance > 0n && repayAmount >= debtBalance,
             });
 
             const maxCollateralAmount = BigInt(
@@ -1767,64 +1769,31 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 }
             }
 
-            const augustusAddress = txData.augustus ? getAddress(txData.augustus) : null;
-
-            if (!augustusAddress) {
-                throw new Error('ParaSwap Augustus address missing');
-            }
-
-            const encodedParaswapData = encodeAbiParameters(
-                [{ type: 'bytes' }, { type: 'address' }],
-                [txData.swapCallData as `0x${string}`, augustusAddress],
-            );
-            const isFullDebtRepay = debtBalance > 0n && repayAmount >= debtBalance;
-            const buyAllBalanceOffset = isFullDebtRepay ? BigInt(txData.buyAllBalanceOffset || 0) : 0n;
-
-            if (isFullDebtRepay && buyAllBalanceOffset === 0n) {
-                throw new Error('Unable to prepare a full repay route. Try a slightly smaller amount.');
-            }
-
-            const debtRepayAmountForContract = buyAllBalanceOffset > 0n
-                ? addFullRepayDebtBuffer(repayAmount)
-                : repayAmount;
-
-            const transactionParameters = {
-                account: getAddress(walletAddress),
-                address: getAddress(repayWithCollateralAdapterAddress),
-                abi: ABIS.REPAY_WITH_COLLATERAL_ADAPTER,
-                functionName: 'swapAndRepay',
-                args: [
-                    getAddress(selectedCollateral.underlyingAsset || selectedCollateral.address),
-                    getAddress(selectedDebt.underlyingAsset || selectedDebt.address),
-                    maxCollateralAmount, // collateralAmount (max collateral amount to swap)
-                    debtRepayAmountForContract,
-                    2n, // interestRateMode (2 for Variable)
-                    buyAllBalanceOffset,
-                    encodedParaswapData,
-                    permitSignature,
-                ],
-            } as const;
+            const finalized = await finalizeSwapExecution({
+                executionCapsule: txData.executionCapsule,
+                walletAddress,
+                chainId,
+                permit: permitSignature.amount > 0n ? {
+                    amount: permitSignature.amount.toString(),
+                    deadline: permitSignature.deadline.toString(),
+                    v: permitSignature.v,
+                    r: permitSignature.r,
+                    s: permitSignature.s,
+                } : undefined,
+            });
+            const rawTransaction = prepareEngineTransactionRequest(finalized.transactionRequest, {
+                account: walletAddress,
+                chainId,
+                target: repayWithCollateralAdapterAddress,
+            });
             let gas = resolveRepaySwapGasLimit(txData, quoteForExecution.priceRoute);
 
-            if (!readClient) {
-                throw new Error('Simulation client is unavailable for this network.');
-            }
-
-            const estimatedGas = await readClient.estimateContractGas(transactionParameters);
+            if (!readClient) throw new Error('Simulation client is unavailable for this network.');
+            const estimatedGas = await readClient.estimateGas(rawTransaction);
             const estimatedGasWithBuffer = applyRepaySwapGasBuffer(estimatedGas);
-            if (estimatedGasWithBuffer > gas) {
-                gas = estimatedGasWithBuffer;
-            }
-
-            await readClient.simulateContract({
-                ...transactionParameters,
-                gas,
-            });
-
-            const txHash = await walletClient.writeContract({
-                ...transactionParameters,
-                gas,
-            });
+            if (estimatedGasWithBuffer > gas) gas = estimatedGasWithBuffer;
+            await readClient.call({ ...rawTransaction, gas });
+            const txHash = await walletClient.sendTransaction({ ...rawTransaction, gas, chain: null });
 
             addTransaction({
                 hash: txHash,

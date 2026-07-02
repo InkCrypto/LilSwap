@@ -26,6 +26,7 @@ import { getTokenLogo } from '../utils/get-token-logo';
 import logger from '../utils/logger';
 import { getWithdrawSwapQuote, buildWithdrawSwapTx } from '../services/api';
 import { requireRecommendedSlippageBps } from '../utils/slippage';
+import { prepareEngineTransactionRequest } from '../utils/transaction-request';
 
 interface WithdrawModalProps {
     isOpen: boolean;
@@ -1158,53 +1159,22 @@ export const WithdrawModal: React.FC<WithdrawModalProps> = ({
                     marketKey,
                 });
 
-                const permitParams = {
-                    amount: 0n,
-                    deadline: 0n,
-                    v: 0,
-                    r: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
-                    s: '0x0000000000000000000000000000000000000000000000000000000000000000' as `0x${string}`,
-                };
-
-                const transactionParameters = {
-                    account: getAddress(walletAddress),
-                    address: getAddress(withdrawSwapAdapterAddress),
-                    abi: ABIS.WITHDRAW_SWAP_ADAPTER,
-                    functionName: 'withdrawAndSwap',
-                    args: [
-                        getAddress(initialAsset.underlyingAsset || initialAsset.address),
-                        getAddress(targetToken.underlyingAsset || targetToken.address),
-                        isMax ? MAX_UINT256 : withdrawAmount,
-                        BigInt(txData.minAmountToReceive),
-                        BigInt(txData.swapAllBalanceOffset),
-                        txData.swapCallData,
-                        getAddress(txData.augustus),
-                        permitParams,
-                    ],
-                } as const;
+                const rawTransaction = prepareEngineTransactionRequest(txData.transactionRequest, {
+                    account: walletAddress,
+                    chainId,
+                    target: withdrawSwapAdapterAddress,
+                });
                 let gas = resolveWithdrawSwapGasLimit(txData, latestQuote.priceRoute);
 
                 if (txData?.debugFlags?.simulateBeforeSwap === true) {
-                    if (!publicClient) {
-                        throw new Error('Simulation client is unavailable for this network.');
-                    }
-
-                    const estimatedGas = await publicClient.estimateContractGas(transactionParameters);
+                    if (!publicClient) throw new Error('Simulation client is unavailable for this network.');
+                    const estimatedGas = await publicClient.estimateGas(rawTransaction);
                     const estimatedGasWithBuffer = applyWithdrawSwapGasBuffer(estimatedGas);
-                    if (estimatedGasWithBuffer > gas) {
-                        gas = estimatedGasWithBuffer;
-                    }
-
-                    await publicClient.simulateContract({
-                        ...transactionParameters,
-                        gas,
-                    });
+                    if (estimatedGasWithBuffer > gas) gas = estimatedGasWithBuffer;
+                    await publicClient.call({ ...rawTransaction, gas });
                 }
 
-                txHash = await walletClient.writeContract({
-                    ...transactionParameters,
-                    gas,
-                });
+                txHash = await walletClient.sendTransaction({ ...rawTransaction, gas, chain: null });
 
                 addTransaction({
                     hash: txHash,
