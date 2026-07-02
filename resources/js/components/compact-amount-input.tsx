@@ -1,4 +1,4 @@
-﻿import { ChevronDown, X, ArrowUpDown, RefreshCw } from 'lucide-react';
+import { ChevronDown, X, ArrowUpDown, RefreshCw } from 'lucide-react';
 import React, { useState, useRef, useEffect } from 'react';
 import { formatCompactNumber } from '../utils/formatters';
 import { getTokenLogo, onTokenImgError } from '../utils/get-token-logo';
@@ -250,7 +250,7 @@ export const CompactAmountInput: React.FC<CompactAmountInputProps> = ({
                     </span>
                 </button>
 
-                {/* Balance + optional % popover + MAX â€” hidden for read-only inputs */}
+                {/* Balance + optional % popover + MAX - hidden for read-only inputs */}
                 {!readOnly && (
                     <div className="flex items-center gap-2 text-xs text-slate-400">
                         <span className="font-medium whitespace-nowrap text-slate-500">

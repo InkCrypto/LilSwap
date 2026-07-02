@@ -1943,8 +1943,8 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
                     <div className="text-right">
                         <div className="flex items-center justify-end gap-1.5 font-medium text-slate-900 dark:text-slate-100">
                             <span>{formatUSD(repaidDebtUsd)}</span>
-                            <span className="text-slate-400 font-normal">â†’</span>
-                            <span>{unavailable ? 'â€”' : formatUSD(newDebtUsd)}</span>
+                            <span className="text-slate-400 font-normal">{'\u2192'}</span>
+                            <span>{unavailable ? '\u2014' : formatUSD(newDebtUsd)}</span>
                         </div>
                         {!unavailable && Math.abs(debtValueDeltaUsd) >= 0.01 && (
                             <div className={`text-[10px] ${debtValueDeltaUsd > 0 ? 'text-amber-500' : 'text-emerald-500'}`}>
