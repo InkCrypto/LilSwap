@@ -106,7 +106,7 @@ export const HistorySheet: React.FC = () => {
                 });
             }
 
-            void refresh(true);
+            void refresh();
         } catch (err: any) {
             if (err?.code !== 4001 && err?.code !== 'ACTION_REJECTED') {
                 setCancelError(err?.message || 'Cancel failed');
@@ -279,13 +279,13 @@ export const HistorySheet: React.FC = () => {
                                                 type="button"
                                                 onClick={() => toggleFilter(type)}
                                                 className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors ${isActive
-                                                        ? 'text-slate-900 dark:text-white'
-                                                        : 'text-slate-400 dark:text-slate-500'
+                                                    ? 'text-slate-900 dark:text-white'
+                                                    : 'text-slate-400 dark:text-slate-500'
                                                     } hover:bg-slate-100 dark:hover:bg-slate-800`}
                                             >
                                                 <span className={`w-4 h-4 rounded flex items-center justify-center transition-colors ${isActive
-                                                        ? 'bg-primary text-white'
-                                                        : 'bg-slate-200 dark:bg-slate-700'
+                                                    ? 'bg-primary text-white'
+                                                    : 'bg-slate-200 dark:bg-slate-700'
                                                     }`}>
                                                     {isActive && <Check className="w-3 h-3" />}
                                                 </span>
@@ -299,7 +299,7 @@ export const HistorySheet: React.FC = () => {
 
                         {/* Refresh button */}
                         <button
-                            onClick={() => void refresh(true)}
+                            onClick={() => void refresh()}
                             disabled={isSyncingHistory || isLoadingHistory}
                             className="flex items-center group text-slate-400 hover:text-primary transition-colors focus:outline-hidden disabled:opacity-50"
                             title={lastSyncTime ? 'Refresh history' : 'Load history'}
@@ -375,16 +375,16 @@ export const HistorySheet: React.FC = () => {
                                                     </p>
 
                                                     <span className={`shrink-0 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-sm ${isLimitOrder
-                                                            ? (tx.txStatus === 'OPEN'
-                                                                ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
-                                                                : tx.status === 'success'
-                                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
-                                                                    : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400')
-                                                            : (tx.status === 'pending'
-                                                                ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
-                                                                : tx.status === 'success'
-                                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
-                                                                    : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400')
+                                                        ? (tx.txStatus === 'OPEN'
+                                                            ? 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
+                                                            : tx.status === 'success'
+                                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                                                : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400')
+                                                        : (tx.status === 'pending'
+                                                            ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400'
+                                                            : tx.status === 'success'
+                                                                ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                                                                : 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400')
                                                         }`}>
                                                         {isLimitOrder
                                                             ? (tx.txStatus === 'OPEN' ? 'Open' : tx.txStatus)

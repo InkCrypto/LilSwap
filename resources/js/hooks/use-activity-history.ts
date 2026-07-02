@@ -1,40 +1,10 @@
-import { router, usePage } from '@inertiajs/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useUserActivity } from '../contexts/user-activity-context';
 import { useWeb3 } from '../contexts/web3-context';
-import { bootstrapProxySession, getLimitOrders, type LimitOrderHistoryItem } from '../services/api';
+import { getUnifiedHistory, type LimitOrderHistoryItem, type UnifiedHistoryItem } from '../services/api';
 import type { ActivityItem, ActivityType } from '../types/activity';
 import logger from '../utils/logger';
-
-type PersistedHistoryItem = {
-    id: number | string;
-    tx_hash: string | null;
-    tx_status: string;
-    swap_type: string;
-    chain_id: number | string;
-    from_token_symbol?: string | null;
-    to_token_symbol?: string | null;
-    revert_reason?: string | null;
-    created_at: string;
-};
-
-type HistoryPayload = {
-    transactions: PersistedHistoryItem[];
-    hasMore: boolean;
-    offset: number;
-    lastSyncTime: number | null;
-    error?: string | null;
-};
-
-type HistoryPageProps = {
-    historyWallet?: string | null;
-    historyPayload?: HistoryPayload;
-    [key: string]: unknown;
-};
-
-const HISTORY_KEYS = ['historyWallet', 'historyPayload'];
-const HISTORY_KEY_SET = new Set(HISTORY_KEYS);
 
 const normalizeWallet = (walletAddress: string | null | undefined) =>
     typeof walletAddress === 'string' && walletAddress !== '' ? walletAddress.toLowerCase() : null;
@@ -105,269 +75,132 @@ function swapTypeToDescription(swapType: string, fromSymbol?: string | null, toS
 }
 
 export const useActivityHistory = (walletAddress: string | null, opts: { refreshIntervalMs?: number } = {}) => {
-    const page = usePage<HistoryPageProps>();
     const { isProxyReady } = useWeb3();
     const { isTabVisible, isUserActive } = useUserActivity();
     const { isSheetOpen, transactions: localTransactions } = useTransactionTracker();
 
-    const normalizedWallet = normalizeWallet(walletAddress);
-    const historyWallet = normalizeWallet(page.props.historyWallet);
-    const isCurrentWalletPage = !!normalizedWallet && historyWallet === normalizedWallet;
-    const historyPayload = isCurrentWalletPage ? (page.props.historyPayload as HistoryPayload | undefined) : undefined;
-    const needsBootstrapReload = !!normalizedWallet && isProxyReady && historyWallet !== normalizedWallet;
-
-    const [persistedHistory, setPersistedHistory] = useState<PersistedHistoryItem[]>([]);
+    const [persistedHistory, setPersistedHistory] = useState<UnifiedHistoryItem[]>([]);
     const [limitOrders, setLimitOrders] = useState<LimitOrderHistoryItem[]>([]);
     const [hasMore, setHasMore] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastSyncTime, setLastSyncTime] = useState<number | null>(null);
-    const [activeHistoryVisits, setActiveHistoryVisits] = useState(0);
+    const [isLoading, setIsLoading] = useState(false);
     const [historyLoadedForWallet, setHistoryLoadedForWallet] = useState<string | null>(null);
-    const [limitOrdersLoadedForWallet, setLimitOrdersLoadedForWallet] = useState<string | null>(null);
-    const requestedOffsetRef = useRef(0);
-    const activeWalletRef = useRef<string | null>(normalizedWallet);
-    const reloadArmedWalletRef = useRef<string | null>(normalizedWallet);
+    const activeWalletRef = useRef<string | null>(normalizeWallet(walletAddress));
 
+    // Reset state when wallet changes
     useEffect(() => {
-        if (activeWalletRef.current !== normalizedWallet) {
-            activeWalletRef.current = normalizedWallet;
-            reloadArmedWalletRef.current = null;
+        const normalized = normalizeWallet(walletAddress);
+        if (activeWalletRef.current !== normalized) {
+            activeWalletRef.current = normalized;
             setPersistedHistory([]);
             setLimitOrders([]);
             setHasMore(false);
             setError(null);
             setLastSyncTime(null);
             setHistoryLoadedForWallet(null);
-            setLimitOrdersLoadedForWallet(null);
-            requestedOffsetRef.current = 0;
         }
-    }, [normalizedWallet]);
+    }, [walletAddress]);
 
-    useEffect(() => {
-        if (!normalizedWallet) {
-            reloadArmedWalletRef.current = null;
-            return;
-        }
-
-        if (!isProxyReady) {
-            reloadArmedWalletRef.current = normalizedWallet;
-        }
-    }, [isProxyReady, normalizedWallet]);
-
-    useEffect(() => {
-        if (!normalizedWallet || !isCurrentWalletPage || historyPayload === undefined) {
-            return;
-        }
-
-        setError(historyPayload.error ?? null);
-        setHasMore(Boolean(historyPayload.hasMore));
-        setLastSyncTime(historyPayload.lastSyncTime ?? null);
-        setHistoryLoadedForWallet(normalizedWallet);
-
-        setPersistedHistory((prev) => {
-            if ((historyPayload.offset ?? 0) <= 0) {
-                return historyPayload.transactions || [];
-            }
-
-            const existingKeys = new Set(
-                prev.map((tx) => (tx.tx_hash || `backend-id-${tx.id}`).toLowerCase())
-            );
-            const appended = (historyPayload.transactions || []).filter((tx) => {
-                const key = (tx.tx_hash || `backend-id-${tx.id}`).toLowerCase();
-                return !existingKeys.has(key);
-            });
-
-            return [...prev, ...appended];
-        });
-    }, [historyPayload, isCurrentWalletPage, normalizedWallet]);
-
-    const reloadLimitOrders = useCallback(async () => {
-        if (!walletAddress || !isProxyReady) {
-            return;
-        }
-
+    // Core fetch — single Axios call replacing Inertia reload + separate limit orders call
+    const fetchHistory = useCallback(async (opts?: { append?: boolean }) => {
         const targetWallet = normalizeWallet(walletAddress);
-        if (!targetWallet) {
-            return;
-        }
+        if (!targetWallet || !isProxyReady) return;
 
-        const result = await getLimitOrders({
-            walletAddress: targetWallet,
-            limit: 50,
-            offset: 0,
-        });
+        setIsLoading(true);
+        setError(null);
 
-        setLimitOrders(result.orders || []);
-        setLimitOrdersLoadedForWallet(targetWallet);
-    }, [isProxyReady, walletAddress]);
-
-    const reloadHistory = useCallback((options?: { force?: boolean; includeWallet?: boolean; offset?: number; limit?: number }) => {
-        return new Promise<void>((resolve) => {
-            if (!walletAddress || !isProxyReady) {
-                resolve();
-                return;
-            }
-
-            const offset = options?.offset ?? 0;
-            const limit = options?.limit ?? 20;
-            const targetWallet = normalizeWallet(walletAddress);
-            const serverWallet = historyWallet;
-
-            if (!options?.includeWallet && targetWallet !== serverWallet) {
-                resolve();
-                return;
-            }
-
-            requestedOffsetRef.current = offset;
-            setError(null);
-            void reloadLimitOrders();
-
-            router.reload({
-                only: options?.includeWallet ? HISTORY_KEYS : ['historyPayload'],
-                reset: options?.includeWallet ? HISTORY_KEYS : [],
-                headers: {
-                    'X-History-Load': 'true',
-                    'X-History-Offset': String(offset),
-                    'X-History-Limit': String(limit),
-                    ...(options?.force ? { 'X-History-Force': 'true' } : {}),
-                    'X-Target-Wallet': targetWallet || '',
-                },
-                onFinish: () => resolve(),
-                onError: () => {
-                    setError('Failed to fetch history');
-                    resolve();
-                },
+        try {
+            const data = await getUnifiedHistory({
+                walletAddress: targetWallet,
+                limit: 20,
+                offset: opts?.append ? persistedHistory.length : 0,
             });
-        });
-    }, [historyWallet, isProxyReady, reloadLimitOrders, walletAddress]);
 
-    const refresh = useCallback((force = false) => {
-        return reloadHistory({ force, offset: 0, limit: Math.max(persistedHistory.length, 20) });
-    }, [persistedHistory.length, reloadHistory]);
+            setError(data.error ?? null);
+            setHasMore(Boolean(data.hasMore));
+            setLastSyncTime(data.lastSyncTime ?? null);
+            setHistoryLoadedForWallet(targetWallet);
 
-    const loadMore = useCallback(() => {
-        if (!hasMore || activeHistoryVisits > 0) {
-            return Promise.resolve();
-        }
-
-        return reloadHistory({
-            offset: persistedHistory.length,
-            limit: 20,
-        });
-    }, [activeHistoryVisits, hasMore, persistedHistory.length, reloadHistory]);
-
-    useEffect(() => {
-        if (
-            !isSheetOpen ||
-            !walletAddress ||
-            !isProxyReady ||
-            reloadArmedWalletRef.current !== normalizedWallet
-        ) {
-            return;
-        }
-
-        if (needsBootstrapReload) {
-            void (async () => {
-                await bootstrapProxySession({
-                    walletAddress,
+            if (opts?.append) {
+                const existingKeys = new Set(
+                    persistedHistory.map((tx) => (tx.tx_hash || `backend-id-${tx.id}`).toLowerCase())
+                );
+                const appended = (data.transactions || []).filter((tx) => {
+                    const key = (tx.tx_hash || `backend-id-${tx.id}`).toLowerCase();
+                    return !existingKeys.has(key);
                 });
-
-                await reloadHistory({ includeWallet: true, offset: 0, limit: 20 });
-            })();
-            return;
-        }
-
-        if (historyLoadedForWallet !== normalizedWallet) {
-            void reloadHistory({ offset: 0, limit: 20 });
-        }
-    }, [historyLoadedForWallet, isProxyReady, isSheetOpen, needsBootstrapReload, normalizedWallet, reloadHistory, walletAddress]);
-
-    useEffect(() => {
-        if (
-            !isSheetOpen ||
-            !walletAddress ||
-            !isProxyReady ||
-            limitOrdersLoadedForWallet === normalizedWallet
-        ) {
-            return;
-        }
-
-        void reloadLimitOrders();
-    }, [isProxyReady, isSheetOpen, limitOrdersLoadedForWallet, normalizedWallet, reloadLimitOrders, walletAddress]);
-
-    useEffect(() => {
-        const removeStart = router.on('start', (event) => {
-            const only = event.detail.visit.only || [];
-            const touchesHistory = only.length === 0 || only.some((key) => HISTORY_KEY_SET.has(key));
-
-            if (!touchesHistory) {
-                return;
+                setPersistedHistory((prev) => [...prev, ...appended]);
+            } else {
+                setPersistedHistory(data.transactions || []);
             }
 
-            setActiveHistoryVisits((count) => count + 1);
-        });
-
-        const removeFinish = router.on('finish', (event) => {
-            const only = event.detail.visit.only || [];
-            const touchesHistory = only.length === 0 || only.some((key) => HISTORY_KEY_SET.has(key));
-
-            if (!touchesHistory) {
-                return;
+            setLimitOrders(data.limitOrders || []);
+        } catch (err: any) {
+            logger.error('[useActivityHistory] Fetch failed', err);
+            if (!opts?.append) {
+                setError('Failed to fetch history');
             }
-
-            setActiveHistoryVisits((count) => Math.max(0, count - 1));
-        });
-
-        return () => {
-            removeStart();
-            removeFinish();
-        };
-    }, []);
-
-    useEffect(() => {
-        if (!isSheetOpen || !walletAddress) {
-            return;
+        } finally {
+            setIsLoading(false);
         }
+    }, [walletAddress, isProxyReady, persistedHistory.length]);
+
+    // Load on sheet open
+    useEffect(() => {
+        const normalized = normalizeWallet(walletAddress);
+        if (!isSheetOpen || !normalized || !isProxyReady) return;
+        if (historyLoadedForWallet === normalized) return;
+
+        void fetchHistory();
+    }, [isSheetOpen, isProxyReady, walletAddress, historyLoadedForWallet, fetchHistory]);
+
+    // Periodic refresh
+    useEffect(() => {
+        if (!isSheetOpen || !walletAddress) return;
 
         const refreshInterval = opts.refreshIntervalMs || 10000;
         const interval = window.setInterval(() => {
             if (isTabVisible && isUserActive) {
-                void refresh(false);
+                void fetchHistory();
             }
         }, refreshInterval);
 
         return () => window.clearInterval(interval);
-    }, [isSheetOpen, isTabVisible, isUserActive, opts.refreshIntervalMs, refresh, walletAddress]);
+    }, [isSheetOpen, isTabVisible, isUserActive, opts.refreshIntervalMs, fetchHistory, walletAddress]);
 
+    // External refresh event
     useEffect(() => {
         const handleRefresh = () => {
             if (isSheetOpen && isTabVisible && isUserActive) {
-                logger.debug('[useActivityHistory] Global refresh event received, refreshing history');
-                void refresh(true);
+                logger.debug('[useActivityHistory] Global refresh event received');
+                void fetchHistory();
             }
         };
 
         window.addEventListener('lilswap:refresh-positions', handleRefresh);
         return () => window.removeEventListener('lilswap:refresh-positions', handleRefresh);
-    }, [isSheetOpen, isTabVisible, isUserActive, refresh]);
+    }, [isSheetOpen, isTabVisible, isUserActive, fetchHistory]);
 
-    const isLoadingInitial = isSheetOpen && !!walletAddress && (
-        !isProxyReady ||
-        needsBootstrapReload ||
-        (activeHistoryVisits > 0 && historyLoadedForWallet !== normalizedWallet) ||
-        (isCurrentWalletPage && historyPayload === undefined && historyLoadedForWallet !== normalizedWallet)
-    );
-    const isLoadingMore = activeHistoryVisits > 0 && requestedOffsetRef.current > 0;
-    const isSyncing = activeHistoryVisits > 0 && !isLoadingMore && !isLoadingInitial;
+    const refresh = useCallback(() => {
+        return fetchHistory();
+    }, [fetchHistory]);
+
+    const loadMore = useCallback(() => {
+        if (!hasMore || isLoading) return;
+        return fetchHistory({ append: true });
+    }, [hasMore, isLoading, fetchHistory]);
 
     const combinedHistory: ActivityItem[] = useMemo(() => {
         const localHashes = new Set(localTransactions.map((tx) => tx.hash?.toLowerCase()).filter(Boolean));
 
-        // Map persisted history items
-        const mappedPersistedHistory: ActivityItem[] = persistedHistory.map((tx) => {
+        const mappedPersistedHistory: ActivityItem[] = (persistedHistory || []).map((tx) => {
             let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
             if (tx.tx_status === 'CONFIRMED') mappedStatus = 'success';
             else if (['FAILED', 'REJECTED', 'EXPIRED'].includes(tx.tx_status)) mappedStatus = 'error';
+
+            const excludedStatuses = ['HASH_MISSING', 'REJECTED', 'EXPIRED', 'INITIATED'];
+            if (tx.tx_status && excludedStatuses.includes(tx.tx_status)) return null;
 
             const activityType = swapTypeToActivityType(tx.swap_type);
             const description = swapTypeToDescription(tx.swap_type, tx.from_token_symbol, tx.to_token_symbol);
@@ -384,23 +217,18 @@ export const useActivityHistory = (walletAddress: string | null, opts: { refresh
                 isApi: true,
                 revertReason: tx.revert_reason || undefined,
                 txStatus: tx.tx_status,
-            };
-        });
+            } as ActivityItem;
+        }).filter((item): item is ActivityItem => item !== null);
 
         const filteredPersistedHistory = mappedPersistedHistory.filter((tx) => {
-            const excludedStatuses = ['HASH_MISSING', 'REJECTED', 'EXPIRED', 'INITIATED'];
-            if (excludedStatuses.includes(tx.txStatus)) return false;
-
             if (!tx.hash.startsWith('backend-id-')) {
                 return !localHashes.has(tx.hash.toLowerCase());
             }
-
             return true;
         });
 
-        // Map local transactions — use activityType from PendingTransaction if provided
         const mappedLocal: ActivityItem[] = localTransactions
-            .filter((tx) => tx.activityType) // Only show items with an activity type
+            .filter((tx) => tx.activityType)
             .map((tx) => ({
                 hash: tx.hash,
                 chainId: tx.chainId,
@@ -412,10 +240,9 @@ export const useActivityHistory = (walletAddress: string | null, opts: { refresh
                 toTokenSymbol: tx.toTokenSymbol,
                 revertReason: tx.revertReason,
                 txStatus: tx.txStatus,
-            }));
+            } as ActivityItem));
 
-        // Map limit orders
-        const mappedLimitOrders: ActivityItem[] = limitOrders.map((order) => {
+        const mappedLimitOrders: ActivityItem[] = (limitOrders || []).map((order) => {
             let mappedStatus: 'pending' | 'success' | 'error' = 'pending';
             const status = String(order.status || '').toUpperCase();
             if (status === 'FULFILLED') mappedStatus = 'success';
@@ -427,7 +254,7 @@ export const useActivityHistory = (walletAddress: string | null, opts: { refresh
                 description: 'Debt Limit Order',
                 status: mappedStatus,
                 timestamp: parseDbTimestampUtcToMillis(order.created_at),
-                activityType: 'limit-order',
+                activityType: 'limit-order' as ActivityType,
                 fromTokenSymbol: order.from_token_symbol || undefined,
                 toTokenSymbol: order.to_token_symbol || undefined,
                 isApi: true,
@@ -437,7 +264,7 @@ export const useActivityHistory = (walletAddress: string | null, opts: { refresh
                 validTo: Number(order.valid_to || 0),
                 fromAmount: order.from_amount || undefined,
                 toAmount: order.to_amount || undefined,
-            };
+            } as ActivityItem;
         });
 
         return [...mappedLocal, ...filteredPersistedHistory, ...mappedLimitOrders].sort(
@@ -447,9 +274,9 @@ export const useActivityHistory = (walletAddress: string | null, opts: { refresh
 
     return {
         combinedHistory,
-        isLoadingHistory: isLoadingInitial,
-        isSyncingHistory: isSyncing,
-        isLoadingMore,
+        isLoadingHistory: isLoading && combinedHistory.length === 0,
+        isSyncingHistory: isLoading && combinedHistory.length > 0,
+        isLoadingMore: false,
         hasMore,
         error,
         lastSyncTime,

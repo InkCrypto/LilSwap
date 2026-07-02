@@ -103,26 +103,55 @@ export const disconnectProxySession = async () => {
     }
 };
 
-/**
- * Fetch a paginated list of the user's transaction history from the database
- */
-export const getUserTransactionsHistory = async (walletAddress: string, limit = 20, offset = 0) => {
-    if (!walletAddress) {
-        throw new Error('Wallet address is required to fetch history');
-    }
+// ---------------------------------------------------------------------------
+// History — transactions + limit orders in a single call
+// ---------------------------------------------------------------------------
 
+export interface UnifiedHistoryResponse {
+    transactions: UnifiedHistoryItem[];
+    limitOrders: LimitOrderHistoryItem[];
+    hasMore: boolean;
+    offset: number;
+    lastSyncTime: number | null;
+    error?: string | null;
+}
+
+export interface UnifiedHistoryItem {
+    id: number | string;
+    tx_hash: string | null;
+    tx_status: string;
+    swap_type: string;
+    chain_id: number | string;
+    from_token_symbol?: string | null;
+    to_token_symbol?: string | null;
+    revert_reason?: string | null;
+    created_at: string;
+}
+
+export const getUnifiedHistory = async (params: {
+    walletAddress: string;
+    limit?: number;
+    offset?: number;
+}): Promise<UnifiedHistoryResponse> => {
     try {
-        const response = await apiClient.post(`/transactions/history`, {
-            walletAddress,
-            limit,
-            offset
+        const response = await apiClient.post('/transactions/history', {
+            walletAddress: params.walletAddress,
+            limit: params.limit ?? 20,
+            offset: params.offset ?? 0,
         });
 
-        return response.data;
+        return response.data as UnifiedHistoryResponse;
     } catch (error) {
-        logger.error('Failed to fetch user transaction history', error);
+        logger.error('Failed to fetch history', error);
 
-        return { transactions: [], count: 0 };
+        return {
+            transactions: [],
+            limitOrders: [],
+            hasMore: false,
+            offset: 0,
+            lastSyncTime: null,
+            error: null,
+        };
     }
 };
 

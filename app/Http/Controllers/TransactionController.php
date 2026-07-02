@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Services\EngineProxyClient;
 use App\Services\TransactionHistoryService;
 use Illuminate\Http\Request;
 
@@ -9,14 +10,13 @@ class TransactionController extends Controller
 {
     public function __construct(
         protected TransactionHistoryService $transactionHistoryService,
-    ) {
-    }
+        protected EngineProxyClient $engineProxyClient,
+    ) {}
 
     /**
-     * Retrieve the transaction history for a specific wallet address.
-     * 
+     * Retrieve unified history (transactions + limit orders) for a wallet.
+     *
      * Security: Authentication is handled via the 'proxy.auth' middleware.
-     * Logic: Queries the standardized 'transactions' table directly.
      */
     public function history(Request $request)
     {
@@ -31,11 +31,30 @@ class TransactionController extends Controller
         $offset = $validated['offset'] ?? 0;
 
         try {
-            return response()->json($this->transactionHistoryService->fetch($walletAddress, $limit, $offset));
+            $history = $this->transactionHistoryService->fetch($walletAddress, $limit, $offset);
+
+            $limitOrdersResponse = $this->engineProxyClient->send('POST', 'limit-orders', [
+                'walletAddress' => $walletAddress,
+                'limit' => 50,
+                'offset' => 0,
+            ]);
+
+            $limitOrders = $limitOrdersResponse->successful()
+                ? ($limitOrdersResponse->json()['orders'] ?? [])
+                : [];
+
+            return response()->json([
+                'transactions' => $history['transactions'],
+                'limitOrders' => $limitOrders,
+                'hasMore' => $history['hasMore'],
+                'offset' => $history['offset'],
+                'lastSyncTime' => now()->getTimestamp() * 1000,
+                'error' => null,
+            ]);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to fetch transaction history',
-                'reason_code' => 'APP_TRANSACTION_HISTORY_ERROR'
+                'error' => 'Failed to fetch history',
+                'reason_code' => 'APP_HISTORY_ERROR',
             ], 500);
         }
     }
