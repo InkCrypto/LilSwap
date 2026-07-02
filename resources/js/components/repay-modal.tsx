@@ -12,7 +12,7 @@ import { ABIS } from '../constants/abis';
 import { getMarketByKey } from '../constants/networks';
 import { useTransactionTracker } from '../contexts/transaction-tracker-context';
 import { useWeb3 } from '../contexts/web3-context';
-import { buildRepaySwapTx, finalizeSwapExecution, getRepaySwapQuote } from '../services/api';
+import { buildRepaySwapTx, getRepaySwapQuote } from '../services/api';
 import { requireRecommendedSlippageBps } from '../utils/slippage';
 import { prepareEngineTransactionRequest } from '../utils/transaction-request';
 import {
@@ -1624,36 +1624,11 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 await walletClient.switchChain({ id: chainId });
             }
 
-            // Build swap transaction calldata using backend buildRepaySwapTx helper
-            const txData = await buildRepaySwapTx({
-                fromToken: {
-                    address: getAddress(selectedCollateral.underlyingAsset || selectedCollateral.address),
-                    decimals: selectedCollateral.decimals,
-                    symbol: selectedCollateral.symbol,
-                },
-                toToken: {
-                    address: getAddress(selectedDebt.underlyingAsset || selectedDebt.address),
-                    decimals: selectedDebt.decimals,
-                    symbol: selectedDebt.symbol,
-                },
-                priceRoute: quoteForExecution.priceRoute,
-                adapterAddress: getAddress(repayWithCollateralAdapterAddress),
-                destAmount: repayAmount.toString(),
-                slippageBps: requireRecommendedSlippageBps(quoteForExecution),
-                chainId,
-                walletAddress,
-                marketKey,
-                isFullDebtRepay: debtBalance > 0n && repayAmount >= debtBalance,
-            });
-
             const maxCollateralAmount = BigInt(
-                txData.maxCollateralAmount ||
-                txData.approval?.amount ||
                 quoteForExecution.maxCollateralAmount ||
                 quoteForExecution.approval?.amount ||
                 quoteForExecution.srcAmount,
             );
-
             let permitSignature = {
                 amount: 0n,
                 deadline: 0n,
@@ -1769,11 +1744,26 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                 }
             }
 
-            const finalized = await finalizeSwapExecution({
-                executionCapsule: txData.executionCapsule,
-                walletAddress,
+            const txData = await buildRepaySwapTx({
+                fromToken: {
+                    address: getAddress(selectedCollateral.underlyingAsset || selectedCollateral.address),
+                    decimals: selectedCollateral.decimals,
+                    symbol: selectedCollateral.symbol,
+                },
+                toToken: {
+                    address: getAddress(selectedDebt.underlyingAsset || selectedDebt.address),
+                    decimals: selectedDebt.decimals,
+                    symbol: selectedDebt.symbol,
+                },
+                priceRoute: quoteForExecution.priceRoute,
+                adapterAddress: getAddress(repayWithCollateralAdapterAddress),
+                destAmount: repayAmount.toString(),
+                slippageBps: requireRecommendedSlippageBps(quoteForExecution),
                 chainId,
-                permit: permitSignature.amount > 0n ? {
+                walletAddress,
+                marketKey,
+                isFullDebtRepay: debtBalance > 0n && repayAmount >= debtBalance,
+                permitParams: permitSignature.amount > 0n ? {
                     amount: permitSignature.amount.toString(),
                     deadline: permitSignature.deadline.toString(),
                     v: permitSignature.v,
@@ -1781,12 +1771,11 @@ export const RepayModal: React.FC<RepayModalProps> = ({
                     s: permitSignature.s,
                 } : undefined,
             });
-            const rawTransaction = prepareEngineTransactionRequest(finalized.transactionRequest, {
+            const rawTransaction = prepareEngineTransactionRequest(txData.transactionRequest, {
                 account: walletAddress,
                 chainId,
                 target: repayWithCollateralAdapterAddress,
-            });
-            let gas = resolveRepaySwapGasLimit(txData, quoteForExecution.priceRoute);
+            });            let gas = resolveRepaySwapGasLimit(txData, quoteForExecution.priceRoute);
 
             if (!readClient) throw new Error('Simulation client is unavailable for this network.');
             const estimatedGas = await readClient.estimateGas(rawTransaction);

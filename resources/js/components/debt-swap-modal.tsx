@@ -1660,8 +1660,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
     // Use Approval Hook for ToToken Debt
     const {
         onChainAllowance,
-        nonce: preFetchedNonce,
-        tokenName: preFetchedTokenName,
         isApproved,
         saveSignature,
         cachedSignature
@@ -1705,8 +1703,6 @@ export const DebtSwapModal: React.FC<DebtSwapModalProps> = ({
         preferPermit,
         adapterAddress,
         debtTokenAddress: toDebtTokenAddress,
-        preFetchedNonce,
-        preFetchedTokenName,
         onSignatureCached: saveSignature,
         cachedPermit: cachedSignature,
         onTxSent: (hash: string) => {

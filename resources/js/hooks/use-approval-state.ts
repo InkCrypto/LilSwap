@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { usePublicClient, useWalletClient } from 'wagmi';
 import { getAddress, parseAbi, zeroAddress, Hex, zeroHash } from 'viem';
 import { ABIS } from '../constants/abis';
@@ -30,7 +30,7 @@ export const useApprovalState = ({
     chainId,
     enabled = true,
 }: UseApprovalStateProps) => {
-    const publicClient = usePublicClient();
+    const publicClient = usePublicClient({ chainId });
     const { data: walletClient } = useWalletClient();
 
     const [onChainAllowance, setOnChainAllowance] = useState<bigint>(0n);
@@ -43,6 +43,8 @@ export const useApprovalState = ({
         if (!tokenAddress || !spenderAddress || !account) return null;
         return `${chainId}-${tokenAddress.toLowerCase()}-${spenderAddress.toLowerCase()}-${account.toLowerCase()}-${isDebt ? 'debt' : 'erc20'}`;
     }, [chainId, tokenAddress, spenderAddress, account, isDebt]);
+    const currentCacheKeyRef = useRef(cacheKey);
+    currentCacheKeyRef.current = cacheKey;
 
     const cachedSignature = useMemo(() => {
         if (!cacheKey) return null;
@@ -76,7 +78,7 @@ export const useApprovalState = ({
         if (activeAllowanceRequests.has(key)) {
             try {
                 const result = await activeAllowanceRequests.get(key);
-                if (result) {
+                if (result && currentCacheKeyRef.current === key) {
                     setOnChainAllowance(result.allowance);
                     setNonce(result.nonce);
                     setTokenName(result.name);
@@ -130,8 +132,7 @@ export const useApprovalState = ({
             const { allowance, nonce, name } = await fetchPromise;
 
             // Only update state if the key hasn't changed while we were fetching
-            const currentKey = cacheKey;
-            if (currentKey !== key) return;
+            if (currentCacheKeyRef.current !== key) return;
 
             logger.debug(`[useApprovalState] Fetched ${isDebt ? 'Borrow' : 'ERC20'} Data | Allowance: ${allowance.toString()} | Spender: ${spenderAddress} | Nonce: ${nonce.toString()} | Name: ${name} | Token: ${tokenAddress}`);
 
@@ -147,6 +148,10 @@ export const useApprovalState = ({
     }, [account, tokenAddress, spenderAddress, publicClient, isDebt, chainId, cacheKey, enabled]);
 
     useEffect(() => {
+        setOnChainAllowance(0n);
+        setNonce(0n);
+        setTokenName('');
+
         if (!enabled) {
             return;
         }

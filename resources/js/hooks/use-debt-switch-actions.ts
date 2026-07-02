@@ -14,7 +14,7 @@ import { usePublicClient, useWalletClient } from 'wagmi';
 import { ABIS } from '../constants/abis';
 import { ADDRESSES } from '../constants/addresses';
 import { DEFAULT_NETWORK } from '../constants/networks';
-import { buildDebtSwapTx, finalizeSwapExecution } from '../services/api';
+import { buildDebtSwapTx } from '../services/api';
 import logger from '../utils/logger';
 import { prepareEngineTransactionRequest } from '../utils/transaction-request';
 import { recordTransactionHash, confirmTransactionOnChain, rejectTransaction } from '../services/transactions-api';
@@ -121,6 +121,7 @@ const getDebtSimulationErrorMessage = ({
 }) => {
     const mappedRevert = mapErrorToUserFriendly(revertSelector || diagnostic);
     const normalizedDiagnostic = diagnostic.toLowerCase();
+
     const isKnownSlippageFailure = (
         revertSelector?.toLowerCase() === '0x81ceff30' ||
         revertSelector?.toLowerCase() === '0xcea9e31d' ||
@@ -165,8 +166,6 @@ interface UseDebtSwitchActionsProps {
     cachedPermit?: any | null;
     adapterAddress?: string | null;
     debtTokenAddress?: string | null;
-    preFetchedNonce?: bigint | null;
-    preFetchedTokenName?: string | null;
 }
 
 export const useDebtSwitchActions = ({
@@ -193,10 +192,8 @@ export const useDebtSwitchActions = ({
     cachedPermit,
     adapterAddress: providedAdapterAddress,
     debtTokenAddress: providedDebtTokenAddress,
-    preFetchedNonce,
-    preFetchedTokenName,
 }: UseDebtSwitchActionsProps) => {
-    const publicClient = usePublicClient();
+    const publicClient = usePublicClient({ chainId: selectedNetwork?.chainId || DEFAULT_NETWORK.chainId });
     const { data: walletClient } = useWalletClient();
 
     const [isActionLoading, setIsActionLoading] = useState(false);
@@ -286,18 +283,32 @@ export const useDebtSwitchActions = ({
     }, [walletClient, chainId, addLog]);
 
     const generateAndCachePermit = useCallback(async (debtTokenAddr: string, exactAmount: bigint, referenceTimestamp?: number) => {
-        if (!walletClient || !account) return null;
+        if (!walletClient || !publicClient || !account) return null;
         try {
             if (exactAmount <= 0n) {
                 throw new Error('Invalid delegation amount');
             }
 
-            if (preFetchedNonce === null || preFetchedNonce === undefined || !preFetchedTokenName) {
-                throw new Error('Delegation permit data is still loading. Please try again.');
-            }
-
-            const nonce = preFetchedNonce;
-            const name = preFetchedTokenName;
+            const normalizedDebtToken = getAddress(debtTokenAddr);
+            const signingData = await publicClient.multicall({
+                allowFailure: false,
+                contracts: [
+                    {
+                        address: normalizedDebtToken,
+                        abi: parseAbi(ABIS.DEBT_TOKEN),
+                        functionName: 'nonces',
+                        args: [getAddress(account)],
+                    },
+                    {
+                        address: normalizedDebtToken,
+                        abi: parseAbi(ABIS.DEBT_TOKEN),
+                        functionName: 'name',
+                    },
+                ],
+            });
+            const nonce = BigInt(signingData[0] as bigint);
+            const name = String(signingData[1] || '');
+            if (!name) throw new Error('Unable to resolve debt token signing domain');
             if (!Number.isSafeInteger(referenceTimestamp) || Number(referenceTimestamp) <= 0) {
                 throw new Error('Authoritative chain timestamp is unavailable. Please try again.');
             }
@@ -343,7 +354,7 @@ export const useDebtSwitchActions = ({
             }
             throw err;
         }
-    }, [account, walletClient, adapterAddress, chainId, addLog, preFetchedNonce, preFetchedTokenName, onSignatureCached]);
+    }, [account, walletClient, publicClient, adapterAddress, chainId, addLog, onSignatureCached]);
 
     const handleApproveDelegation = useCallback(async (preferPermitOverride?: boolean, exactAmount?: bigint, skipNetworkCheck?: boolean, debtTokenAddressOverride?: string, referenceTimestamp?: number) => {
         const preferPermitFinal = typeof preferPermitOverride === 'boolean' ? preferPermitOverride : preferPermit;
@@ -467,10 +478,33 @@ export const useDebtSwitchActions = ({
                 newDebtTokenAddr = toReserveData.variableDebtTokenAddress || toReserveData[11];
             }
 
+            const referenceTimestamp = Number(activeQuote?.timestamp || Math.floor(Date.now() / 1000));
             logger.debug(`[useDebtSwitchActions] Evaluation | Allowance: ${allowance.toString()} | Required: ${maxNewDebt.toString()} | ForcePermit: ${forceRequirePermit} | PreferPermit: ${preferPermit} | HasLocalSignature: ${!!cachedPermit}`);
 
-            addLog?.('Building secure transaction calldata...', 'info');
-            const txResult = await buildDebtSwapTx({
+            if (allowance < maxNewDebt || forceRequirePermit) {
+                if (forceRequirePermit || preferPermit) {
+                    const minimumPermitDeadline = referenceTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
+                    const tokenMatch = cachedPermit ? getAddress(cachedPermit.token) === getAddress(newDebtTokenAddr) : false;
+                    const deadlineValid = cachedPermit ? cachedPermit.deadline > minimumPermitDeadline : false;
+                    const valueValid = cachedPermit ? cachedPermit.value >= maxNewDebt : false;
+
+                    if (cachedPermit && tokenMatch && deadlineValid && valueValid && !forceRequirePermit) {
+                        permitParams = cachedPermit.params;
+                    } else {
+                        const result = await handleApproveDelegation(true, maxNewDebt, true, newDebtTokenAddr, referenceTimestamp);
+                        setIsActionLoading(true);
+                        if (!result?.permit) throw new Error('Signature failed');
+                        permitParams = result.permit;
+                    }
+                } else {
+                    await handleApproveDelegation(false, maxNewDebt, true, newDebtTokenAddr);
+                    setIsActionLoading(true);
+                    await new Promise(resolve => setTimeout(resolve, 1500));
+                    fetchDebtData();
+                }
+            }
+
+            const buildWithPermit = (currentPermit: typeof permitParams) => buildDebtSwapTx({
                 fromToken: { address: getAddress(qFrom.address || qFrom.underlyingAsset), decimals: qFrom.decimals, symbol: qFrom.symbol },
                 toToken: { address: getAddress(qTo.address || qTo.underlyingAsset), decimals: qTo.decimals, symbol: qTo.symbol },
                 priceRoute,
@@ -483,129 +517,34 @@ export const useDebtSwitchActions = ({
                 chainId,
                 walletAddress: account,
                 isMaxSwap,
+                permitParams: currentPermit.amount > 0n ? {
+                    debtToken: getAddress(newDebtTokenAddr),
+                    value: currentPermit.amount.toString(),
+                    deadline: currentPermit.deadline.toString(),
+                    v: currentPermit.v,
+                    r: currentPermit.r,
+                    s: currentPermit.s,
+                } : undefined,
             });
-            const executionSrcAmount = txResult?.srcAmount ? BigInt(txResult.srcAmount) : srcAmountBigInt;
+
+            addLog?.('Building secure transaction calldata...', 'info');
+            let txResult = await buildWithPermit(permitParams);            const executionSrcAmount = txResult?.srcAmount ? BigInt(txResult.srcAmount) : srcAmountBigInt;
             const executionBufferBps = txResult?.bufferBps ?? activeQuote?.delegationBufferBps ?? bufferBps;
             const executionMaxNewDebt = txResult?.maxNewDebtAmount
                 ? BigInt(txResult.maxNewDebtAmount)
                 : calcApprovalAmount(executionSrcAmount, executionBufferBps);
-            const executionDebtRepayAmount = txResult?.destAmount ? BigInt(txResult.destAmount) : BigInt(exactDebtRepayAmount);
-            const authoritativeChainTimestamp = Number(txResult?.chainTimestamp);
-            if (!Number.isSafeInteger(authoritativeChainTimestamp) || authoritativeChainTimestamp <= 0) {
-                throw new Error('Authoritative chain timestamp is unavailable. Please try again.');
-            }
             localTxId = txResult.transactionId?.toString?.() || null;
             updateCurrentTransactionId(localTxId);
             swapDebugMeta = txResult?.debugFlags || null;
-            logger.debug('[useDebtSwitchActions] Swap debug decision', {
+            logger.debug('[useDebtSwitchActions] Swap build completed', {
                 chainId,
-                marketKey: marketKey || targetNetwork?.key,
-                account,
                 transactionId: txResult?.transactionId || null,
-                swapDebug: swapDebugMeta,
-                dynamicOffset: txResult?.dynamicOffset ?? null,
-                augustus: txResult?.augustus ?? null,
-                contractMethod: txResult?.contractMethod ?? null,
                 quoteSrcAmount: srcAmountBigInt.toString(),
                 executionSrcAmount: executionSrcAmount.toString(),
                 executionMaxNewDebt: executionMaxNewDebt.toString(),
             });
 
-            if (executionMaxNewDebt > maxNewDebt) {
-                logger.warn('[useDebtSwitchActions] Build route requires more debt delegation than the initial quote requirement', {
-                    quoteRequired: maxNewDebt.toString(),
-                    executionRequired: executionMaxNewDebt.toString(),
-                    currentPermitAmount: permitParams.amount.toString(),
-                    allowance: allowance.toString(),
-                });
-            }
-
-            if (allowance < executionMaxNewDebt || forceRequirePermit) {
-                logger.debug('[useDebtSwitchActions] Final delegation evaluation after build', {
-                    allowance: allowance.toString(),
-                    executionRequired: executionMaxNewDebt.toString(),
-                    preferPermit,
-                    forceRequirePermit,
-                    hasLocalSignature: !!cachedPermit,
-                });
-
-                if (forceRequirePermit || preferPermit) {
-                    const effectiveSignedPermit = cachedPermit;
-                    const minimumPermitDeadline = authoritativeChainTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
-                    const tokenMatch = effectiveSignedPermit
-                        ? getAddress(effectiveSignedPermit.token) === getAddress(newDebtTokenAddr)
-                        : false;
-                    const deadlineValid = effectiveSignedPermit
-                        ? effectiveSignedPermit.deadline > minimumPermitDeadline
-                        : false;
-                    const valueValid = effectiveSignedPermit
-                        ? effectiveSignedPermit.value >= executionMaxNewDebt
-                        : false;
-
-                    logger.debug('[useDebtSwitchActions] Permit check against final build requirement', {
-                        tokenMatch,
-                        deadlineValid,
-                        valueValid,
-                        permitValue: effectiveSignedPermit?.value?.toString?.() || null,
-                        required: executionMaxNewDebt.toString(),
-                    });
-
-                    if (effectiveSignedPermit && tokenMatch && deadlineValid && valueValid && !forceRequirePermit) {
-                        logger.debug('[useDebtSwitchActions] Reusing cached permit for final build requirement');
-                        permitParams = effectiveSignedPermit.params;
-                    } else {
-                        addLog?.('Requesting delegation signature...', 'warning');
-                        const res = await handleApproveDelegation(true, executionMaxNewDebt, true, newDebtTokenAddr, authoritativeChainTimestamp);
-
-                        setIsActionLoading(true);
-
-                        if (res?.permit) {
-                            permitParams = res.permit;
-                        } else {
-                            throw new Error('Signature failed');
-                        }
-                    }
-                } else {
-                    logger.debug('[useDebtSwitchActions] PreferPermit is false, using exact on-chain approve after build');
-                    await handleApproveDelegation(false, executionMaxNewDebt, true, newDebtTokenAddr);
-                    setIsActionLoading(true);
-                    await new Promise(r => setTimeout(r, 1500));
-                    fetchDebtData();
-                }
-            }
-
-            if (permitParams.amount > 0n) {
-                const minimumPermitDeadline = authoritativeChainTimestamp + DELEGATION_PERMIT_MIN_VALIDITY_SECONDS;
-                if (permitParams.deadline <= minimumPermitDeadline) {
-                    logger.warn('[useDebtSwitchActions] Delegation permit expired before execution, renewing', {
-                        chainId,
-                        token: newDebtTokenAddr,
-                        deadline: permitParams.deadline,
-                        minimumPermitDeadline,
-                    });
-                    const res = await handleApproveDelegation(true, executionMaxNewDebt, true, newDebtTokenAddr, authoritativeChainTimestamp);
-                    if (!res?.permit) {
-                        throw new Error('Unable to renew delegation signature');
-                    }
-                    permitParams = res.permit;
-                    setIsActionLoading(true);
-                }
-            }
-
-            const finalized = await finalizeSwapExecution({
-                executionCapsule: txResult.executionCapsule,
-                walletAddress: account,
-                chainId,
-                permit: permitParams.amount > 0n ? {
-                    debtToken: getAddress(newDebtTokenAddr),
-                    value: permitParams.amount.toString(),
-                    deadline: permitParams.deadline.toString(),
-                    v: permitParams.v,
-                    r: permitParams.r,
-                    s: permitParams.s,
-                } : undefined,
-            });
-            const rawTransaction = prepareEngineTransactionRequest(finalized.transactionRequest, {
+            let rawTransaction = prepareEngineTransactionRequest(txResult.transactionRequest, {
                 account,
                 chainId,
                 target: adapterAddress,
@@ -614,10 +553,44 @@ export const useDebtSwitchActions = ({
             simulationInProgress = true;
             addLog?.('Checking transaction...', 'info');
             if (!publicClient) throw new Error('Unable to verify transaction before execution. Please reconnect and try again.');
-            await publicClient.call({
-                ...rawTransaction,
-                gas: 3_000_000n,
-            });
+            try {
+                await publicClient.call({
+                    ...rawTransaction,
+                    gas: 3_000_000n,
+                });
+            } catch (preflightError: any) {
+                const selector = getRevertSelector(preflightError)?.toLowerCase();
+                if (selector !== '0x8baa579f' || permitParams.amount === 0n) throw preflightError;
+
+                logger.warn('[useDebtSwitchActions] Invalid cached delegation signature; rebuilding once with fresh on-chain permit data', {
+                    chainId,
+                    debtToken: newDebtTokenAddr,
+                    transactionId: txResult?.transactionId || null,
+                });
+                onSignatureCached?.(null);
+                setForceRequirePermit(true);
+                const renewed = await handleApproveDelegation(true, maxNewDebt, true, newDebtTokenAddr, Math.floor(Date.now() / 1000));
+                setIsActionLoading(true);
+                if (!renewed?.permit) throw preflightError;
+                permitParams = renewed.permit;
+
+                if (txResult?.transactionId) {
+                    void rejectTransaction(String(txResult.transactionId), 'invalid_delegation_signature_rebuilt').catch(() => { });
+                }
+                txResult = await buildWithPermit(permitParams);
+                localTxId = txResult.transactionId?.toString?.() || null;
+                updateCurrentTransactionId(localTxId);
+                swapDebugMeta = txResult?.debugFlags || null;
+                rawTransaction = prepareEngineTransactionRequest(txResult.transactionRequest, {
+                    account,
+                    chainId,
+                    target: adapterAddress,
+                });
+                await publicClient.call({
+                    ...rawTransaction,
+                    gas: 3_000_000n,
+                });
+            }
             simulationInProgress = false;
             preflightPassed = true;
 
@@ -687,6 +660,10 @@ export const useDebtSwitchActions = ({
             } else {
                 const diagnostic = collectErrorDetails(error);
                 const revertSelector = getRevertSelector(error);
+                if (revertSelector?.toLowerCase() === '0x8baa579f') {
+                    onSignatureCached?.(null);
+                    setForceRequirePermit(true);
+                }
                 const errorSnapshot = {
                     name: error?.name || null,
                     shortMessage: error?.shortMessage || null,
@@ -740,7 +717,7 @@ export const useDebtSwitchActions = ({
             setIsActionLoading(false);
             updateCurrentTransactionId(null);
         }
-    }, [account, walletClient, publicClient, allowance, swapAmount, debtBalance, swapQuote, fetchQuote, addLog, slippage, recommendedSlippage, providedAdapterAddress, providedDebtTokenAddress, preFetchedTokenName, networkAddresses, chainId, ensureWalletNetwork, preferPermit, forceRequirePermit, handleApproveDelegation, onTxSent, currentTransactionId, clearQuoteError, clearQuote, fetchDebtData, marketKey || '', targetNetwork?.key || '', cachedPermit]);
+    }, [account, walletClient, publicClient, allowance, swapAmount, debtBalance, swapQuote, fetchQuote, addLog, slippage, recommendedSlippage, providedAdapterAddress, providedDebtTokenAddress, networkAddresses, chainId, ensureWalletNetwork, preferPermit, forceRequirePermit, handleApproveDelegation, onTxSent, currentTransactionId, clearQuoteError, clearQuote, fetchDebtData, marketKey || '', targetNetwork?.key || '', cachedPermit]);
 
     return {
         isActionLoading, isSigning, signedPermit: cachedPermit, forceRequirePermit, txError, lastAttemptedQuote, userRejected,
